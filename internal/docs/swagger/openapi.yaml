@@ -1,0 +1,815 @@
+openapi: 3.0.0
+info:
+  title: Sarbon API
+  description: |
+    Закрытый backend — доступ только для доверенных клиентов (frontend или mobile).
+    На каждый запрос обязательны заголовки (токен только в header X-Client-Token):
+    - X-Client-Type (frontend | mobile)
+    - X-Platform (web | ios | android)
+    - X-Client-Token — токен приложения (обязателен для всех API)
+    - Accept-Language (ru | en | uz | tr | zh)
+    Authorization: Bearer &lt;JWT&gt; — только для API, где в описании указано «требуется JWT».
+  version: 1.0.0
+  x-response-format: |
+    Все ответы API (JSON) имеют единый формат: status (число — HTTP-код), message (строка — "success" или текст ошибки), data (тело ответа или null при ошибке).
+servers:
+  - url: /api/v1
+    description: API v1
+tags:
+  - name: system
+    description: Системные эндпоинты (health, status-codes)
+  - name: Reference
+    description: Справочники
+  - name: Drivers Profile
+    description: Профиль водителя по JWT. Все API требуют X-Client-Token и Authorization Bearer. Операции только над своим профилем (номер телефона изменить нельзя).
+  - name: AUTH DRIVER
+    description: |
+      1) Send OTP — отправить код на номер.
+      2) Verify OTP — если водитель есть в drivers: выдать токены (is_new = false); если нет: выдать session_id и phone для complete-register (is_new = true).
+      3) Complete register — по session_id передать все данные и файлы (car_photo, adr_document); после успеха account_status = pending.
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Только X-Client-Token (JWT не нужен).
+      operationId: health
+      tags: [system]
+      security:
+        - ClientToken: []
+      parameters:
+        - $ref: '#/components/parameters/XClientType'
+        - $ref: '#/components/parameters/XPlatform'
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: OK. Единый формат (status, message, data).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                status: 200
+                message: OK
+                data: null
+  /status-codes:
+    get:
+      summary: Справочник кодов статуса
+      description: Возвращает список всех кодов статуса API и соответствующих сообщений в одном запросе. Единый формат ответа (status, message, data); в data — массив объектов { code, message }.
+      operationId: statusCodes
+      tags: [system]
+      security:
+        - ClientToken: []
+      parameters:
+        - $ref: '#/components/parameters/XClientType'
+        - $ref: '#/components/parameters/XPlatform'
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: success
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StatusCodeItem'
+  /auth/otp/send:
+    post:
+      summary: Отправить OTP на номер
+      description: |
+        Единственный идентификатор — номер телефона (E.164). OTP подтверждает номер, а не регистрацию.
+        Логика: генерация 6-значного OTP, сохранение в БД с TTL 3–5 мин, сброс предыдущих OTP по этому номеру, отправка через Telegram Gateway. Ответ не раскрывает, существует ли пользователь.
+        Rate limit: ограничение количества отправок на один номер за окно (настраивается).
+      operationId: authOtpSend
+      tags: [AUTH DRIVER]
+      security:
+        - ClientToken: []
+      parameters:
+        - $ref: '#/components/parameters/XClientType'
+        - $ref: '#/components/parameters/XPlatform'
+        - $ref: '#/components/parameters/AcceptLanguage'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone]
+              properties:
+                phone:
+                  type: string
+                  description: Номер телефона (E.164)
+                  example: "+998331108810"
+      responses:
+        '200':
+          description: OTP отправлен. В data — нейтральное сообщение (без указания существования пользователя).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+              example:
+                status: 200
+                message: OTP sent
+                data:
+                  message: "If the number is registered in Telegram, you will receive a code."
+        '400':
+          description: invalid phone / phone is required
+        '429':
+          description: too many OTP requests for this phone
+        '500':
+          description: internal error
+  /auth/otp/verify:
+    post:
+      summary: Проверить OTP — токены или session_id
+      description: |
+        Валидация OTP (не истёк, не использован, попытки в пределах лимита). После успеха проверка по таблице drivers по номеру телефона.
+        Если водитель найден и не заблокирован — выдача access_token, refresh_token (is_new = false).
+        Если водителя нет — выдача session_id и phone для вызова complete-register (is_new = true). Токены не выдаются.
+        Заблокированные — 403.
+      operationId: authOtpVerify
+      tags: [AUTH DRIVER]
+      security:
+        - ClientToken: []
+      parameters:
+        - $ref: '#/components/parameters/XClientType'
+        - $ref: '#/components/parameters/XPlatform'
+        - $ref: '#/components/parameters/AcceptLanguage'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, code]
+              properties:
+                phone:
+                  type: string
+                  example: "+998331108810"
+                code:
+                  type: string
+                  description: 6-значный код из Telegram
+                  example: "123456"
+      responses:
+        '200':
+          description: |
+            Успех. При водителе в таблице — data.message = "login", access_token, refresh_token, expires_in.
+            При отсутствии водителя — data.message = "register", session_id, phone (для complete-register).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 200
+                  message:
+                    type: string
+                    example: success
+                  data:
+                    type: object
+                    properties:
+                      access_token:
+                        type: string
+                      refresh_token:
+                        type: string
+                      expires_in:
+                        type: integer
+                      is_new:
+                        type: boolean
+                      message:
+                        type: string
+                        description: "login or register"
+                      session_id:
+                        type: string
+                      phone:
+                        type: string
+              example:
+                status: 200
+                message: success
+                data:
+                  is_new: true
+                  message: "register"
+                  session_id: "550e8400-e29b-41d4-a716-446655440000"
+                  phone: "+998901234567"
+        '400':
+          description: invalid or expired code / phone and code are required
+        '403':
+          description: account blocked
+        '500':
+          description: internal error
+  /auth/complete-register:
+    post:
+      summary: Завершить регистрацию водителя (по session_id)
+      description: |
+        Вызывается после verify OTP при is_new = true. Передаётся session_id и все обязательные поля + файлы car_photo и adr_document.
+        Обязательные: session_id, first_name, last_name, passport_series, passport_number, car_photo (файл), adr_document (файл PDF или фото). Опциональные: company_id, freelance_dispatcher_id.
+        Язык и платформа всегда берутся из заголовков Accept-Language и X-Platform (не из body).
+        При успехе создаётся запись в drivers с account_status = pending, в ответе возвращаются access_token, refresh_token, expires_in (пользователь сразу залогинен). Сессия инвалидируется.
+      operationId: authCompleteRegister
+      tags: [AUTH DRIVER]
+      security:
+        - ClientToken: []
+      parameters:
+        - $ref: '#/components/parameters/XClientType'
+        - $ref: '#/components/parameters/XPlatform'
+        - $ref: '#/components/parameters/AcceptLanguage'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [session_id, first_name, last_name, passport_series, passport_number, car_photo, adr_document]
+              properties:
+                session_id:
+                  type: string
+                  example: "550e8400-e29b-41d4-a716-446655440000"
+                first_name:
+                  type: string
+                  example: "Иван"
+                last_name:
+                  type: string
+                  example: "Тестов"
+                passport_series:
+                  type: string
+                  example: "AB"
+                passport_number:
+                  type: string
+                  example: "1234567"
+                company_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                freelance_dispatcher_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                car_photo:
+                  type: string
+                  format: binary
+                  description: Фото машины (JPG, PNG)
+                adr_document:
+                  type: string
+                  format: binary
+                  description: Документ ADR (PDF, JPG, PNG)
+      responses:
+        '201':
+          description: Водитель создан. data — id, account_status, access_token, refresh_token, expires_in (пользователь залогинен).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 201 }
+                  message: { type: string, example: Created }
+                  data:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      account_status: { type: string, example: "pending" }
+                      access_token: { type: string }
+                      refresh_token: { type: string }
+                      expires_in: { type: integer }
+        '400':
+          description: invalid or expired session / session_id and all required fields and files are required / phone_number already registered
+        '500':
+          description: internal error
+  /reference/user-categories:
+    get:
+      summary: Список категорий пользователей
+      description: Справочник категорий (super_admin, admin, carrier, top_dispatcher, dispatcher, driver, vehicle, manager). Доступ по X-Client-Token (frontend или mobile).
+      operationId: userCategories
+      tags: [Reference]
+      security:
+        - ClientToken: []
+      parameters:
+        - $ref: '#/components/parameters/XClientType'
+        - $ref: '#/components/parameters/XPlatform'
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UserCategory'
+        '500':
+          description: Internal error
+  /drivers/profile:
+    get:
+      summary: Получить свой профиль
+      description: Возвращает все данные текущего водителя из таблицы (по JWT). Требуется Client token + Bearer.
+      operationId: getDriverProfile
+      tags: [Drivers Profile]
+      security:
+        - ClientToken: []
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XClientType'
+        - $ref: '#/components/parameters/XPlatform'
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: Профиль водителя (все поля).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  message: { type: string }
+                  data:
+                    $ref: '#/components/schemas/Driver'
+        '401':
+          description: unauthorized
+        '404':
+          description: Водитель не найден
+        '500':
+          description: Внутренняя ошибка
+    put:
+      summary: Обновить профиль (полностью)
+      description: Обновляет все переданные поля. Номер телефона изменить нельзя. JSON или multipart (файлы car_photo, adr_document; remove_car_photo=1, remove_adr_document=1). Язык и платформа из заголовков.
+      operationId: updateDriverProfile
+      tags: [Drivers Profile]
+      security:
+        - ClientToken: []
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XClientType'
+        - $ref: '#/components/parameters/XPlatform'
+        - $ref: '#/components/parameters/AcceptLanguage'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDriverProfileRequest'
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                first_name: { type: string }
+                last_name: { type: string }
+                passport_series: { type: string }
+                passport_number: { type: string }
+                company_id: { type: string, format: uuid }
+                freelance_dispatcher_id: { type: string, format: uuid }
+                car_photo: { type: string, format: binary }
+                adr_document: { type: string, format: binary }
+                remove_car_photo: { type: string }
+                remove_adr_document: { type: string }
+      responses:
+        '200':
+          description: Обновлено.
+        '401':
+          description: unauthorized
+        '404':
+          description: Водитель не найден
+        '500':
+          description: Внутренняя ошибка
+    patch:
+      summary: Обновить профиль (частично)
+      description: Обновляет только переданные поля. Номер телефона изменить нельзя.
+      operationId: patchDriverProfile
+      tags: [Drivers Profile]
+      security:
+        - ClientToken: []
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XClientType'
+        - $ref: '#/components/parameters/XPlatform'
+        - $ref: '#/components/parameters/AcceptLanguage'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDriverProfileRequest'
+      responses:
+        '200':
+          description: Обновлено.
+        '401':
+          description: unauthorized
+        '404':
+          description: Водитель не найден
+        '500':
+          description: Внутренняя ошибка
+    delete:
+      summary: Удалить свой профиль
+      description: Переносит запись в deleted_drivers (архив), затем удаляет из drivers. Требуется Bearer.
+      operationId: deleteDriverProfile
+      tags: [Drivers Profile]
+      security:
+        - ClientToken: []
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XClientType'
+        - $ref: '#/components/parameters/XPlatform'
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: Профиль удалён.
+        '401':
+          description: unauthorized
+        '404':
+          description: Водитель не найден
+        '500':
+          description: Внутренняя ошибка
+  /drivers/profile/last-activate:
+    get:
+      summary: Получить последнюю активацию
+      description: Возвращает время и координаты последней активации (last_activated_at, last_activated_latitude, last_activated_longitude). Требуется Bearer.
+      operationId: getDriverProfileLastActivate
+      tags: [Drivers Profile]
+      security:
+        - ClientToken: []
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XClientType'
+        - $ref: '#/components/parameters/XPlatform'
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: Время и координаты последней активации (в data).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  message: { type: string }
+                  data:
+                    type: object
+                    properties:
+                      last_activated_at: { type: string, format: date-time }
+                      last_activated_latitude: { type: number }
+                      last_activated_longitude: { type: number }
+        '401':
+          description: unauthorized
+        '404':
+          description: Водитель не найден
+        '500':
+          description: Внутренняя ошибка
+    patch:
+      summary: Обновить последнюю активацию
+      description: Время и координаты последней активации на карте. Требуется Bearer.
+      operationId: patchDriverProfileLastActivate
+      tags: [Drivers Profile]
+      security:
+        - ClientToken: []
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XClientType'
+        - $ref: '#/components/parameters/XPlatform'
+        - $ref: '#/components/parameters/AcceptLanguage'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                activated_at: { type: string, format: date-time }
+                latitude: { type: number }
+                longitude: { type: number }
+      responses:
+        '200':
+          description: Обновлено.
+        '401':
+          description: unauthorized
+        '500':
+          description: Внутренняя ошибка
+  /drivers/profile/files/car-photo:
+    get:
+      summary: Скачать фото машины (свой профиль)
+      description: Возвращает файл по ссылке из GET /drivers/profile (car_photo_url). Bearer обязателен.
+      operationId: getDriverProfileCarPhoto
+      tags: [Drivers Profile]
+      security:
+        - ClientToken: []
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XClientType'
+        - $ref: '#/components/parameters/XPlatform'
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: Файл (изображение)
+        '401':
+          description: unauthorized
+        '404':
+          description: Файл не найден
+        '500':
+          description: Внутренняя ошибка
+  /drivers/profile/files/adr-document:
+    get:
+      summary: Скачать ADR-документ (свой профиль)
+      description: Возвращает файл по ссылке из GET /drivers/profile (adr_document_url). Bearer обязателен.
+      operationId: getDriverProfileAdrDocument
+      tags: [Drivers Profile]
+      security:
+        - ClientToken: []
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XClientType'
+        - $ref: '#/components/parameters/XPlatform'
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: Файл (PDF/изображение)
+        '401':
+          description: unauthorized
+        '404':
+          description: Файл не найден
+        '500':
+          description: Внутренняя ошибка
+components:
+  schemas:
+    ApiResponse:
+      type: object
+      description: Единый формат всех ответов API (JSON).
+      required: [status, message, data]
+      properties:
+        status:
+          type: integer
+          description: HTTP-код (200, 201, 400, 401, 403, 404, 429, 500 и т.д.)
+        message:
+          type: string
+          description: success или created при успехе, текст ошибки при ошибке
+        data:
+          type: object
+          description: Тело ответа (объект, массив или null при ошибке)
+          nullable: true
+    StatusCodeItem:
+      type: object
+      description: Элемент справочника GET /status-codes.
+      properties:
+        code:
+          type: integer
+          example: 200
+        message:
+          type: string
+          example: success
+    ErrorResponse:
+      type: object
+      description: "Ошибки возвращаются в едином формате (status, message, data = null). Используйте ApiResponse с data null."
+      properties:
+        status:
+          type: integer
+        message:
+          type: string
+        data:
+          type: object
+          nullable: true
+    Driver:
+      type: object
+      description: |
+        Модель водителя (ответ API).
+        Поля created_at, updated_at, deleted_at задаются только бэкендом — фронт не передаёт и не изменяет их.
+        created_at — при создании; updated_at — при PUT/PATCH; deleted_at — при мягком удалении (DELETE).
+      properties:
+        id:
+          type: string
+          format: uuid
+        first_name:
+          type: string
+        last_name:
+          type: string
+        phone_number:
+          type: string
+        passport_series:
+          type: string
+        passport_number:
+          type: string
+        company_id:
+          type: string
+          format: uuid
+          nullable: true
+        freelance_dispatcher_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: ID фриланс-диспетчера (как company_id)
+        car_photo_url:
+          type: string
+          nullable: true
+        adr_document_url:
+          type: string
+          nullable: true
+        rating:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 5
+        work_status:
+          type: string
+          enum: [free, busy]
+        account_status:
+          type: string
+          enum: [pending, approved, blocked]
+        language:
+          type: string
+          enum: [ru, uz, en, tr, zh]
+        platform:
+          type: string
+          description: Из заголовка X-Platform (web, ios, android)
+        dispatcher_type:
+          type: string
+          description: Тип диспетчера
+        last_activated_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Время последней активации (PATCH /drivers/profile/last-activate)
+        last_activated_latitude:
+          type: number
+          format: double
+          nullable: true
+          description: Широта последней активации на карте
+        last_activated_longitude:
+          type: number
+          format: double
+          nullable: true
+          description: Долгота последней активации на карте
+        created_at:
+          type: string
+          format: date-time
+          description: Только бэкенд (при создании)
+        updated_at:
+          type: string
+          format: date-time
+          description: Только бэкенд (при PUT/PATCH)
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Только бэкенд (при мягком удалении)
+    CreateDriverRequest:
+      type: object
+      description: Язык и платформа берутся из заголовков Accept-Language и X-Platform (не из body).
+      required:
+        - first_name
+        - last_name
+        - phone_number
+        - passport_series
+        - passport_number
+      properties:
+        first_name:
+          type: string
+          description: Имя (обязательно)
+        last_name:
+          type: string
+          description: Фамилия (обязательно)
+        phone_number:
+          type: string
+          description: Номер телефона (обязательно, уникальный)
+        passport_series:
+          type: string
+          description: Серия паспорта (обязательно)
+        passport_number:
+          type: string
+          description: Номер паспорта (обязательно)
+        company_id:
+          type: string
+          format: uuid
+          nullable: true
+        freelance_dispatcher_id:
+          type: string
+          format: uuid
+          nullable: true
+        car_photo_url:
+          type: string
+          nullable: true
+          description: При создании не используется; фото машины загружается через multipart (поле car_photo).
+        adr_document_url:
+          type: string
+          nullable: true
+          description: При создании не используется; документ ADR загружается через multipart (поле adr_document).
+        rating:
+          type: number
+          minimum: 0
+          maximum: 5
+          default: 0
+        work_status:
+          type: string
+          enum: [free, busy]
+          default: free
+        account_status:
+          type: string
+          enum: [pending, approved, blocked]
+          default: pending
+    UpdateDriverRequest:
+      type: object
+      description: Для PUT все поля обязательны; для PATCH все опциональны. Язык и платформа всегда берутся из заголовков Accept-Language и X-Platform (не из body).
+      properties:
+        first_name:
+          type: string
+        last_name:
+          type: string
+        phone_number:
+          type: string
+        passport_series:
+          type: string
+        passport_number:
+          type: string
+        company_id:
+          type: string
+          format: uuid
+          nullable: true
+        freelance_dispatcher_id:
+          type: string
+          format: uuid
+          nullable: true
+        car_photo_url:
+          type: string
+          nullable: true
+        adr_document_url:
+          type: string
+          nullable: true
+        rating:
+          type: number
+          minimum: 0
+          maximum: 5
+        work_status:
+          type: string
+          enum: [free, busy]
+        account_status:
+          type: string
+          enum: [pending, approved, blocked]
+    UpdateDriverProfileRequest:
+      type: object
+      description: Поля профиля водителя (номер телефона изменить нельзя). Язык и платформа из заголовков.
+      properties:
+        first_name: { type: string }
+        last_name: { type: string }
+        passport_series: { type: string }
+        passport_number: { type: string }
+        company_id: { type: string, format: uuid, nullable: true }
+        freelance_dispatcher_id: { type: string, format: uuid, nullable: true }
+        rating: { type: number, minimum: 0, maximum: 5 }
+        work_status: { type: string, enum: [free, busy] }
+        account_status: { type: string, enum: [pending, approved, blocked] }
+        language: { type: string, enum: [ru, uz, en, tr, zh] }
+        platform: { type: string }
+        dispatcher_type: { type: string }
+    UserCategory:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        code:
+          type: string
+          example: admin
+        name:
+          type: string
+          example: Admin
+        sort_order:
+          type: integer
+          example: 2
+  securitySchemes:
+    ClientToken:
+      type: apiKey
+      in: header
+      name: X-Client-Token
+      description: Токен приложения — обязателен для каждого запроса. Укажи FRONTEND_CLIENT_TOKEN или MOBILE_CLIENT_TOKEN.
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT пользователя — только для API с пометкой «требуется JWT».
+  parameters:
+    XClientType:
+      name: X-Client-Type
+      in: header
+      required: true
+      schema:
+        type: string
+        enum: [frontend, mobile]
+      description: Тип клиента
+    XPlatform:
+      name: X-Platform
+      in: header
+      required: true
+      schema:
+        type: string
+        enum: [web, ios, android]
+      description: Платформа
+    AcceptLanguage:
+      name: Accept-Language
+      in: header
+      required: true
+      schema:
+        type: string
+        enum: [ru, en, uz, tr, zh]
+      description: Язык (только из заголовка)

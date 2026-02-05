@@ -1,0 +1,8 @@
+{
+  "error.unauthorized": "Yetkisiz",
+  "error.forbidden": "Yasak",
+  "error.not_found": "Bulunamadı",
+  "error.rate_limit": "İstek limiti aşıldı",
+  "error.internal": "Sunucu hatası",
+  "ok": "Tamam"
+}

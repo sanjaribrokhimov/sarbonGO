@@ -1,0 +1,43 @@
+# Секреты и конфиги с паролями — никогда не коммитить
+.env
+.env.local
+.env.*.local
+*.env
+deploy/docker/.env
+
+# Текстовые файлы (заметки, дампы) — не деплоить
+*.txt
+
+# Go
+/bin/
+/vendor/
+*.exe
+*.test
+*.out
+go.work
+go.work.sum
+
+# IDE и ОС
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Логи и временные файлы
+*.log
+tmp/
+temp/
+.cache/
+
+# Загруженные файлы (водители: ADR, фото)
+storage/
+
+# Docker (локальные образы/теги не в репо)
+.docker/
+
+# Коэффициенты покрытия
+coverage.html
+coverage.out
+*.coverprofile
