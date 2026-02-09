@@ -1,8 +1,0 @@
-{
-  "error.unauthorized": "Не авторизован",
-  "error.forbidden": "Доступ запрещён",
-  "error.not_found": "Не найдено",
-  "error.rate_limit": "Превышен лимит запросов",
-  "error.internal": "Внутренняя ошибка сервера",
-  "ok": "Ок"
-}

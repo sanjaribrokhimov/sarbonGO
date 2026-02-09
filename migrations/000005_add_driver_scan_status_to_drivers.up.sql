@@ -1,0 +1,3 @@
+ALTER TABLE drivers
+  ADD COLUMN IF NOT EXISTS driver_scan_status BOOLEAN NULL;
+

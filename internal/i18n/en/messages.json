@@ -1,8 +1,0 @@
-{
-  "error.unauthorized": "Unauthorized",
-  "error.forbidden": "Forbidden",
-  "error.not_found": "Not found",
-  "error.rate_limit": "Rate limit exceeded",
-  "error.internal": "Internal server error",
-  "ok": "OK"
-}

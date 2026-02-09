@@ -1,8 +1,0 @@
-{
-  "error.unauthorized": "Ruxsat yo'q",
-  "error.forbidden": "Taqiqlangan",
-  "error.not_found": "Topilmadi",
-  "error.rate_limit": "So'rov limiti oshdi",
-  "error.internal": "Ichki server xatosi",
-  "ok": "OK"
-}

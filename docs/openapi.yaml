@@ -1,0 +1,727 @@
+openapi: 3.0.3
+info:
+  title: Sarbon API documentation
+  version: 0.1.0
+
+
+servers:
+  - url: /
+
+security:
+  - DeviceTypeHeader: []
+    LanguageHeader: []
+    ClientTokenHeader: []
+
+tags:
+  - name: Auth
+    description: |
+      Авторизация по телефону и OTP (Telegram Gateway), JWT refresh/logout.
+
+      **Пункт 1. OTP (отправка)**
+      - `POST /v1/auth/phone`
+      - OTP отправляется **только через Telegram Gateway API**.
+
+      **Пункт 2. OTP (подтверждение)**
+      - `POST /v1/auth/otp/verify`
+      - Если `phone` уже существует в `drivers` → **`status=login`** и JWT токены.
+      - Если `phone` новый → **`status=register`** и `session_id`.
+  - name: Registration
+    description: |
+      Пошаговая регистрация и state machine.
+
+      - `registration_step`: `name-oferta` → `geo-push` → `transport-type`
+      - `registration_status`: `start` → `basic` → `full`
+
+      **Пункт 3. Создание профиля (имя + оферта)**
+      - `POST /v1/registration/start`
+      - Создаёт строку в `drivers`:
+        - `registration_status=start`
+        - `registration_step=name-oferta`
+
+      **Пункт 4. Гео и Push (опционально)**
+      - `PATCH /v1/registration/geo-push`
+      - Шаг меняется на `geo-push` **только если** переданы `latitude` и `longitude`.
+
+      **Пункт 5. Тип транспорта (опционально)**
+      - `PATCH /v1/registration/transport-type`
+      - Шаг меняется на `transport-type` и выставляется `registration_status=basic` **только если** передан `driver_type`.
+  - name: KYC
+    description: |
+      Загрузка/подтверждение KYC полей. Без отдельных таблиц.
+
+      **Пункт 6. KYC документы**
+      - `PATCH /v1/kyc`
+      - `registration_status=full` выставляется **только если**:
+        - заполнены серия/номер паспорта и PINFL
+        - заполнены поля power unit и `power_scan_status=true`
+        - trailer: либо не указан, либо полностью заполнен и `trailer_scan_status=true`
+  - name: Profile
+    description: Получение профиля водителя.
+
+components:
+  securitySchemes:
+    DeviceTypeHeader:
+      type: apiKey
+      in: header
+      name: X-Device-Type
+      description: 'Обязателен для всех API-запросов: ios | android | web'
+    LanguageHeader:
+      type: apiKey
+      in: header
+      name: X-Language
+      description: 'Обязателен для всех API-запросов: ru | uz | en | tr | zh'
+    ClientTokenHeader:
+      type: apiKey
+      in: header
+      name: X-Client-Token
+      description: Обязателен для всех API-запросов
+    UserTokenHeader:
+      type: apiKey
+      in: header
+      name: X-User-Token
+      description: Для авторизованных действий (JWT access token)
+  schemas:
+    Envelope:
+      type: object
+      properties:
+        status: { type: string, enum: ["success","error"] }
+        code: { type: integer, example: 200 }
+        description: { type: string, example: "ok" }
+        data: { nullable: true }
+      required: [status, code, description, data]
+    Tokens:
+      type: object
+      properties:
+        access_token: { type: string, example: "eyJhbGciOi..." }
+        refresh_token: { type: string, example: "eyJhbGciOi..." }
+        expires_in: { type: integer, example: 900 }
+      required: [access_token, refresh_token, expires_in]
+    Driver:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        phone: { type: string, example: "+998331108810" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        last_online_at: { type: string, format: date-time, nullable: true }
+        latitude: { type: number, format: double, nullable: true, example: 41.311081 }
+        longitude: { type: number, format: double, nullable: true, example: 69.240562 }
+        push_token: { type: string, nullable: true, example: "optional-device-token" }
+        registration_step:
+          type: string
+          nullable: true
+          enum: ["name-oferta", "geo-push", "transport-type"]
+        registration_status:
+          type: string
+          nullable: true
+          enum: ["start", "basic", "full"]
+        name: { type: string, nullable: true, example: "Ali Valiyev" }
+        driver_type:
+          type: string
+          nullable: true
+          enum: ["company", "freelancer", "driver"]
+        rating: { type: number, format: double, nullable: true }
+        work_status:
+          type: string
+          nullable: true
+          enum: ["available","loaded","busy"]
+          example: "available"
+        freelancer_id: { type: string, format: uuid, nullable: true }
+        company_id: { type: string, format: uuid, nullable: true }
+        account_status: { type: string, nullable: true }
+        driver_passport_series: { type: string, nullable: true, example: "AB" }
+        driver_passport_number: { type: string, nullable: true, example: "1234567" }
+        driver_pinfl: { type: string, nullable: true, example: "12345678901234" }
+        driver_scan_status: { type: boolean, nullable: true, example: true }
+        power_plate_type: { type: string, nullable: true, example: "uz_private" }
+        power_plate_number: { type: string, nullable: true, example: "01A123BC" }
+        power_tech_series: { type: string, nullable: true }
+        power_tech_number: { type: string, nullable: true }
+        power_owner_id: { type: string, nullable: true, example: "12345678901234" }
+        power_owner_name: { type: string, nullable: true, example: "Ali Valiyev" }
+        power_scan_status: { type: boolean, nullable: true }
+        trailer_plate_type: { type: string, nullable: true, example: "uz_private" }
+        trailer_plate_number: { type: string, nullable: true }
+        trailer_tech_series: { type: string, nullable: true }
+        trailer_tech_number: { type: string, nullable: true }
+        trailer_owner_id: { type: string, nullable: true, example: "12345678901234" }
+        trailer_owner_name: { type: string, nullable: true, example: "Ali Valiyev" }
+        trailer_scan_status: { type: boolean, nullable: true }
+        driver_owner: { type: boolean, nullable: true, example: true }
+        kyc_status: { type: string, nullable: true, example: "pending" }
+      required: [id, phone, created_at, updated_at]
+
+paths:
+  /health:
+    get:
+      summary: Проверка работоспособности
+      responses:
+        "200":
+          description: OK
+
+  /v1/auth/phone:
+    post:
+      tags: [Auth]
+      summary: Отправить OTP на телефон (через Telegram Gateway)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone: { type: string, example: "+998331108810" }
+              required: [phone]
+      responses:
+        "200":
+          description: OTP отправлен
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "otp_sent" }
+                  ttl_seconds: { type: integer, example: 180 }
+                required: [status, ttl_seconds]
+        "400":
+          description: Некорректный payload / телефон
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "429":
+          description: Cooldown / rate limit
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "502":
+          description: Ошибка Telegram Gateway
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+
+  /v1/auth/otp/verify:
+    post:
+      tags: [Auth]
+      summary: Подтвердить OTP
+      description: |
+        - Если `phone` уже существует в `drivers` → ответ `status=login` и выдаются JWT токены.
+        - Если `phone` новый → ответ `status=register` и выдаётся `session_id` (JWT ещё нет).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone: { type: string, example: "+998331108810" }
+                otp: { type: string, example: "123456" }
+              required: [phone, otp]
+      responses:
+        "200":
+          description: Login или сессия регистрации
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    properties:
+                      status: { type: string, example: "login" }
+                      tokens: { $ref: "#/components/schemas/Tokens" }
+                    required: [status, tokens]
+                  - type: object
+                    properties:
+                      status: { type: string, example: "register" }
+                      session_id: { type: string, format: uuid }
+                    required: [status, session_id]
+        "401":
+          description: OTP неверный/истёк
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "429":
+          description: Превышено количество попыток
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+
+  /v1/registration/start:
+    post:
+      tags: [Registration]
+      summary: Создать профиль водителя (имя + оферта)
+      description: |
+        Использует `session_id` из `/v1/auth/otp/verify` (для новых пользователей).
+        Создаёт запись в `drivers`:
+        - `registration_status=start`
+        - `registration_step=name-oferta`
+        Возвращает JWT токены для продолжения регистрации.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                session_id: { type: string, format: uuid }
+                name: { type: string, example: "Ali Valiyev" }
+                oferta_accepted: { type: boolean, example: true }
+              required: [session_id, name, oferta_accepted]
+      responses:
+        "200":
+          description: Профиль создан + токены
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "registered" }
+                  tokens: { $ref: "#/components/schemas/Tokens" }
+                  driver: { $ref: "#/components/schemas/Driver" }
+                  registration_status: { type: string, example: "start" }
+                  registration_step: { type: string, example: "name-oferta" }
+                required: [status, tokens]
+        "401":
+          description: session_id неверный/истёк
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+
+  /v1/profile:
+    get:
+      tags: [Profile]
+      summary: Получить профиль (все поля) текущего водителя
+      security:
+        - DeviceTypeHeader: []
+          LanguageHeader: []
+          ClientTokenHeader: []
+          UserTokenHeader: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "401":
+          description: Не авторизован
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+    delete:
+      tags: [Profile]
+      summary: Удалить профиль (жёстко) с архивацией
+      description: |
+        Удаляет строку из `drivers` и переносит данные в `deleted_drivers`.
+      security:
+        - DeviceTypeHeader: []
+          LanguageHeader: []
+          ClientTokenHeader: []
+          UserTokenHeader: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "401":
+          description: Не авторизован
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "404":
+          description: Профиль не найден
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+
+  /v1/profile/driver:
+    patch:
+      tags: [Profile]
+      summary: Редактировать данные водителя
+      description: |
+        Изменяет только поля: `name`, `work_status`, `driver_passport_series`, `driver_passport_number`, `driver_pinfl`.
+      security:
+        - DeviceTypeHeader: []
+          LanguageHeader: []
+          ClientTokenHeader: []
+          UserTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, example: "Ali Valiyev" }
+                work_status:
+                  type: string
+                  enum: ["available","loaded","busy"]
+                  example: "available"
+                driver_passport_series: { type: string, example: "AB" }
+                driver_passport_number: { type: string, example: "1234567" }
+                driver_pinfl: { type: string, example: "12345678901234" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+
+  /v1/profile/heartbeat:
+    put:
+      tags: [Profile]
+      summary: Heartbeat (обновить гео и last_online_at)
+      description: |
+        Обновляет `latitude`, `longitude`, `last_online_at`.
+        Все 3 параметра обязательны.
+      security:
+        - DeviceTypeHeader: []
+          LanguageHeader: []
+          ClientTokenHeader: []
+          UserTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                latitude: { type: number, format: double, example: 41.311081 }
+                longitude: { type: number, format: double, example: 69.240562 }
+                last_online_at: { type: string, format: date-time, example: "2026-02-07T12:00:00Z" }
+              required: ["latitude","longitude","last_online_at"]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+
+  /v1/profile/phone-change/request:
+    post:
+      tags: [Profile]
+      summary: Сменить телефон — запрос OTP
+      description: |
+        Принимает `new_phone` в формате `+998XXXXXXXXX`.
+        - Если номер уже есть в `drivers` → ошибка "уже зарегистрирован".
+        - Если номера нет → отправляет OTP через Telegram Gateway и возвращает `session_id`.
+      security:
+        - DeviceTypeHeader: []
+          LanguageHeader: []
+          ClientTokenHeader: []
+          UserTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_phone: { type: string, example: "+998901234567" }
+              required: ["new_phone"]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+
+  /v1/profile/phone-change/verify:
+    post:
+      tags: [Profile]
+      summary: Сменить телефон — подтверждение OTP
+      description: |
+        Принимает `session_id` и `otp`.
+        - Если всё верно → обновляет `drivers.phone`.
+        - Если неверно → ничего не меняет и возвращает ошибку (session/otp).
+      security:
+        - DeviceTypeHeader: []
+          LanguageHeader: []
+          ClientTokenHeader: []
+          UserTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                session_id: { type: string, format: uuid }
+                otp: { type: string, example: "123456" }
+              required: ["session_id","otp"]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+
+  /v1/profile/power:
+    patch:
+      tags: [Profile]
+      summary: Редактировать данные Power Unit
+      security:
+        - DeviceTypeHeader: []
+          LanguageHeader: []
+          ClientTokenHeader: []
+          UserTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                power_plate_number: { type: string, example: "01A123BC" }
+                power_tech_series: { type: string, example: "AA" }
+                power_tech_number: { type: string, example: "9876543" }
+                power_owner_id: { type: string, example: "12345678901234" }
+                power_owner_name: { type: string, example: "Ali Valiyev" }
+                power_scan_status: { type: boolean, example: true }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+
+  /v1/profile/trailer:
+    patch:
+      tags: [Profile]
+      summary: Редактировать данные Trailer Unit
+      security:
+        - DeviceTypeHeader: []
+          LanguageHeader: []
+          ClientTokenHeader: []
+          UserTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                trailer_plate_number: { type: string, example: "01A123BC" }
+                trailer_tech_series: { type: string, example: "AA" }
+                trailer_tech_number: { type: string, example: "9876543" }
+                trailer_owner_id: { type: string, example: "12345678901234" }
+                trailer_owner_name: { type: string, example: "Ali Valiyev" }
+                trailer_scan_status: { type: boolean, example: true }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+
+  /v1/registration/geo-push:
+    patch:
+      tags: [Registration]
+      summary: Указать гео (и опционально push)
+      description: |
+        - Если переданы `latitude` и `longitude` → `registration_step=geo-push` (если уже `transport-type`, шаг не понижается).
+        - Если гео не передано → шаг не меняется (no-op).
+        - Если передан `push_token` → он сохраняется в `drivers.push_token` (даже если гео не передано).
+      security:
+        - DeviceTypeHeader: []
+          LanguageHeader: []
+          ClientTokenHeader: []
+          UserTokenHeader: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                latitude: { type: number, format: double, example: 41.311081 }
+                longitude: { type: number, format: double, example: 69.240562 }
+                push_token: { type: string, example: "optional-device-token" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "ok" }
+                  driver: { $ref: "#/components/schemas/Driver" }
+                required: [status, driver]
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+
+  /v1/registration/transport-type:
+    patch:
+      tags: [Registration]
+      summary: Выбрать тип водителя/транспорта
+      description: |
+        Для завершения этапа **обязательны**:
+        - `driver_type` (enum)
+        - `power_plate_type`
+        - `trailer_plate_type`
+
+        После успешного заполнения:
+        - `registration_step=transport-type`
+        - `registration_status=basic`
+      security:
+        - DeviceTypeHeader: []
+          LanguageHeader: []
+          ClientTokenHeader: []
+          UserTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                driver_type:
+                  type: string
+                  enum: ["company","freelancer","driver"]
+                  example: "driver"
+                power_plate_type:
+                  type: string
+                  example: "uz_private"
+                trailer_plate_type:
+                  type: string
+                  example: "uz_private"
+                freelancer_id: { type: string, format: uuid, nullable: true }
+                company_id: { type: string, format: uuid, nullable: true }
+              required: ["driver_type","power_plate_type","trailer_plate_type"]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "ok" }
+                  driver: { $ref: "#/components/schemas/Driver" }
+                required: [status, driver]
+
+  /v1/kyc:
+    patch:
+      tags: [KYC]
+      summary: Отправить KYC поля (паспорт + техпаспорта)
+      description: |
+        Выставляет `registration_status=full` только когда:
+        - заполнены серия/номер паспорта и PINFL
+        - `driver_scan_status=true`
+        - заполнены поля power unit + `power_owner_id`, `power_owner_name` + `power_scan_status=true`
+        - заполнены поля trailer unit + `trailer_owner_id`, `trailer_owner_name` + `trailer_scan_status=true`
+        - передан `driver_owner` (true/false)
+      security:
+        - DeviceTypeHeader: []
+          LanguageHeader: []
+          ClientTokenHeader: []
+          UserTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                driver_owner: { type: boolean, example: true }
+                driver_data:
+                  type: object
+                  properties:
+                    driver_passport_series: { type: string, example: "AB" }
+                    driver_passport_number: { type: string, example: "1234567" }
+                    driver_pinfl: { type: string, example: "12345678901234" }
+                    driver_scan_status: { type: boolean, example: true }
+                  required: ["driver_passport_series","driver_passport_number","driver_pinfl","driver_scan_status"]
+                power_data:
+                  type: object
+                  properties:
+                    power_plate_number: { type: string, example: "01A123BC" }
+                    power_tech_series: { type: string, example: "AA" }
+                    power_tech_number: { type: string, example: "9876543" }
+                    power_owner_id: { type: string, example: "12345678901234" }
+                    power_owner_name: { type: string, example: "Ali Valiyev" }
+                    power_scan_status: { type: boolean, example: true }
+                  required: ["power_plate_number","power_tech_series","power_tech_number","power_owner_id","power_owner_name","power_scan_status"]
+                trailer_data:
+                  type: object
+                  properties:
+                    trailer_plate_number: { type: string, example: "01A123BC" }
+                    trailer_tech_series: { type: string, example: "AA" }
+                    trailer_tech_number: { type: string, example: "9876543" }
+                    trailer_owner_id: { type: string, example: "12345678901234" }
+                    trailer_owner_name: { type: string, example: "Ali Valiyev" }
+                    trailer_scan_status: { type: boolean, example: true }
+                  required: ["trailer_plate_number","trailer_tech_series","trailer_tech_number","trailer_owner_id","trailer_owner_name","trailer_scan_status"]
+              required:
+                - driver_owner
+                - driver_data
+                - power_data
+                - trailer_data
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "ok" }
+                  is_full: { type: boolean, example: true }
+                  driver: { $ref: "#/components/schemas/Driver" }
+                required: [status, is_full, driver]
+
+  /v1/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Обновить JWT токены (rotation)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token: { type: string }
+              required: [refresh_token]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tokens: { $ref: "#/components/schemas/Tokens" }
+                required: [tokens]
+        "401":
+          description: Неверный refresh token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+
+  /v1/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Выход (отзыв refresh token)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token: { type: string }
+              required: [refresh_token]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "ok" }
+                required: [status]
+
