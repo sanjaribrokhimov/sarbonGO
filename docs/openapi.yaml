@@ -57,6 +57,20 @@ tags:
         - trailer: либо не указан, либо полностью заполнен и `trailer_scan_status=true`
   - name: Profile
     description: Получение профиля водителя.
+  - name: Dispatchers Auth
+    description: |
+      Авторизация диспетчеров (freelance_dispatchers):
+      OTP (phone → otp/verify), логин по паролю, сброс пароля по OTP.
+  - name: Dispatchers Registration
+    description: |
+      Регистрация диспетчера после OTP:
+      1) `POST /v1/dispatchers/auth/phone` (OTP)
+      2) `POST /v1/dispatchers/auth/otp/verify` → если новый: `session_id`
+      3) `POST /v1/dispatchers/registration/complete` (имя + пароль + паспорт + PINFL + фото опц.)
+  - name: Dispatchers Profile
+    description: |
+      Профиль диспетчера: GET/PATCH/DELETE, смена пароля, смена телефона (OTP).
+      Hard delete с архивацией в deleted_freelance_dispatchers.
 
 components:
   securitySchemes:
@@ -149,6 +163,25 @@ components:
         trailer_scan_status: { type: boolean, nullable: true }
         driver_owner: { type: boolean, nullable: true, example: true }
         kyc_status: { type: string, nullable: true, example: "pending" }
+      required: [id, phone, created_at, updated_at]
+    Dispatcher:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, nullable: true, example: "Dispetcher Name" }
+        phone: { type: string, example: "+998331108810" }
+        passport_series: { type: string, nullable: true, example: "AB" }
+        passport_number: { type: string, nullable: true, example: "1234567" }
+        pinfl: { type: string, nullable: true, example: "12345678901234" }
+        cargo_id: { type: string, format: uuid, nullable: true }
+        driver_id: { type: string, format: uuid, nullable: true }
+        rating: { type: number, format: double, nullable: true }
+        work_status: { type: string, nullable: true, example: "available" }
+        status: { type: string, nullable: true, example: "active" }
+        photo: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        deleted_at: { type: string, format: date-time, nullable: true }
       required: [id, phone, created_at, updated_at]
 
 paths:
@@ -724,4 +757,335 @@ paths:
                 properties:
                   status: { type: string, example: "ok" }
                 required: [status]
+
+  /v1/dispatchers/auth/phone:
+    post:
+      tags: [Dispatchers Auth]
+      summary: Отправить OTP на телефон диспетчера
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone: { type: string, example: "+998331108810" }
+              required: [phone]
+      responses:
+        "200":
+          description: OTP отправлен
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "otp_sent" }
+                  ttl_seconds: { type: integer, example: 180 }
+        "400": { description: Некорректный payload }
+        "429": { description: Cooldown / rate limit }
+        "502": { description: Ошибка Telegram Gateway }
+
+  /v1/dispatchers/auth/otp/verify:
+    post:
+      tags: [Dispatchers Auth]
+      summary: Подтвердить OTP диспетчера
+      description: |
+        Если телефон уже в freelance_dispatchers → status=login + tokens.
+        Если новый → status=register + session_id для registration/complete.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone: { type: string, example: "+998331108810" }
+                otp: { type: string, example: "123456" }
+              required: [phone, otp]
+      responses:
+        "200":
+          description: login (tokens) или register (session_id)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    properties:
+                      status: { type: string, example: "login" }
+                      tokens: { $ref: "#/components/schemas/Tokens" }
+                  - type: object
+                    properties:
+                      status: { type: string, example: "register" }
+                      session_id: { type: string, format: uuid }
+        "401": { description: OTP неверный/истёк }
+        "429": { description: Превышено количество попыток }
+
+  /v1/dispatchers/auth/login/password:
+    post:
+      tags: [Dispatchers Auth]
+      summary: Вход по телефону и паролю
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone: { type: string, example: "+998331108810" }
+                password: { type: string, example: "secret" }
+              required: [phone, password]
+      responses:
+        "200":
+          description: OK, tokens в data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "login" }
+                  tokens: { $ref: "#/components/schemas/Tokens" }
+        "401": { description: Неверный телефон или пароль }
+
+  /v1/dispatchers/auth/reset-password/request:
+    post:
+      tags: [Dispatchers Auth]
+      summary: Запросить OTP для сброса пароля
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone: { type: string, example: "+998331108810" }
+              required: [phone]
+      responses:
+        "200":
+          description: OTP отправлен, session_id для confirm
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "otp_sent" }
+                  session_id: { type: string, format: uuid }
+                  ttl_seconds: { type: integer }
+        "404": { description: Диспетчер не найден }
+        "502": { description: Ошибка Telegram Gateway }
+
+  /v1/dispatchers/auth/reset-password/confirm:
+    post:
+      tags: [Dispatchers Auth]
+      summary: Подтвердить сброс пароля (session_id + otp + new_password)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                session_id: { type: string, format: uuid }
+                otp: { type: string, example: "123456" }
+                new_password: { type: string }
+              required: [session_id, otp, new_password]
+      responses:
+        "200":
+          description: Пароль обновлён
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "ok" }
+        "401": { description: Сессия/OTP неверны }
+        "429": { description: Превышено количество попыток }
+
+  /v1/dispatchers/registration/complete:
+    post:
+      tags: [Dispatchers Registration]
+      summary: Завершить регистрацию диспетчера
+      description: |
+        Использует session_id из /v1/dispatchers/auth/otp/verify.
+        Обязательны: name, password, passport_series, passport_number, pinfl.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                session_id: { type: string, format: uuid }
+                name: { type: string, example: "Dispetcher Name" }
+                password: { type: string }
+                passport_series: { type: string, example: "AB" }
+                passport_number: { type: string, example: "1234567" }
+                pinfl: { type: string, example: "12345678901234" }
+                photo: { type: string, nullable: true }
+              required: [session_id, name, password, passport_series, passport_number, pinfl]
+      responses:
+        "200":
+          description: Зарегистрирован или логин (если телефон уже был)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "registered" }
+                  tokens: { $ref: "#/components/schemas/Tokens" }
+                  dispatcher: { $ref: "#/components/schemas/Dispatcher" }
+        "401": { description: session_id неверный/истёк }
+        "409": { description: Телефон уже зарегистрирован }
+
+  /v1/dispatchers/profile:
+    get:
+      tags: [Dispatchers Profile]
+      summary: Получить профиль текущего диспетчера
+      security:
+        - DeviceTypeHeader: []
+          LanguageHeader: []
+          ClientTokenHeader: []
+          UserTokenHeader: []
+      responses:
+        "200":
+          description: OK, data.dispatcher
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "401": { description: Не авторизован }
+    patch:
+      tags: [Dispatchers Profile]
+      summary: Редактировать профиль диспетчера
+      security:
+        - DeviceTypeHeader: []
+          LanguageHeader: []
+          ClientTokenHeader: []
+          UserTokenHeader: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                passport_series: { type: string }
+                passport_number: { type: string }
+                pinfl: { type: string }
+                photo: { type: string, nullable: true }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "401": { description: Не авторизован }
+    delete:
+      tags: [Dispatchers Profile]
+      summary: Удалить профиль диспетчера (архивация)
+      security:
+        - DeviceTypeHeader: []
+          LanguageHeader: []
+          ClientTokenHeader: []
+          UserTokenHeader: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "401": { description: Не авторизован }
+        "404": { description: Диспетчер не найден }
+
+  /v1/dispatchers/profile/password:
+    put:
+      tags: [Dispatchers Profile]
+      summary: Сменить пароль (текущий + новый)
+      security:
+        - DeviceTypeHeader: []
+          LanguageHeader: []
+          ClientTokenHeader: []
+          UserTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                current_password: { type: string }
+                new_password: { type: string }
+              required: [current_password, new_password]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "ok" }
+        "401": { description: Неверный current_password }
+
+  /v1/dispatchers/profile/phone-change/request:
+    post:
+      tags: [Dispatchers Profile]
+      summary: Смена телефона — запрос OTP
+      security:
+        - DeviceTypeHeader: []
+          LanguageHeader: []
+          ClientTokenHeader: []
+          UserTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_phone: { type: string, example: "+998901234567" }
+              required: [new_phone]
+      responses:
+        "200":
+          description: OTP отправлен, session_id для verify
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "otp_sent" }
+                  session_id: { type: string, format: uuid }
+                  ttl_seconds: { type: integer }
+        "409": { description: Телефон уже зарегистрирован }
+        "502": { description: Ошибка Telegram Gateway }
+
+  /v1/dispatchers/profile/phone-change/verify:
+    post:
+      tags: [Dispatchers Profile]
+      summary: Смена телефона — подтверждение OTP
+      security:
+        - DeviceTypeHeader: []
+          LanguageHeader: []
+          ClientTokenHeader: []
+          UserTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                session_id: { type: string, format: uuid }
+                otp: { type: string, example: "123456" }
+              required: [session_id, otp]
+      responses:
+        "200":
+          description: Телефон обновлён
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "ok" }
+                  dispatcher: { $ref: "#/components/schemas/Dispatcher" }
+        "401": { description: Сессия/OTP неверны }
+        "409": { description: Телефон уже занят }
 

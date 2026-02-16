@@ -349,6 +349,6 @@ func (h *ProfileHandler) Delete(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, "internal error")
 		return
 	}
-	resp.OK(c, gin.H{"event": "deleted"})
+	resp.OK(c, gin.H{"status": "ok"})
 }
 

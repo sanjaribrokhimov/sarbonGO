@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Инфографика: Трансформационное лидерство</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  margin: 0;
+  padding: 2rem;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  min-height: 100vh;
+  color: #e8e8e8;
+}
+.container { max-width: 900px; margin: 0 auto; }
+h1 {
+  text-align: center;
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 0.5rem;
+  text-shadow: 0 0 20px rgba(255,255,255,0.2);
+}
+.subtitle {
+  text-align: center;
+  font-size: 0.95rem;
+  color: #a0aec0;
+  margin-bottom: 2rem;
+}
+.def-block {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 12px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 2rem;
+  border-left: 4px solid #e94560;
+}
+.def-block strong { color: #e94560; }
+.dimensions {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+@media (max-width: 600px) { .dimensions { grid-template-columns: 1fr; } }
+.card {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 12px;
+  padding: 1.25rem;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+}
+.card h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1rem;
+  color: #e94560;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.card h3::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  background: #e94560;
+  border-radius: 50%;
+}
+.card p { margin: 0; font-size: 0.9rem; line-height: 1.5; color: #cbd5e0; }
+.diagram {
+  background: rgba(0,0,0,0.25);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+.diagram-title {
+  text-align: center;
+  font-weight: 600;
+  margin-bottom: 1.25rem;
+  color: #fff;
+}
+.flow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+.flow-node {
+  background: linear-gradient(145deg, #e94560, #c73e54);
+  color: #fff;
+  padding: 0.75rem 1.5rem;
+  border-radius: 10px;
+  font-weight: 600;
+  text-align: center;
+  max-width: 320px;
+  box-shadow: 0 4px 14px rgba(233,69,96,0.4);
+}
+.flow-arrow {
+  width: 2px;
+  height: 24px;
+  background: linear-gradient(to bottom, #e94560, transparent);
+  opacity: 0.7;
+}
+.flow-row {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+.flow-item {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(233,69,96,0.5);
+  border-radius: 8px;
+  padding: 0.6rem 1rem;
+  font-size: 0.85rem;
+  text-align: center;
+  min-width: 140px;
+}
+.sources {
+  font-size: 0.8rem;
+  color: #718096;
+  text-align: center;
+  margin-top: 2rem;
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Трансформационное лидерство</h1>
+  <p class="subtitle">Transformational Leadership</p>
+
+  <div class="def-block">
+    <p><strong>Определение:</strong> Стиль лидерства (Burns, Bass), при котором лидер вдохновляет, мотивирует и развивает последователей, повышая их приверженность общим целям и способствуя личному и профессиональному росту.</p>
+  </div>
+
+  <div class="diagram">
+    <div class="diagram-title">Четыре компонента (Bass)</div>
+    <div class="flow">
+      <div class="flow-node">Трансформационный лидер</div>
+      <div class="flow-arrow"></div>
+      <div class="flow-row">
+        <div class="flow-item">Идеализированное влияние</div>
+        <div class="flow-item">Вдохновляющая мотивация</div>
+        <div class="flow-item">Интеллектуальная стимуляция</div>
+        <div class="flow-item">Индивидуальный подход</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="dimensions">
+    <div class="card">
+      <h3>Идеализированное влияние</h3>
+      <p>Лидер служит образцом: демонстрирует ценности, этику и высокие стандарты. Вызывает уважение и доверие, последователи отождествляют себя с ним и целями организации.</p>
+    </div>
+    <div class="card">
+      <h3>Вдохновляющая мотивация</h3>
+      <p>Формулирование привлекательного видения будущего, использование символов и образов, укрепление командного духа и уверенности в достижимости целей.</p>
+    </div>
+    <div class="card">
+      <h3>Интеллектуальная стимуляция</h3>
+      <p>Поощрение креативности, критического мышления и поиска новых решений. Лидер ставит под сомнение устаревшие подходы и стимулирует обучение.</p>
+    </div>
+    <div class="card">
+      <h3>Индивидуальный подход</h3>
+      <p>Учёт потребностей и возможностей каждого последователя, наставничество и поддержка развития. Лидер выступает тренером и советником.</p>
+    </div>
+  </div>
+
+  <div class="def-block">
+    <p><strong>Результат:</strong> Повышение мотивации, вовлечённости и эффективности команды; готовность к изменениям и ориентация на общие цели.</p>
+  </div>
+
+  <p class="sources">Burns (1978), Bass (1985). Инфографика для учебных целей.</p>
+</div>
+</body>
+</html>

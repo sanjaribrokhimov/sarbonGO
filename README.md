@@ -1,7 +1,7 @@
 # Sarbon (Gin + Postgres + Redis)
 
 ## Run locally
-
+http://api.sarbon.me/docs
 1) Start infra:
 
 ```bash

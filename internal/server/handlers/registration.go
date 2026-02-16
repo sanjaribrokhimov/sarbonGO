@@ -73,15 +73,15 @@ func (h *RegistrationHandler) Start(c *gin.Context) {
 	existing, err := h.drivers.FindByPhone(c.Request.Context(), phone)
 	if err == nil {
 		driverUUID, _ := uuid.Parse(existing.ID)
-		tokens, refreshClaims, err := h.jwtm.Issue(driverUUID)
+		tokens, refreshClaims, err := h.jwtm.Issue("driver", driverUUID)
 		if err != nil {
 			resp.Error(c, http.StatusInternalServerError, "token issue failed")
 			return
 		}
-		_ = h.refresh.Put(c.Request.Context(), refreshClaims.DriverID, refreshClaims.JTI)
+		_ = h.refresh.Put(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 
 		resp.OK(c, gin.H{
-			"event":  "login",
+			"status": "login",
 			"tokens": tokens,
 			"driver": existing,
 		})
@@ -100,20 +100,20 @@ func (h *RegistrationHandler) Start(c *gin.Context) {
 		return
 	}
 
-	tokens, refreshClaims, err := h.jwtm.Issue(id)
+	tokens, refreshClaims, err := h.jwtm.Issue("driver", id)
 	if err != nil {
 		resp.Error(c, http.StatusInternalServerError, "token issue failed")
 		return
 	}
-	_ = h.refresh.Put(c.Request.Context(), refreshClaims.DriverID, refreshClaims.JTI)
+	_ = h.refresh.Put(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 
 	drv, _ := h.drivers.FindByID(c.Request.Context(), id)
 	resp.OK(c, gin.H{
-		"event":               "registered",
-		"tokens":              tokens,
-		"driver":              drv,
-		"registration_status": domain.StatusStart,
-		"registration_step":   domain.StepNameOferta,
+		"status":               "registered",
+		"tokens":               tokens,
+		"driver":               drv,
+		"registration_status":  domain.StatusStart,
+		"registration_step":    domain.StepNameOferta,
 	})
 }
 
@@ -144,11 +144,11 @@ func (h *RegistrationHandler) GeoPush(c *gin.Context) {
 				return
 			}
 			updated, _ := h.drivers.FindByID(c.Request.Context(), driverID)
-			resp.OK(c, gin.H{"event": "updated", "driver": updated})
+			resp.OK(c, gin.H{"status": "ok", "driver": updated})
 			return
 		}
 		_ = h.drivers.TouchOnline(c.Request.Context(), driverID)
-		resp.OK(c, gin.H{"event": "noop", "driver": d})
+		resp.OK(c, gin.H{"status": "ok", "driver": d})
 		return
 	}
 
@@ -163,7 +163,7 @@ func (h *RegistrationHandler) GeoPush(c *gin.Context) {
 		return
 	}
 	updated, _ := h.drivers.FindByID(c.Request.Context(), driverID)
-	resp.OK(c, gin.H{"event": "updated", "driver": updated})
+	resp.OK(c, gin.H{"status": "ok", "driver": updated})
 }
 
 type transportReq struct {
@@ -238,6 +238,6 @@ func (h *RegistrationHandler) TransportType(c *gin.Context) {
 		return
 	}
 	updated, _ := h.drivers.FindByID(c.Request.Context(), driverID)
-	resp.OK(c, gin.H{"event": "updated", "driver": updated})
+	resp.OK(c, gin.H{"status": "ok", "driver": updated})
 }
 

@@ -105,7 +105,7 @@ func (h *AuthHandler) SendOTP(c *gin.Context) {
 	}
 
 	resp.OK(c, gin.H{
-		"event":       "otp_sent",
+		"status":      "otp_sent",
 		"ttl_seconds": int(h.otpTTL.Seconds()),
 	})
 }
@@ -152,15 +152,15 @@ func (h *AuthHandler) VerifyOTP(c *gin.Context) {
 	d, err := h.drivers.FindByPhone(c.Request.Context(), phone)
 	if err == nil {
 		driverUUID, _ := uuid.Parse(d.ID)
-		tokens, refreshClaims, err := h.jwtm.Issue(driverUUID)
+		tokens, refreshClaims, err := h.jwtm.Issue("driver", driverUUID)
 		if err != nil {
 			resp.Error(c, http.StatusInternalServerError, "token issue failed")
 			return
 		}
-		_ = h.refresh.Put(c.Request.Context(), refreshClaims.DriverID, refreshClaims.JTI)
+		_ = h.refresh.Put(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 
 		resp.OK(c, gin.H{
-			"event":  "login",
+			"status": "login",
 			"tokens": tokens,
 		})
 		return
@@ -179,7 +179,7 @@ func (h *AuthHandler) VerifyOTP(c *gin.Context) {
 	}
 
 	resp.OK(c, gin.H{
-		"event":      "register",
+		"status":     "register",
 		"session_id": sessionID,
 	})
 }
@@ -200,22 +200,22 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 	// rotate: old jti must exist
-	if err := h.refresh.Consume(c.Request.Context(), claims.DriverID, claims.JTI); err != nil {
+	if err := h.refresh.Consume(c.Request.Context(), claims.UserID, claims.JTI); err != nil {
 		resp.Error(c, http.StatusUnauthorized, "invalid refresh_token")
 		return
 	}
 
-	driverUUID, err := uuid.Parse(claims.DriverID)
+	userUUID, err := uuid.Parse(claims.UserID)
 	if err != nil {
 		resp.Error(c, http.StatusUnauthorized, "invalid refresh_token")
 		return
 	}
-	tokens, newRefreshClaims, err := h.jwtm.Issue(driverUUID)
+	tokens, newRefreshClaims, err := h.jwtm.Issue(claims.Role, userUUID)
 	if err != nil {
 		resp.Error(c, http.StatusInternalServerError, "token issue failed")
 		return
 	}
-	_ = h.refresh.Put(c.Request.Context(), newRefreshClaims.DriverID, newRefreshClaims.JTI)
+	_ = h.refresh.Put(c.Request.Context(), newRefreshClaims.UserID, newRefreshClaims.JTI)
 
 	resp.OK(c, gin.H{"tokens": tokens})
 }
@@ -228,10 +228,11 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	}
 	claims, err := h.jwtm.ParseRefresh(strings.TrimSpace(req.RefreshToken))
 	if err != nil {
-		resp.OK(c, gin.H{"event": "logout"})
+		resp.OK(c, gin.H{"status": "ok"})
 		return
 	}
-	_ = h.refresh.Consume(c.Request.Context(), claims.DriverID, claims.JTI)
-	resp.OK(c, gin.H{"event": "logout"})
+	_ = h.refresh.Consume(c.Request.Context(), claims.UserID, claims.JTI)
+	resp.OK(c, gin.H{"status": "ok"})
 }
+
 

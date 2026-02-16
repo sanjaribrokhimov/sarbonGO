@@ -30,25 +30,28 @@ func NewJWTManager(signingKey string, accessTTL, refreshTTL time.Duration) *JWTM
 
 type AccessClaims struct {
 	jwt.RegisteredClaims
-	DriverID string `json:"driver_id"`
+	Role   string `json:"role"`    // driver | dispatcher
+	UserID string `json:"user_id"` // UUID
 }
 
 type RefreshClaims struct {
 	jwt.RegisteredClaims
-	DriverID string `json:"driver_id"`
-	JTI      string `json:"jti"`
+	Role   string `json:"role"`
+	UserID string `json:"user_id"`
+	JTI    string `json:"jti"`
 }
 
-func (m *JWTManager) Issue(driverID uuid.UUID) (Tokens, RefreshClaims, error) {
+func (m *JWTManager) Issue(role string, userID uuid.UUID) (Tokens, RefreshClaims, error) {
 	now := time.Now()
 
 	accessClaims := AccessClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
-			Subject:   driverID.String(),
+			Subject:   userID.String(),
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(m.accessTTL)),
 		},
-		DriverID: driverID.String(),
+		Role:   role,
+		UserID: userID.String(),
 	}
 	access := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
 	accessToken, err := access.SignedString(m.signingKey)
@@ -59,12 +62,13 @@ func (m *JWTManager) Issue(driverID uuid.UUID) (Tokens, RefreshClaims, error) {
 	jti := uuid.NewString()
 	refreshClaims := RefreshClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
-			Subject:   driverID.String(),
+			Subject:   userID.String(),
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(m.refreshTTL)),
 		},
-		DriverID: driverID.String(),
-		JTI:      jti,
+		Role:   role,
+		UserID: userID.String(),
+		JTI:    jti,
 	}
 	refresh := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
 	refreshToken, err := refresh.SignedString(m.signingKey)
@@ -79,7 +83,7 @@ func (m *JWTManager) Issue(driverID uuid.UUID) (Tokens, RefreshClaims, error) {
 	}, refreshClaims, nil
 }
 
-func (m *JWTManager) ParseAccess(tokenStr string) (uuid.UUID, error) {
+func (m *JWTManager) ParseAccess(tokenStr string) (userID uuid.UUID, role string, err error) {
 	tok, err := jwt.ParseWithClaims(tokenStr, &AccessClaims{}, func(token *jwt.Token) (any, error) {
 		if token.Method != jwt.SigningMethodHS256 {
 			return nil, fmt.Errorf("unexpected signing method")
@@ -87,13 +91,25 @@ func (m *JWTManager) ParseAccess(tokenStr string) (uuid.UUID, error) {
 		return m.signingKey, nil
 	})
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, "", err
 	}
 	claims, ok := tok.Claims.(*AccessClaims)
 	if !ok || !tok.Valid {
-		return uuid.Nil, fmt.Errorf("invalid token")
+		return uuid.Nil, "", fmt.Errorf("invalid token")
 	}
-	return uuid.Parse(claims.DriverID)
+	idStr := claims.UserID
+	if idStr == "" {
+		idStr = claims.Subject
+	}
+	uid, err := uuid.Parse(idStr)
+	if err != nil {
+		return uuid.Nil, "", err
+	}
+	r := claims.Role
+	if r == "" {
+		r = "driver"
+	}
+	return uid, r, nil
 }
 
 func (m *JWTManager) ParseRefresh(tokenStr string) (RefreshClaims, error) {
@@ -110,6 +126,11 @@ func (m *JWTManager) ParseRefresh(tokenStr string) (RefreshClaims, error) {
 	if !ok || !tok.Valid {
 		return RefreshClaims{}, fmt.Errorf("invalid token")
 	}
+	if claims.UserID == "" {
+		claims.UserID = claims.Subject
+	}
+	if claims.Role == "" {
+		claims.Role = "driver"
+	}
 	return *claims, nil
 }
-
