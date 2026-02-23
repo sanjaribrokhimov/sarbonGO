@@ -12,6 +12,7 @@ import (
 	"sarbonNew/internal/companies"
 	"sarbonNew/internal/config"
 	"sarbonNew/internal/dispatchers"
+	"sarbonNew/internal/goadmin"
 	"sarbonNew/internal/drivers"
 	"sarbonNew/internal/infra"
 	"sarbonNew/internal/security"
@@ -47,6 +48,16 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 
 	// Swagger UI (OpenAPI served from local file)
 	swaggerui.Register(r)
+
+	// Вставка ссылки на кастомный CSS в страницы админки (тема не выводит CustomHeadHtml)
+	r.Use(goadmin.InjectCSSMiddleware())
+
+	// GoAdmin panel at /admin (login: admin / admin)
+	if cfg.DatabaseURL != "" {
+		if err := goadmin.Mount(r, cfg.DatabaseURL); err != nil {
+			logger.Error("goadmin mount failed", zap.Error(err))
+		}
+	}
 
 	// API v1
 	v1 := r.Group("/v1")

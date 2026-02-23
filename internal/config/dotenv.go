@@ -15,25 +15,32 @@ func LoadDotEnvUp(maxDepth int) {
 	}
 
 	dir, err := os.Getwd()
-	if err != nil {
-		_ = godotenv.Load()
-		return
-	}
+if err != nil {
+    _ = godotenv.Load()
+    return
+}
+cwd := dir
+dir = filepath.Dir(dir)   // начать с уровня выше
 
-	for i := 0; i <= maxDepth; i++ {
-		p := filepath.Join(dir, ".env")
-		if _, err := os.Stat(p); err == nil {
-			_ = godotenv.Load(p)
-			return
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
+for i := 0; i <= maxDepth; i++ {
+    p := filepath.Join(dir, ".env")
+    if _, err := os.Stat(p); err == nil {
+        _ = godotenv.Load(p)
+        return
+    }
+    parent := filepath.Dir(dir)
+    if parent == dir {
+        break
+    }
+    dir = parent
+}
 
-	// fallback: current directory
-	_ = godotenv.Load()
+// не нашли выше — проверить саму директорию (cwd)
+p := filepath.Join(cwd, ".env")
+if _, err := os.Stat(p); err == nil {
+    _ = godotenv.Load(p)
+    return
+}
+_ = godotenv.Load()
 }
 
