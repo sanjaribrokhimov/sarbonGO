@@ -1,5 +1,9 @@
 # Sarbon (Gin + Postgres + Redis)
 
+Stylish insurance page: open `docs/insurance.html` in browser (see below).
+
+go run ./cmd/admin -login admin -password "Secret123" -name "Main Admin"
+
 ## Run locally
 http://api.sarbon.me/docs
 1) Start infra:

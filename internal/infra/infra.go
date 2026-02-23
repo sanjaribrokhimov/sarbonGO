@@ -31,6 +31,18 @@ func New(ctx context.Context, cfg config.Config, logger *zap.Logger) (*Infra, er
 		return nil, err
 	}
 
+	// Ensure `admins` exists before serving requests.
+	if err := EnsureAdminsTable(ctx, pool); err != nil {
+		pool.Close()
+		return nil, err
+	}
+
+	// Ensure `companies` exists before serving requests.
+	if err := EnsureCompaniesTable(ctx, pool); err != nil {
+		pool.Close()
+		return nil, err
+	}
+
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     cfg.RedisAddr,
 		Password: cfg.RedisPassword,

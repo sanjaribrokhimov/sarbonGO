@@ -13,7 +13,7 @@ security:
     ClientTokenHeader: []
 
 tags:
-  - name: Auth
+  - name: Drivers / Auth
     description: |
       Авторизация по телефону и OTP (Telegram Gateway), JWT refresh/logout.
 
@@ -25,7 +25,7 @@ tags:
       - `POST /v1/auth/otp/verify`
       - Если `phone` уже существует в `drivers` → **`status=login`** и JWT токены.
       - Если `phone` новый → **`status=register`** и `session_id`.
-  - name: Registration
+  - name: Drivers / Registration
     description: |
       Пошаговая регистрация и state machine.
 
@@ -45,7 +45,7 @@ tags:
       **Пункт 5. Тип транспорта (опционально)**
       - `PATCH /v1/registration/transport-type`
       - Шаг меняется на `transport-type` и выставляется `registration_status=basic` **только если** передан `driver_type`.
-  - name: KYC
+  - name: Drivers / KYC
     description: |
       Загрузка/подтверждение KYC полей. Без отдельных таблиц.
 
@@ -55,22 +55,30 @@ tags:
         - заполнены серия/номер паспорта и PINFL
         - заполнены поля power unit и `power_scan_status=true`
         - trailer: либо не указан, либо полностью заполнен и `trailer_scan_status=true`
-  - name: Profile
+  - name: Drivers / Profile
     description: Получение профиля водителя.
-  - name: Dispatchers Auth
+  - name: Freelance Dispatchers / Auth
     description: |
       Авторизация диспетчеров (freelance_dispatchers):
       OTP (phone → otp/verify), логин по паролю, сброс пароля по OTP.
-  - name: Dispatchers Registration
+  - name: Freelance Dispatchers / Registration
     description: |
       Регистрация диспетчера после OTP:
       1) `POST /v1/dispatchers/auth/phone` (OTP)
       2) `POST /v1/dispatchers/auth/otp/verify` → если новый: `session_id`
       3) `POST /v1/dispatchers/registration/complete` (имя + пароль + паспорт + PINFL + фото опц.)
-  - name: Dispatchers Profile
+  - name: Freelance Dispatchers / Profile
     description: |
       Профиль диспетчера: GET/PATCH/DELETE, смена пароля, смена телефона (OTP).
       Hard delete с архивацией в deleted_freelance_dispatchers.
+  - name: Admin / Auth
+    description: Админ-авторизация по логину/паролю.
+  - name: Admin / Companies
+    description: Управление компаниями (создание). Доступно только admin.
+  - name: Reference
+    description: |
+      Справочники для UI: типы базовой машины (power_plate_type) и прицепной части (trailer_plate_type).
+      trailer_plate_type зависит от power_plate_type (TRUCK — прицепы, TRACTOR — полуприцепы).
 
 components:
   securitySchemes:
@@ -183,6 +191,37 @@ components:
         updated_at: { type: string, format: date-time }
         deleted_at: { type: string, format: date-time, nullable: true }
       required: [id, phone, created_at, updated_at]
+    PowerPlateOption:
+      type: object
+      properties:
+        code: { type: string, example: "TRUCK" }
+        label: { type: string, example: "Грузовик + прицеп" }
+      required: [code, label]
+    TrailerPlateOption:
+      type: object
+      properties:
+        code: { type: string, example: "FLATBED" }
+        label: { type: string, example: "Бортовой прицеп" }
+      required: [code, label]
+    TransportOptionsResponse:
+      type: object
+      description: Списки power_plate_type и trailer_plate_type по типу базовой машины.
+      properties:
+        power_plate_types:
+          type: array
+          items:
+            $ref: "#/components/schemas/PowerPlateOption"
+        trailer_plate_types_by_power:
+          type: object
+          description: |
+            Ключи — TRUCK, TRACTOR.
+            TRUCK: FLATBED, TENTED, BOX, REEFER, TANKER, TIPPER, CAR_CARRIER.
+            TRACTOR: FLATBED, TENTED, BOX, REEFER, TANKER, LOWBED, CONTAINER.
+          additionalProperties:
+            type: array
+            items:
+              $ref: "#/components/schemas/TrailerPlateOption"
+      required: [power_plate_types, trailer_plate_types_by_power]
 
 paths:
   /health:
@@ -192,9 +231,39 @@ paths:
         "200":
           description: OK
 
+  /v1/transport-options:
+    get:
+      tags: [Reference]
+      summary: Типы базовой машины и прицепа
+      description: |
+        Возвращает списки для шага «Тип транспорта»:
+        - **power_plate_type** (тип основной машины): TRUCK (Грузовик + прицеп), TRACTOR (Тягач + полуприцеп).
+        - **trailer_plate_type** зависит от power_plate_type: в ответе объект по ключам TRUCK и TRACTOR.
+        В UI поле trailer_plate_type неактивно до выбора power_plate_type; при смене base_type значение trailer сбрасывается.
+      security:
+        - DeviceTypeHeader: []
+          LanguageHeader: []
+          ClientTokenHeader: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/TransportOptionsResponse" }
+        "400":
+          description: Отсутствуют обязательные заголовки
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+
   /v1/auth/phone:
     post:
-      tags: [Auth]
+      tags: ["Drivers / Auth"]
       summary: Отправить OTP на телефон (через Telegram Gateway)
       requestBody:
         required: true
@@ -234,7 +303,7 @@ paths:
 
   /v1/auth/otp/verify:
     post:
-      tags: [Auth]
+      tags: ["Drivers / Auth"]
       summary: Подтвердить OTP
       description: |
         - Если `phone` уже существует в `drivers` → ответ `status=login` и выдаются JWT токены.
@@ -279,7 +348,7 @@ paths:
 
   /v1/registration/start:
     post:
-      tags: [Registration]
+      tags: ["Drivers / Registration"]
       summary: Создать профиль водителя (имя + оферта)
       description: |
         Использует `session_id` из `/v1/auth/otp/verify` (для новых пользователей).
@@ -320,7 +389,7 @@ paths:
 
   /v1/profile:
     get:
-      tags: [Profile]
+      tags: ["Drivers / Profile"]
       summary: Получить профиль (все поля) текущего водителя
       security:
         - DeviceTypeHeader: []
@@ -339,7 +408,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
     delete:
-      tags: [Profile]
+      tags: ["Drivers / Profile"]
       summary: Удалить профиль (жёстко) с архивацией
       description: |
         Удаляет строку из `drivers` и переносит данные в `deleted_drivers`.
@@ -367,7 +436,7 @@ paths:
 
   /v1/profile/driver:
     patch:
-      tags: [Profile]
+      tags: ["Drivers / Profile"]
       summary: Редактировать данные водителя
       description: |
         Изменяет только поля: `name`, `work_status`, `driver_passport_series`, `driver_passport_number`, `driver_pinfl`.
@@ -400,7 +469,7 @@ paths:
 
   /v1/profile/heartbeat:
     put:
-      tags: [Profile]
+      tags: ["Drivers / Profile"]
       summary: Heartbeat (обновить гео и last_online_at)
       description: |
         Обновляет `latitude`, `longitude`, `last_online_at`.
@@ -430,7 +499,7 @@ paths:
 
   /v1/profile/phone-change/request:
     post:
-      tags: [Profile]
+      tags: ["Drivers / Profile"]
       summary: Сменить телефон — запрос OTP
       description: |
         Принимает `new_phone` в формате `+998XXXXXXXXX`.
@@ -459,7 +528,7 @@ paths:
 
   /v1/profile/phone-change/verify:
     post:
-      tags: [Profile]
+      tags: ["Drivers / Profile"]
       summary: Сменить телефон — подтверждение OTP
       description: |
         Принимает `session_id` и `otp`.
@@ -489,7 +558,7 @@ paths:
 
   /v1/profile/power:
     patch:
-      tags: [Profile]
+      tags: ["Drivers / Profile"]
       summary: Редактировать данные Power Unit
       security:
         - DeviceTypeHeader: []
@@ -518,7 +587,7 @@ paths:
 
   /v1/profile/trailer:
     patch:
-      tags: [Profile]
+      tags: ["Drivers / Profile"]
       summary: Редактировать данные Trailer Unit
       security:
         - DeviceTypeHeader: []
@@ -547,7 +616,7 @@ paths:
 
   /v1/registration/geo-push:
     patch:
-      tags: [Registration]
+      tags: ["Drivers / Registration"]
       summary: Указать гео (и опционально push)
       description: |
         - Если переданы `latitude` и `longitude` → `registration_step=geo-push` (если уже `transport-type`, шаг не понижается).
@@ -587,7 +656,7 @@ paths:
 
   /v1/registration/transport-type:
     patch:
-      tags: [Registration]
+      tags: ["Drivers / Registration"]
       summary: Выбрать тип водителя/транспорта
       description: |
         Для завершения этапа **обязательны**:
@@ -637,7 +706,7 @@ paths:
 
   /v1/kyc:
     patch:
-      tags: [KYC]
+      tags: ["Drivers / KYC"]
       summary: Отправить KYC поля (паспорт + техпаспорта)
       description: |
         Выставляет `registration_status=full` только когда:
@@ -707,7 +776,7 @@ paths:
 
   /v1/auth/refresh:
     post:
-      tags: [Auth]
+      tags: ["Drivers / Auth"]
       summary: Обновить JWT токены (rotation)
       requestBody:
         required: true
@@ -736,7 +805,7 @@ paths:
 
   /v1/auth/logout:
     post:
-      tags: [Auth]
+      tags: ["Drivers / Auth"]
       summary: Выход (отзыв refresh token)
       requestBody:
         required: true
@@ -760,7 +829,7 @@ paths:
 
   /v1/dispatchers/auth/phone:
     post:
-      tags: [Dispatchers Auth]
+      tags: ["Freelance Dispatchers / Auth"]
       summary: Отправить OTP на телефон диспетчера
       requestBody:
         required: true
@@ -787,7 +856,7 @@ paths:
 
   /v1/dispatchers/auth/otp/verify:
     post:
-      tags: [Dispatchers Auth]
+      tags: ["Freelance Dispatchers / Auth"]
       summary: Подтвердить OTP диспетчера
       description: |
         Если телефон уже в freelance_dispatchers → status=login + tokens.
@@ -822,7 +891,7 @@ paths:
 
   /v1/dispatchers/auth/login/password:
     post:
-      tags: [Dispatchers Auth]
+      tags: ["Freelance Dispatchers / Auth"]
       summary: Вход по телефону и паролю
       requestBody:
         required: true
@@ -848,7 +917,7 @@ paths:
 
   /v1/dispatchers/auth/reset-password/request:
     post:
-      tags: [Dispatchers Auth]
+      tags: ["Freelance Dispatchers / Auth"]
       summary: Запросить OTP для сброса пароля
       requestBody:
         required: true
@@ -875,7 +944,7 @@ paths:
 
   /v1/dispatchers/auth/reset-password/confirm:
     post:
-      tags: [Dispatchers Auth]
+      tags: ["Freelance Dispatchers / Auth"]
       summary: Подтвердить сброс пароля (session_id + otp + new_password)
       requestBody:
         required: true
@@ -902,7 +971,7 @@ paths:
 
   /v1/dispatchers/registration/complete:
     post:
-      tags: [Dispatchers Registration]
+      tags: ["Freelance Dispatchers / Registration"]
       summary: Завершить регистрацию диспетчера
       description: |
         Использует session_id из /v1/dispatchers/auth/otp/verify.
@@ -938,7 +1007,7 @@ paths:
 
   /v1/dispatchers/profile:
     get:
-      tags: [Dispatchers Profile]
+      tags: ["Freelance Dispatchers / Profile"]
       summary: Получить профиль текущего диспетчера
       security:
         - DeviceTypeHeader: []
@@ -953,7 +1022,7 @@ paths:
               schema: { $ref: "#/components/schemas/Envelope" }
         "401": { description: Не авторизован }
     patch:
-      tags: [Dispatchers Profile]
+      tags: ["Freelance Dispatchers / Profile"]
       summary: Редактировать профиль диспетчера
       security:
         - DeviceTypeHeader: []
@@ -979,7 +1048,7 @@ paths:
               schema: { $ref: "#/components/schemas/Envelope" }
         "401": { description: Не авторизован }
     delete:
-      tags: [Dispatchers Profile]
+      tags: ["Freelance Dispatchers / Profile"]
       summary: Удалить профиль диспетчера (архивация)
       security:
         - DeviceTypeHeader: []
@@ -997,7 +1066,7 @@ paths:
 
   /v1/dispatchers/profile/password:
     put:
-      tags: [Dispatchers Profile]
+      tags: ["Freelance Dispatchers / Profile"]
       summary: Сменить пароль (текущий + новый)
       security:
         - DeviceTypeHeader: []
@@ -1027,7 +1096,7 @@ paths:
 
   /v1/dispatchers/profile/phone-change/request:
     post:
-      tags: [Dispatchers Profile]
+      tags: ["Freelance Dispatchers / Profile"]
       summary: Смена телефона — запрос OTP
       security:
         - DeviceTypeHeader: []
@@ -1059,7 +1128,7 @@ paths:
 
   /v1/dispatchers/profile/phone-change/verify:
     post:
-      tags: [Dispatchers Profile]
+      tags: ["Freelance Dispatchers / Profile"]
       summary: Смена телефона — подтверждение OTP
       security:
         - DeviceTypeHeader: []
@@ -1089,3 +1158,82 @@ paths:
         "401": { description: Сессия/OTP неверны }
         "409": { description: Телефон уже занят }
 
+  /v1/admin/auth/login/password:
+    post:
+      tags: ["Admin / Auth"]
+      summary: Admin login (login + password)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                login: { type: string, example: "admin" }
+                password: { type: string, example: "secret123" }
+              required: [login, password]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "ok" }
+                  tokens: { $ref: "#/components/schemas/Tokens" }
+                  admin:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      login: { type: string }
+                      name: { type: string }
+                      status: { type: string, example: "active" }
+                      type: { type: string, example: "creator" }
+        "400": { description: invalid payload }
+        "401": { description: invalid login or password }
+
+  /v1/admin/companies:
+    post:
+      tags: ["Admin / Companies"]
+      summary: Создать компанию (только admin)
+      security:
+        - DeviceTypeHeader: []
+          LanguageHeader: []
+          ClientTokenHeader: []
+          UserTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, example: "My Logistics LLC" }
+                inn: { type: string, nullable: true }
+                address: { type: string, nullable: true }
+                phone: { type: string, nullable: true }
+                email: { type: string, nullable: true }
+                website: { type: string, nullable: true }
+                license_number: { type: string, nullable: true }
+                status: { type: string, nullable: true, example: "pending" }
+                max_vehicles: { type: integer, example: 10 }
+                max_drivers: { type: integer, example: 50 }
+                max_cargo: { type: integer, example: 0 }
+                max_dispatchers: { type: integer, example: 5 }
+                max_managers: { type: integer, example: 5 }
+                max_top_dispatchers: { type: integer, example: 1 }
+                max_top_managers: { type: integer, example: 1 }
+              required: [name]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "ok" }
+                  company_id: { type: string, format: uuid }
+        "400": { description: invalid payload }
+        "401": { description: unauthorized }

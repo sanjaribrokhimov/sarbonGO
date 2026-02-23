@@ -8,6 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	"sarbonNew/internal/admins"
+	"sarbonNew/internal/companies"
 	"sarbonNew/internal/config"
 	"sarbonNew/internal/dispatchers"
 	"sarbonNew/internal/drivers"
@@ -52,6 +54,8 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 
 	driversRepo := drivers.NewRepo(deps.PG)
 	dispatchersRepo := dispatchers.NewRepo(deps.PG)
+	adminsRepo := admins.NewRepo(deps.PG)
+	companiesRepo := companies.NewRepo(deps.PG)
 	jwtm := security.NewJWTManager(cfg.JWTSigningKey, cfg.JWTAccessTTL, cfg.JWTRefreshTTL)
 
 	otpStore := store.NewOTPStore(deps.Redis, cfg.JWTSigningKey, cfg.OTPTTL, cfg.OTPResendCooldown, cfg.OTPMaxAttempts)
@@ -72,6 +76,8 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	dispAuthH := handlers.NewDispatcherAuthHandler(logger, dispatchersRepo, otpStore, dispRegSessions, dispResetActions, jwtm, refreshStore, tgClient, cfg.OTPTTL, cfg.OTPLength)
 	dispRegH := handlers.NewDispatcherRegistrationHandler(logger, dispatchersRepo, dispRegSessions, jwtm, refreshStore)
 	dispProfileH := handlers.NewDispatcherProfileHandler(logger, dispatchersRepo, dispPhoneActions, tgClient, cfg.OTPTTL, cfg.OTPLength)
+	adminAuthH := handlers.NewAdminAuthHandler(logger, adminsRepo, jwtm, refreshStore)
+	adminCompaniesH := handlers.NewAdminCompaniesHandler(logger, companiesRepo)
 
 	v1.POST("/auth/phone", authH.SendOTP)
 	v1.POST("/auth/otp/verify", authH.VerifyOTP)
@@ -79,6 +85,7 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	v1.POST("/auth/logout", authH.Logout)
 
 	v1.POST("/registration/start", regH.Start)
+	v1.GET("/transport-options", handlers.GetTransportOptions)
 
 	v1.POST("/dispatchers/auth/phone", dispAuthH.SendOTP)
 	v1.POST("/dispatchers/auth/otp/verify", dispAuthH.VerifyOTP)
@@ -86,6 +93,9 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	v1.POST("/dispatchers/auth/reset-password/request", dispAuthH.ResetPasswordRequest)
 	v1.POST("/dispatchers/auth/reset-password/confirm", dispAuthH.ResetPasswordConfirm)
 	v1.POST("/dispatchers/registration/complete", dispRegH.Complete)
+
+	// Admin auth (login by password)
+	v1.POST("/admin/auth/login/password", adminAuthH.LoginPassword)
 
 	authed := v1.Group("")
 	authed.Use(mw.RequireDriver(jwtm))
@@ -109,6 +119,10 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	dispAuthed.POST("/profile/phone-change/request", dispProfileH.PhoneChangeRequest)
 	dispAuthed.POST("/profile/phone-change/verify", dispProfileH.PhoneChangeVerify)
 	dispAuthed.DELETE("/profile", dispProfileH.Delete)
+
+	adminAuthed := v1.Group("/admin")
+	adminAuthed.Use(mw.RequireAdmin(jwtm))
+	adminAuthed.POST("/companies", adminCompaniesH.Create)
 
 	return r
 }

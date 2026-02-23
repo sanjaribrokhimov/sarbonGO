@@ -1,0 +1,10 @@
+-- Re-add removed current counters (best-effort).
+
+ALTER TABLE companies
+  ADD COLUMN IF NOT EXISTS max_top_dispatchers INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS current_cargo INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS current_dispatchers INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS current_managers INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS current_top_dispatchers INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS current_top_managers INTEGER NOT NULL DEFAULT 0;
+
