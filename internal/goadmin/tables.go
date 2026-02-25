@@ -15,6 +15,10 @@ func tableGenerators() map[string]table.Generator {
 		"admins":                GetOperatorAdminsTable,
 		"drivers":               GetDriversTable,
 		"freelance_dispatchers": GetFreelanceDispatchersTable,
+		"cargo":                 GetCargoTable,
+		"route_points":          GetRoutePointsTable,
+		"payments":               GetPaymentsTable,
+		"offers":                 GetOffersTable,
 	}
 }
 
@@ -179,5 +183,154 @@ func GetFreelanceDispatchersTable(ctx *context.Context) (t table.Table) {
 	formList.AddField("PINFL", "pinfl", db.Varchar, form.Text)
 	formList.AddField("Photo path", "photo_path", db.Varchar, form.Text)
 	formList.SetTable("freelance_dispatchers").SetTitle("Freelance Dispatchers").SetDescription("Freelance dispatchers")
+	return
+}
+
+// GetCargoTable returns the GoAdmin table for cargo (main table).
+func GetCargoTable(ctx *context.Context) (t table.Table) {
+	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
+		SetPrimaryKey("id", db.Varchar))
+	info := t.GetInfo()
+	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("Title", "title", db.Varchar).FieldFilterable()
+	info.AddField("Weight", "weight", db.Decimal).FieldFilterable()
+	info.AddField("Volume", "volume", db.Decimal)
+	info.AddField("Ready enabled", "ready_enabled", db.Boolean)
+	info.AddField("Ready at", "ready_at", db.Timestamp)
+	info.AddField("Truck type", "truck_type", db.Varchar).FieldFilterable()
+	info.AddField("Capacity", "capacity", db.Decimal)
+	info.AddField("Temp min", "temp_min", db.Decimal)
+	info.AddField("Temp max", "temp_max", db.Decimal)
+	info.AddField("ADR enabled", "adr_enabled", db.Boolean)
+	info.AddField("ADR class", "adr_class", db.Varchar)
+	info.AddField("Status", "status", db.Varchar).FieldFilterable()
+	info.AddField("Contact name", "contact_name", db.Varchar)
+	info.AddField("Contact phone", "contact_phone", db.Varchar)
+	info.AddField("Created at", "created_at", db.Timestamp)
+	info.AddField("Updated at", "updated_at", db.Timestamp)
+	info.AddField("Deleted at", "deleted_at", db.Timestamp)
+	info.AddField("Created by type", "created_by_type", db.Varchar).FieldFilterable()
+	info.AddField("Created by ID", "created_by_id", db.Varchar).FieldFilterable()
+	info.AddField("Company ID", "company_id", db.Varchar).FieldFilterable()
+	info.SetTable("cargo").SetTitle("Cargo").SetDescription("Cargo (main table)")
+
+	formList := t.GetForm()
+	formList.AddField("ID", "id", db.Varchar, form.Default).FieldDisplayButCanNotEditWhenUpdate().FieldDisableWhenCreate()
+	formList.AddField("Title", "title", db.Varchar, form.Text)
+	formList.AddField("Weight", "weight", db.Decimal, form.Number)
+	formList.AddField("Volume", "volume", db.Decimal, form.Number)
+	formList.AddField("Ready enabled", "ready_enabled", db.Boolean, form.Switch).FieldDefault("false")
+	formList.AddField("Ready at", "ready_at", db.Timestamp, form.Datetime)
+	formList.AddField("Load comment", "load_comment", db.Varchar, form.Text)
+	formList.AddField("Truck type", "truck_type", db.Varchar, form.Text)
+	formList.AddField("Capacity", "capacity", db.Decimal, form.Number)
+	formList.AddField("Temp min", "temp_min", db.Decimal, form.Number)
+	formList.AddField("Temp max", "temp_max", db.Decimal, form.Number)
+	formList.AddField("ADR enabled", "adr_enabled", db.Boolean, form.Switch).FieldDefault("false")
+	formList.AddField("ADR class", "adr_class", db.Varchar, form.Text)
+	formList.AddField("Shipment type", "shipment_type", db.Varchar, form.Text)
+	formList.AddField("Belts count", "belts_count", db.Int, form.Number)
+	formList.AddField("Contact name", "contact_name", db.Varchar, form.Text)
+	formList.AddField("Contact phone", "contact_phone", db.Varchar, form.Text)
+	formList.AddField("Status", "status", db.Varchar, form.Text).FieldDefault("created")
+	formList.AddField("Created by type", "created_by_type", db.Varchar, form.Text)
+	formList.AddField("Created by ID", "created_by_id", db.Varchar, form.Text)
+	formList.AddField("Company ID", "company_id", db.Varchar, form.Text)
+	formList.SetTable("cargo").SetTitle("Cargo").SetDescription("Cargo")
+	return
+}
+
+// GetRoutePointsTable returns the GoAdmin table for route_points.
+func GetRoutePointsTable(ctx *context.Context) (t table.Table) {
+	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
+		SetPrimaryKey("id", db.Varchar))
+	info := t.GetInfo()
+	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("Cargo ID", "cargo_id", db.Varchar).FieldFilterable()
+	info.AddField("Type", "type", db.Varchar).FieldFilterable()
+	info.AddField("Address", "address", db.Varchar)
+	info.AddField("Lat", "lat", db.Decimal)
+	info.AddField("Lng", "lng", db.Decimal)
+	info.AddField("Comment", "comment", db.Varchar)
+	info.AddField("Point order", "point_order", db.Int)
+	info.AddField("Is main load", "is_main_load", db.Boolean)
+	info.AddField("Is main unload", "is_main_unload", db.Boolean)
+	info.SetTable("route_points").SetTitle("Route Points").SetDescription("Route points (load/unload/customs/transit)")
+
+	formList := t.GetForm()
+	formList.AddField("ID", "id", db.Varchar, form.Default).FieldDisplayButCanNotEditWhenUpdate().FieldDisableWhenCreate()
+	formList.AddField("Cargo ID", "cargo_id", db.Varchar, form.Text)
+	formList.AddField("Type", "type", db.Varchar, form.Text)
+	formList.AddField("Address", "address", db.Varchar, form.Text)
+	formList.AddField("Lat", "lat", db.Decimal, form.Number)
+	formList.AddField("Lng", "lng", db.Decimal, form.Number)
+	formList.AddField("Comment", "comment", db.Varchar, form.Text)
+	formList.AddField("Point order", "point_order", db.Int, form.Number)
+	formList.AddField("Is main load", "is_main_load", db.Boolean, form.Switch).FieldDefault("false")
+	formList.AddField("Is main unload", "is_main_unload", db.Boolean, form.Switch).FieldDefault("false")
+	formList.SetTable("route_points").SetTitle("Route Points").SetDescription("Route points")
+	return
+}
+
+// GetPaymentsTable returns the GoAdmin table for payments.
+func GetPaymentsTable(ctx *context.Context) (t table.Table) {
+	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
+		SetPrimaryKey("id", db.Varchar))
+	info := t.GetInfo()
+	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("Cargo ID", "cargo_id", db.Varchar).FieldFilterable()
+	info.AddField("Is negotiable", "is_negotiable", db.Boolean)
+	info.AddField("Price request", "price_request", db.Boolean)
+	info.AddField("Total amount", "total_amount", db.Decimal)
+	info.AddField("Total currency", "total_currency", db.Varchar)
+	info.AddField("With prepayment", "with_prepayment", db.Boolean)
+	info.AddField("Without prepayment", "without_prepayment", db.Boolean)
+	info.AddField("Prepayment amount", "prepayment_amount", db.Decimal)
+	info.AddField("Prepayment currency", "prepayment_currency", db.Varchar)
+	info.AddField("Remaining amount", "remaining_amount", db.Decimal)
+	info.AddField("Remaining currency", "remaining_currency", db.Varchar)
+	info.SetTable("payments").SetTitle("Payments").SetDescription("Payments (1:1 with cargo)")
+
+	formList := t.GetForm()
+	formList.AddField("ID", "id", db.Varchar, form.Default).FieldDisplayButCanNotEditWhenUpdate().FieldDisableWhenCreate()
+	formList.AddField("Cargo ID", "cargo_id", db.Varchar, form.Text)
+	formList.AddField("Is negotiable", "is_negotiable", db.Boolean, form.Switch).FieldDefault("false")
+	formList.AddField("Price request", "price_request", db.Boolean, form.Switch).FieldDefault("false")
+	formList.AddField("Total amount", "total_amount", db.Decimal, form.Number)
+	formList.AddField("Total currency", "total_currency", db.Varchar, form.Text)
+	formList.AddField("With prepayment", "with_prepayment", db.Boolean, form.Switch).FieldDefault("false")
+	formList.AddField("Without prepayment", "without_prepayment", db.Boolean, form.Switch).FieldDefault("true")
+	formList.AddField("Prepayment amount", "prepayment_amount", db.Decimal, form.Number)
+	formList.AddField("Prepayment currency", "prepayment_currency", db.Varchar, form.Text)
+	formList.AddField("Remaining amount", "remaining_amount", db.Decimal, form.Number)
+	formList.AddField("Remaining currency", "remaining_currency", db.Varchar, form.Text)
+	formList.SetTable("payments").SetTitle("Payments").SetDescription("Payments")
+	return
+}
+
+// GetOffersTable returns the GoAdmin table for offers.
+func GetOffersTable(ctx *context.Context) (t table.Table) {
+	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
+		SetPrimaryKey("id", db.Varchar))
+	info := t.GetInfo()
+	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("Cargo ID", "cargo_id", db.Varchar).FieldFilterable()
+	info.AddField("Carrier ID", "carrier_id", db.Varchar)
+	info.AddField("Price", "price", db.Decimal)
+	info.AddField("Currency", "currency", db.Varchar)
+	info.AddField("Comment", "comment", db.Varchar)
+	info.AddField("Status", "status", db.Varchar).FieldFilterable()
+	info.AddField("Created at", "created_at", db.Timestamp)
+	info.SetTable("offers").SetTitle("Offers").SetDescription("Carrier offers for cargo")
+
+	formList := t.GetForm()
+	formList.AddField("ID", "id", db.Varchar, form.Default).FieldDisplayButCanNotEditWhenUpdate().FieldDisableWhenCreate()
+	formList.AddField("Cargo ID", "cargo_id", db.Varchar, form.Text)
+	formList.AddField("Carrier ID", "carrier_id", db.Varchar, form.Text)
+	formList.AddField("Price", "price", db.Decimal, form.Number)
+	formList.AddField("Currency", "currency", db.Varchar, form.Text)
+	formList.AddField("Comment", "comment", db.Varchar, form.Text)
+	formList.AddField("Status", "status", db.Varchar, form.Text).FieldDefault("pending")
+	formList.SetTable("offers").SetTitle("Offers").SetDescription("Offers")
 	return
 }

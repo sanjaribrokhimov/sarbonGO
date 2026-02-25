@@ -46,7 +46,7 @@ INSERT INTO companies (
   created_by, created_at, updated_at, deleted_at
 ) VALUES (
   $1, $2, $3, $4, $5, $6, $7,
-  COALESCE($8, 'pending'),
+  COALESCE($8, 'active'),
   $9, $10, $11, $12, $13, $14, $15,
   0, 0, 0,
   $16, now(), now(), NULL

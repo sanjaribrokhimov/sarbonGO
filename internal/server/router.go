@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 
 	"sarbonNew/internal/admins"
+	"sarbonNew/internal/cargo"
 	"sarbonNew/internal/companies"
 	"sarbonNew/internal/config"
 	"sarbonNew/internal/dispatchers"
@@ -67,6 +68,7 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	dispatchersRepo := dispatchers.NewRepo(deps.PG)
 	adminsRepo := admins.NewRepo(deps.PG)
 	companiesRepo := companies.NewRepo(deps.PG)
+	cargoRepo := cargo.NewRepo(deps.PG)
 	jwtm := security.NewJWTManager(cfg.JWTSigningKey, cfg.JWTAccessTTL, cfg.JWTRefreshTTL)
 
 	otpStore := store.NewOTPStore(deps.Redis, cfg.JWTSigningKey, cfg.OTPTTL, cfg.OTPResendCooldown, cfg.OTPMaxAttempts)
@@ -89,6 +91,7 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	dispProfileH := handlers.NewDispatcherProfileHandler(logger, dispatchersRepo, dispPhoneActions, tgClient, cfg.OTPTTL, cfg.OTPLength)
 	adminAuthH := handlers.NewAdminAuthHandler(logger, adminsRepo, jwtm, refreshStore)
 	adminCompaniesH := handlers.NewAdminCompaniesHandler(logger, companiesRepo)
+	cargoH := handlers.NewCargoHandler(logger, cargoRepo, jwtm)
 
 	v1.POST("/auth/phone", authH.SendOTP)
 	v1.POST("/auth/otp/verify", authH.VerifyOTP)
@@ -97,6 +100,19 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 
 	v1.POST("/registration/start", regH.Start)
 	v1.GET("/transport-options", handlers.GetTransportOptions)
+
+	// API /api/cargo (same base headers as v1)
+	api := r.Group("/api")
+	api.Use(mw.RequireBaseHeaders(cfg))
+	api.POST("/cargo", cargoH.Create)
+	api.GET("/cargo", cargoH.List)
+	api.GET("/cargo/:id", cargoH.GetByID)
+	api.PUT("/cargo/:id", cargoH.Update)
+	api.DELETE("/cargo/:id", cargoH.Delete)
+	api.PATCH("/cargo/:id/status", cargoH.PatchStatus)
+	api.POST("/cargo/:id/offers", cargoH.CreateOffer)
+	api.GET("/cargo/:id/offers", cargoH.ListOffers)
+	api.POST("/offers/:id/accept", cargoH.AcceptOffer)
 
 	v1.POST("/dispatchers/auth/phone", dispAuthH.SendOTP)
 	v1.POST("/dispatchers/auth/otp/verify", dispAuthH.VerifyOTP)

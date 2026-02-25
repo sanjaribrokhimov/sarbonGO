@@ -43,6 +43,12 @@ func New(ctx context.Context, cfg config.Config, logger *zap.Logger) (*Infra, er
 		return nil, err
 	}
 
+	// Ensure cargo, route_points, payments, offers (auto create/update on run).
+	if err := EnsureCargoTables(ctx, pool); err != nil {
+		pool.Close()
+		return nil, err
+	}
+
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     cfg.RedisAddr,
 		Password: cfg.RedisPassword,

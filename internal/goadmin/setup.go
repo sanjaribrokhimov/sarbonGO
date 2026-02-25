@@ -28,6 +28,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helv
 
 /* === Убрать лишнее === */
 .main-footer .pull-right, .main-footer a[href*="goadmin"], .main-footer .hidden-xs { display: none !important; }
+/* Убрать картинку (pull-left) из шапки рядом с гамбургер-меню */
+.main-header .navbar .pull-left img,
+.main-header .navbar .pull-left .brand-image,
+.main-header .navbar .pull-left > img { display: none !important; }
 .main-footer { padding: 10px 15px; font-size: 12px; color: #999; }
 .content-header .breadcrumb { display: none !important; }
 .content-header h1 { margin: 0; font-size: 22px; font-weight: 600; }

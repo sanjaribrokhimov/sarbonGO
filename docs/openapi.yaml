@@ -1,8 +1,11 @@
 openapi: 3.0.3
 info:
-  title: Sarbon API documentation
+  title: Sarbon API — документация и руководство
   version: 0.1.0
-
+  description: |
+    Полное руководство по API: потоки (flow), логика, данные для каждой категории.
+    **Категории:** Drivers (водители), Freelance Dispatchers (диспетчеры), Admin (админ), Cargo API (грузы и офферы), Reference (справочники).
+    В каждом теге вверху — описание потока и ролей; у каждого метода — назначение, логика и что передавать/получать.
 
 servers:
   - url: /
@@ -15,70 +18,111 @@ security:
 tags:
   - name: Drivers / Auth
     description: |
-      Авторизация по телефону и OTP (Telegram Gateway), JWT refresh/logout.
+      **Руководство: Авторизация водителя (мобильное приложение)**
 
-      **Пункт 1. OTP (отправка)**
-      - `POST /v1/auth/phone`
-      - OTP отправляется **только через Telegram Gateway API**.
+      **Кто вызывает:** Водитель (мобильное приложение). После входа все запросы к профилю и регистрации — с заголовком X-User-Token = access_token.
 
-      **Пункт 2. OTP (подтверждение)**
-      - `POST /v1/auth/otp/verify`
-      - Если `phone` уже существует в `drivers` → **`status=login`** и JWT токены.
-      - Если `phone` новый → **`status=register`** и `session_id`.
+      **Поток входа (существующий водитель):** 1) POST /v1/auth/phone (phone) → OTP отправлен через Telegram Gateway. 2) POST /v1/auth/otp/verify (phone, otp) → status=login и tokens (access_token, refresh_token). Дальше запросы с X-User-Token.
+
+      **Поток для нового номера:** 1) auth/phone → 2) auth/otp/verify → status=register и session_id (JWT пока нет). Дальше POST /v1/registration/start с session_id, name, oferta_accepted → создаётся профиль и выдаются tokens.
+
+      **Данные:** phone в формате +998XXXXXXXXX; otp — код из Telegram/смс. Refresh: POST /v1/auth/refresh (refresh_token). Logout: POST /v1/auth/logout (refresh_token).
   - name: Drivers / Registration
     description: |
-      Пошаговая регистрация и state machine.
+      **Руководство: Регистрация и шаги водителя**
 
-      - `registration_step`: `name-oferta` → `geo-push` → `transport-type`
-      - `registration_status`: `start` → `basic` → `full`
+      **Кто вызывает:** Водитель (мобильное приложение), с JWT после auth или после registration/start.
 
-      **Пункт 3. Создание профиля (имя + оферта)**
-      - `POST /v1/registration/start`
-      - Создаёт строку в `drivers`:
-        - `registration_status=start`
-        - `registration_step=name-oferta`
+      **Шаги (registration_step):** name-oferta → geo-push → transport-type. **Статусы (registration_status):** start → basic → full.
 
-      **Пункт 4. Гео и Push (опционально)**
-      - `PATCH /v1/registration/geo-push`
-      - Шаг меняется на `geo-push` **только если** переданы `latitude` и `longitude`.
-
-      **Пункт 5. Тип транспорта (опционально)**
-      - `PATCH /v1/registration/transport-type`
-      - Шаг меняется на `transport-type` и выставляется `registration_status=basic` **только если** передан `driver_type`.
+      **Поток:** 1) registration/start (session_id, name, oferta_accepted) — создаёт запись в drivers, step=name-oferta. 2) geo-push (latitude, longitude, push_token опц.) — шаг geo-push при указании гео. 3) transport-type (driver_type, power_plate_type, trailer_plate_type) — step=transport-type, status=basic. Справочники типов транспорта: GET /v1/transport-options.
   - name: Drivers / KYC
     description: |
-      Загрузка/подтверждение KYC полей. Без отдельных таблиц.
+      **Руководство: KYC (документы водителя)**
 
-      **Пункт 6. KYC документы**
-      - `PATCH /v1/kyc`
-      - `registration_status=full` выставляется **только если**:
-        - заполнены серия/номер паспорта и PINFL
-        - заполнены поля power unit и `power_scan_status=true`
-        - trailer: либо не указан, либо полностью заполнен и `trailer_scan_status=true`
+      **Кто вызывает:** Водитель (мобильное приложение), с JWT.
+
+      **Поток:** Один запрос PATCH /v1/kyc с блоками driver_data (паспорт, PINFL, driver_scan_status), power_data (ТС: номер, техпаспорт, владелец, power_scan_status), trailer_data (прицеп: то же), driver_owner (true/false). registration_status=full выставляется только когда все обязательные поля заполнены и scan_status подтверждены; прицеп можно не указывать или заполнить полностью.
   - name: Drivers / Profile
-    description: Получение профиля водителя.
+    description: |
+      **Руководство: Профиль водителя**
+
+      **Кто вызывает:** Водитель (мобильное приложение). Все методы требуют X-User-Token (JWT).
+
+      **Поток и данные:** GET /v1/profile — получить профиль (все поля). PATCH /v1/profile/driver — изменить имя, work_status, паспорт. PATCH /v1/profile/power — данные тягача; PATCH /v1/profile/trailer — данные прицепа. PUT /v1/profile/heartbeat — обновить гео и last_online_at. Смена телефона: .../phone-change/request (new_phone) → OTP; .../phone-change/verify (session_id, otp). DELETE /v1/profile — удалить аккаунт (архивация в deleted_drivers).
   - name: Freelance Dispatchers / Auth
     description: |
-      Авторизация диспетчеров (freelance_dispatchers):
-      OTP (phone → otp/verify), логин по паролю, сброс пароля по OTP.
+      **Руководство: Авторизация диспетчеров**
+
+      **Роли:** Пользователь — freelance-диспетчер (таблица freelance_dispatchers). После входа получает JWT; заголовок X-User-Token = access_token для всех запросов под /v1/dispatchers/* (профиль, смена пароля и т.д.).
+
+      **Поток входа (существующий диспетчер):**
+      1. POST /v1/dispatchers/auth/phone — отправить OTP на телефон (через Telegram Gateway).
+      2. POST /v1/dispatchers/auth/otp/verify — ввести OTP → в ответе status=login и tokens (access_token, refresh_token, expires_in).
+      Либо вход по паролю: POST /v1/dispatchers/auth/login/password (phone + password) → tokens.
+
+      **Поток сброса пароля:**
+      1. POST /v1/dispatchers/auth/reset-password/request (phone) → OTP отправлен, session_id.
+      2. POST /v1/dispatchers/auth/reset-password/confirm (session_id, otp, new_password) → пароль обновлён.
+
+      **Данные в запросах:** phone в формате +998XXXXXXXXX; otp — код из смс/Telegram; password — только при login/password и reset/confirm.
   - name: Freelance Dispatchers / Registration
     description: |
-      Регистрация диспетчера после OTP:
-      1) `POST /v1/dispatchers/auth/phone` (OTP)
-      2) `POST /v1/dispatchers/auth/otp/verify` → если новый: `session_id`
-      3) `POST /v1/dispatchers/registration/complete` (имя + пароль + паспорт + PINFL + фото опц.)
+      **Руководство: Регистрация нового диспетчера**
+
+      **Поток (новый номер телефона):**
+      1. POST /v1/dispatchers/auth/phone — отправить OTP.
+      2. POST /v1/dispatchers/auth/otp/verify — ввести OTP → в ответе status=register и session_id (JWT пока не выдаётся).
+      3. POST /v1/dispatchers/registration/complete — передать session_id, name, password, passport_series, passport_number, pinfl (обязательно), photo (опционально). В ответе — tokens и объект dispatcher; диспетчер считается зарегистрированным.
+
+      **Логика:** Без session_id из шага 2 завершить регистрацию нельзя. После complete диспетчер может входить по phone + password или по OTP.
   - name: Freelance Dispatchers / Profile
     description: |
-      Профиль диспетчера: GET/PATCH/DELETE, смена пароля, смена телефона (OTP).
-      Hard delete с архивацией в deleted_freelance_dispatchers.
+      **Руководство: Профиль диспетчера**
+
+      **Авторизация:** Все методы требуют заголовок X-User-Token (JWT access_token диспетчера).
+
+      **Поток и данные:**
+      - GET /v1/dispatchers/profile — получить текущий профиль (id, name, phone, паспорт, pinfl, work_status, rating и т.д.). В ответе data.dispatcher.
+      - PATCH /v1/dispatchers/profile — изменить имя, паспорт, pinfl, photo (частичное обновление).
+      - DELETE /v1/dispatchers/profile — удалить аккаунт (жёсткое удаление с архивацией в deleted_freelance_dispatchers).
+      - PUT /v1/dispatchers/profile/password — сменить пароль (current_password + new_password).
+      - POST .../profile/phone-change/request (new_phone) → OTP; .../phone-change/verify (session_id, otp) → телефон обновлён.
   - name: Admin / Auth
-    description: Админ-авторизация по логину/паролю.
+    description: |
+      **Руководство: Авторизация админа (оператор)**
+
+      **Роль:** Админ из таблицы admins (логин/пароль). Используется для доступа к операциям, доступным только админу (например создание компаний).
+
+      **Поток:** POST /v1/admin/auth/login/password — передать login и password. В ответе — tokens (access_token, refresh_token) и объект admin (id, login, name, status, type). Далее для запросов под /v1/admin/* передавать X-User-Token = access_token.
   - name: Admin / Companies
-    description: Управление компаниями (создание). Доступно только admin.
+    description: |
+      **Руководство: Управление компаниями (только админ)**
+
+      **Кто вызывает:** Только авторизованный админ (X-User-Token = JWT после /v1/admin/auth/login/password).
+
+      **Поток и данные:** POST /v1/admin/companies — создание компании. В теле передаётся name (обязательно), inn, address, phone, email, website, license_number, status (по умолчанию active), лимиты (max_vehicles, max_drivers, max_cargo, max_dispatchers, max_managers, max_top_dispatchers, max_top_managers). В ответе — status и company_id (UUID новой компании). Логика: одна запись в таблице companies; лимиты задают квоты; статус новой компании по умолчанию active.
   - name: Reference
     description: |
-      Справочники для UI: типы базовой машины (power_plate_type) и прицепной части (trailer_plate_type).
-      trailer_plate_type зависит от power_plate_type (TRUCK — прицепы, TRACTOR — полуприцепы).
+      **Руководство: Справочники**
+
+      **Кто вызывает:** Водитель (мобильное приложение) на шаге выбора типа транспорта; любой клиент с базовыми заголовками.
+
+      **Поток:** GET /v1/transport-options возвращает power_plate_types (типы базовой машины: TRUCK, TRACTOR и др.) и trailer_plate_types_by_power — для каждого типа машины список допустимых типов прицепа (TRUCK → прицепы, TRACTOR → полуприцепы). В UI сначала выбирают power_plate_type, затем trailer_plate_type из соответствующего списка.
+  - name: "Cargo — Водитель"
+    description: |
+      **Запросы для водителя (мобильное приложение)**
+
+      Водитель видит грузы, по которым ищут перевозчика, открывает карточку и отправляет оффер. JWT не обязателен для /api/cargo; в оффере передаётся carrier_id — ID водителя (из профиля/JWT).
+
+      **Методы:** Список грузов (GET /api/cargo, фильтр status=searching) → карточка груза (GET /api/cargo/:id) → отправить оффер (POST /api/cargo/:id/offers). Опционально: список офферов по грузу (GET /api/cargo/:id/offers) — чтобы видеть свои офферы.
+  - name: "Cargo — Диспетчер, компания, админ"
+    description: |
+      **Запросы для диспетчера, компании и админа**
+
+      Создание грузов, редактирование, смена статусов, просмотр офферов, принятие оффера. Заголовки: X-Device-Type, X-Language, X-Client-Token (JWT не обязателен).
+
+      **Методы:** Создать груз (POST /api/cargo) → список и карточка (GET) → редактировать (PUT), удалить (DELETE), сменить статус (PATCH .../status) → список офферов (GET .../offers) → принять оффер (POST /api/offers/:id/accept). Жизненный цикл: created → searching → assigned → in_transit → delivered; отмена из created/searching/assigned.
 
 components:
   securitySchemes:
@@ -222,6 +266,176 @@ components:
             items:
               $ref: "#/components/schemas/TrailerPlateOption"
       required: [power_plate_types, trailer_plate_types_by_power]
+    Cargo:
+      type: object
+      description: "Запись груза (таблица cargo). Возвращается в списках и в карточке."
+      properties:
+        id: { type: string, format: uuid, description: "UUID груза" }
+        title: { type: string, description: "Название" }
+        weight: { type: number, description: "Вес (т)" }
+        volume: { type: number, nullable: true, description: "Объём (м³)" }
+        ready_enabled: { type: boolean, description: "Указана ли дата готовности" }
+        ready_at: { type: string, format: date-time, nullable: true, description: "Дата/время готовности" }
+        load_comment: { type: string, nullable: true, description: "Комментарий к погрузке" }
+        truck_type: { type: string, description: "Тип транспорта" }
+        capacity: { type: number, description: "Грузоподъёмность" }
+        temp_min: { type: number, nullable: true, description: "Мин. температура (°C)" }
+        temp_max: { type: number, nullable: true, description: "Макс. температура (°C)" }
+        adr_enabled: { type: boolean, description: "Опасный груз (ADR)" }
+        adr_class: { type: string, nullable: true, description: "Класс ADR" }
+        loading_types: { type: array, items: { type: string }, description: "Типы погрузки" }
+        requirements: { type: array, items: { type: string }, description: "Требования" }
+        shipment_type: { type: string, nullable: true, description: "FTL/LTL" }
+        belts_count: { type: integer, nullable: true, description: "Количество ремней" }
+        documents: { type: object, nullable: true, description: "Флаги документов: TIR, T1, CMR, Medbook, GLONASS, Seal, Permit" }
+        contact_name: { type: string, nullable: true, description: "Имя контактного лица" }
+        contact_phone: { type: string, nullable: true, description: "Телефон контактного лица" }
+        status: { type: string, enum: [created, searching, assigned, in_transit, delivered, cancelled], description: "Текущий статус груза" }
+        created_at: { type: string, format: date-time, description: "Дата и время создания записи" }
+        updated_at: { type: string, format: date-time, description: "Дата и время последнего обновления" }
+        created_by_type: { type: string, enum: [admin, dispatcher, company], nullable: true, description: "Кто создал: admin, dispatcher или company. Заполняется автоматически при POST: по X-User-Token (admin/dispatcher) или по company_id в теле (company)." }
+        created_by_id: { type: string, format: uuid, nullable: true, description: "UUID создателя: admins.id, freelance_dispatchers.id или companies.id в зависимости от created_by_type" }
+        company_id: { type: string, format: uuid, nullable: true, description: "UUID компании (companies), от имени которой создан груз; при created_by_type=company совпадает с created_by_id" }
+    RoutePoint:
+      type: object
+      description: "Точка маршрута (таблица route_points): погрузка, выгрузка, таможня, транзит."
+      properties:
+        id: { type: string, format: uuid }
+        cargo_id: { type: string, format: uuid }
+        type: { type: string, enum: [load, unload, customs, transit], description: "load — погрузка, unload — выгрузка, customs — таможня, transit — транзит" }
+        address: { type: string, description: "Адрес точки" }
+        lat: { type: number, description: "Широта" }
+        lng: { type: number, description: "Долгота" }
+        comment: { type: string, nullable: true }
+        point_order: { type: integer, description: "Порядок следования по маршруту" }
+        is_main_load: { type: boolean, description: "Основная точка погрузки" }
+        is_main_unload: { type: boolean, description: "Основная точка выгрузки" }
+    Payment:
+      type: object
+      description: "Оплата по грузу (таблица payments, связь 1:1 с cargo)."
+      properties:
+        id: { type: string, format: uuid }
+        cargo_id: { type: string, format: uuid }
+        is_negotiable: { type: boolean, description: "Цена договорная" }
+        price_request: { type: boolean, description: "Запрос цены (без фиксированной суммы)" }
+        total_amount: { type: number, nullable: true, description: "Общая сумма" }
+        total_currency: { type: string, nullable: true, description: "Валюта (UZS, USD)" }
+        with_prepayment: { type: boolean }
+        without_prepayment: { type: boolean }
+        prepayment_amount: { type: number, nullable: true }
+        prepayment_currency: { type: string, nullable: true }
+        prepayment_type: { type: string, nullable: true }
+        remaining_amount: { type: number, nullable: true }
+        remaining_currency: { type: string, nullable: true }
+        remaining_type: { type: string, nullable: true }
+    Offer:
+      type: object
+      description: "Оффер перевозчика по грузу (таблица offers). carrier_id — ID водителя."
+      properties:
+        id: { type: string, format: uuid }
+        cargo_id: { type: string, format: uuid }
+        carrier_id: { type: string, format: uuid, description: "ID перевозчика (водителя из drivers)" }
+        price: { type: number }
+        currency: { type: string }
+        comment: { type: string, nullable: true }
+        status: { type: string, enum: [pending, accepted, rejected], description: "pending — на рассмотрении, accepted — принят, rejected — отклонён" }
+        created_at: { type: string, format: date-time }
+    CargoListResponse:
+      type: object
+      description: Ответ GET /api/cargo — список грузов и общее количество для пагинации.
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/Cargo" }, description: Массив грузов на текущей странице }
+        total: { type: integer, description: Общее число записей (без лимита страницы) }
+      required: [items, total]
+    CargoCreateRequest:
+      type: object
+      description: |
+        Тело POST /api/cargo. Создание груза вместе с точками маршрута и оплатой.
+        Обязательно: title, weight > 0, truck_type, capacity; массив route_points с минимум одной точкой type=load и одной type=unload.
+        У каждой точки обязательны address, lat, lng, type, point_order.
+        Создатель записывается автоматически: при заголовке X-User-Token (JWT) — admin или dispatcher; при отсутствии JWT но наличии company_id в теле — company. Поле company_id опционально (привязка груза к компании).
+      properties:
+        title: { type: string, description: "Название груза" }
+        weight: { type: number, description: "Вес (т), обязательно > 0" }
+        volume: { type: number, nullable: true, description: "Объём (м³), опционально" }
+        ready_enabled: { type: boolean, default: false, description: "Указана ли дата готовности" }
+        ready_at: { type: string, format: date-time, nullable: true, description: "Дата/время готовности; обязательна если ready_enabled=true" }
+        load_comment: { type: string, nullable: true }
+        truck_type: { type: string, description: "Тип транспорта (например refrigerator, tent)" }
+        capacity: { type: number, description: "Грузоподъёмность" }
+        temp_min: { type: number, nullable: true, description: "Мин. температура; при указании truck_type должен быть refrigerator" }
+        temp_max: { type: number, nullable: true }
+        adr_enabled: { type: boolean, default: false }
+        adr_class: { type: string, nullable: true, description: "Обязателен если adr_enabled=true" }
+        loading_types: { type: array, items: { type: string }, nullable: true }
+        requirements: { type: array, items: { type: string }, nullable: true }
+        shipment_type: { type: string, nullable: true, example: FTL }
+        belts_count: { type: integer, nullable: true }
+        documents: { type: object, nullable: true, description: "Флаги TIR, T1, CMR, Medbook, GLONASS, Seal, Permit (boolean)" }
+        contact_name: { type: string, nullable: true }
+        contact_phone: { type: string, nullable: true }
+        status: { type: string, enum: [created, searching], nullable: true }
+        company_id: { type: string, format: uuid, nullable: true, description: "Опционально: UUID компании (companies), от которой груз" }
+        route_points:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/RoutePointInput" }
+          description: "Точки маршрута; минимум 1 load и 1 unload"
+        payment: { $ref: "#/components/schemas/PaymentInput", nullable: true }
+      required: [title, weight, truck_type, capacity, route_points]
+    RoutePointInput:
+      type: object
+      description: Одна точка маршрута при создании/обновлении груза.
+      properties:
+        type: { type: string, enum: [load, unload, customs, transit], description: "Тип точки" }
+        address: { type: string }
+        lat: { type: number }
+        lng: { type: number }
+        comment: { type: string, nullable: true }
+        point_order: { type: integer, description: "Порядок следования" }
+        is_main_load: { type: boolean, default: false }
+        is_main_unload: { type: boolean, default: false }
+      required: [type, address, lat, lng, point_order]
+    PaymentInput:
+      type: object
+      description: Блок оплаты при создании/обновлении груза (1:1 с грузом).
+      properties:
+        is_negotiable: { type: boolean, default: false }
+        price_request: { type: boolean, default: false, description: "Если true — сумма не обязательна (запрос цены)" }
+        total_amount: { type: number, nullable: true }
+        total_currency: { type: string, nullable: true, example: USD }
+        with_prepayment: { type: boolean, default: false }
+        without_prepayment: { type: boolean, default: true }
+        prepayment_amount: { type: number, nullable: true }
+        prepayment_currency: { type: string, nullable: true }
+        prepayment_type: { type: string, nullable: true }
+        remaining_amount: { type: number, nullable: true }
+        remaining_currency: { type: string, nullable: true }
+        remaining_type: { type: string, nullable: true }
+    CargoStatusRequest:
+      type: object
+      description: Тело PATCH /api/cargo/:id/status — смена статуса с проверкой допустимых переходов.
+      properties:
+        status: { type: string, enum: [created, searching, assigned, in_transit, delivered, cancelled] }
+      required: [status]
+    OfferCreateRequest:
+      type: object
+      description: Тело POST /api/cargo/:id/offers. Оффер от перевозчика (водителя); carrier_id — ID водителя из таблицы drivers.
+      properties:
+        carrier_id: { type: string, format: uuid, description: "ID перевозчика (водителя)" }
+        price: { type: number, description: "Предлагаемая цена" }
+        currency: { type: string, example: USD }
+        comment: { type: string, nullable: true }
+      required: [carrier_id, price, currency]
+    CargoDetailResponse:
+      type: object
+      description: Ответ GET /api/cargo/:id — груз с вложенными route_points и payment.
+      allOf:
+        - $ref: "#/components/schemas/Cargo"
+        - type: object
+          properties:
+            route_points: { type: array, items: { $ref: "#/components/schemas/RoutePoint" } }
+            payment: { $ref: "#/components/schemas/Payment", nullable: true }
 
 paths:
   /health:
@@ -231,15 +445,319 @@ paths:
         "200":
           description: OK
 
+  /api/cargo:
+    post:
+      tags: ["Cargo — Диспетчер, компания, админ"]
+      summary: "1. Создать груз"
+      description: |
+        **Кто вызывает:** Диспетчер, компания, админ или интеграция.
+        **Назначение:** Создание нового груза с точками маршрута и блоком оплаты.
+
+        **Логика:** В одной транзакции создаются запись в `cargo`, записи в `route_points` (все переданные точки), одна запись в `payments` (если передан блок payment). Валидация: weight > 0; минимум одна точка с type=load и одна с type=unload; у каждой точки обязательны address, lat, lng, point_order; если указаны temp_min/temp_max — truck_type должен быть refrigerator; если adr_enabled=true — обязателен adr_class; если ready_enabled=true — обязателен ready_at.
+
+        **Создатель (автоматически):** Если передан заголовок **X-User-Token** (JWT) с ролью admin или dispatcher — в груз записываются created_by_type и created_by_id. Если JWT не передан, но в теле есть company_id — создателем считается компания (created_by_type=company). Опционально в теле можно передать company_id для привязки груза к компании.
+
+        **Что передаём:** Схема CargoCreateRequest — поля груза + массив route_points (RoutePointInput[]) + опционально payment (PaymentInput), company_id. Ответ: data.id — UUID созданного груза.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CargoCreateRequest" }
+      responses:
+        "201":
+          description: "Груз создан. В data возвращается id (UUID)."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data: { type: object, properties: { id: { type: string, format: uuid } }, description: "UUID созданного груза" }
+        "400":
+          description: "Ошибка валидации (неверные поля, нет load/unload точек и т.д.)"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+    get:
+      tags: ["Cargo — Водитель", "Cargo — Диспетчер, компания, админ"]
+      summary: "2. Список грузов (фильтры, пагинация)"
+      description: |
+        **Кто вызывает:** Водитель (чаще всего с status=searching), диспетчер, компания, админ.
+        **Назначение:** Получение списка грузов. Водитель вызывает с фильтром status=searching, чтобы видеть грузы, по которым ищут перевозчика.
+
+        **Логика:** Удалённые (soft delete) не возвращаются. Применяются фильтры по query-параметрам. Сортировка по sort (например created_at:desc). Пагинация: page (с 1), limit (по умолчанию 20, макс. 100). В ответе data.items — массив грузов, data.total — общее количество записей.
+
+        **Параметры:** status (несколько через запятую), weight_min, weight_max, truck_type, created_from (YYYY-MM-DD), created_to, search (по title), with_offers (true — только грузы с офферами), page, limit, sort.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, example: "created,searching" }
+          description: "Статусы через запятую (created, searching, assigned, in_transit, delivered, cancelled)"
+        - name: weight_min
+          in: query
+          schema: { type: number }
+          description: "Минимальный вес (т)"
+        - name: weight_max
+          in: query
+          schema: { type: number }
+          description: "Максимальный вес (т)"
+        - name: truck_type
+          in: query
+          schema: { type: string }
+          description: "Тип транспорта"
+        - name: created_from
+          in: query
+          schema: { type: string, format: date }
+          description: "Дата создания от (YYYY-MM-DD)"
+        - name: created_to
+          in: query
+          schema: { type: string, format: date }
+          description: "Дата создания до (YYYY-MM-DD)"
+        - name: search
+          in: query
+          schema: { type: string }
+          description: "Поиск по названию (title)"
+        - name: with_offers
+          in: query
+          schema: { type: boolean }
+          description: "true — только грузы, у которых есть хотя бы один оффер"
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+          description: "Номер страницы (с 1)"
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+          description: "Записей на странице (макс. 100)"
+        - name: sort
+          in: query
+          schema: { type: string, example: "created_at:desc" }
+          description: "Сортировка (поле:направление), например created_at:desc, weight:asc"
+      responses:
+        "200":
+          description: "data = { items: Cargo[], total: number }"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/CargoListResponse" }
+        "400":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+  /api/cargo/{id}:
+    get:
+      tags: ["Cargo — Водитель", "Cargo — Диспетчер, компания, админ"]
+      summary: "3. Получить груз по ID (карточка)"
+      description: |
+        **Кто вызывает:** Водитель (перед отправкой оффера), диспетчер, компания, админ.
+        **Назначение:** Детальная карточка груза с точками маршрута и блоком оплаты.
+
+        **Логика:** По id возвращается одна запись из cargo; к ней подгружаются все route_points (по point_order) и одна запись payment (если есть). Удалённые грузы не возвращаются (404).
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+          description: "UUID груза"
+      responses:
+        "200":
+          description: "data содержит груз + route_points + payment"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/CargoDetailResponse" }
+        "404":
+          description: "Груз не найден или удалён"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+    put:
+      tags: ["Cargo — Диспетчер, компания, админ"]
+      summary: "4. Обновить груз"
+      description: |
+        **Кто вызывает:** Диспетчер, компания, админ. Водитель не редактирует грузы.
+        **Назначение:** Редактирование груза (поля груза, точки маршрута, оплата).
+
+        **Логика:** Передаются только те поля, которые нужно изменить (частичное обновление). После перехода в статус assigned (и далее) менять маршрут и оплату нельзя — запрос вернёт 400. Можно менять контакт/комментарии. Если переданы route_points — старые точки заменяются на новый набор (при условии что статус ещё не assigned/in_transit/delivered).
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CargoCreateRequest"
+              description: "Любые поля груза + route_points + payment (все опциональны для частичного обновления)"
+      responses:
+        "200":
+          description: "Обновление применено. data.id = id груза."
+        "400":
+          description: "Валидация не прошла или нельзя редактировать после assigned"
+        "404":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+    delete:
+      tags: ["Cargo — Диспетчер, компания, админ"]
+      summary: "5. Удалить груз (soft delete)"
+      description: |
+        **Кто вызывает:** Диспетчер, компания, админ.
+        **Назначение:** Мягкое удаление груза (deleted_at). В списках и по ID такой груз больше не возвращается.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: "Груз помечен удалённым"
+        "400":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+  /api/cargo/{id}/status:
+    patch:
+      tags: ["Cargo — Диспетчер, компания, админ"]
+      summary: "6. Изменить статус груза"
+      description: |
+        **Кто вызывает:** Диспетчер, компания, админ. Водитель статусы груза не меняет.
+        **Назначение:** Смена статуса с проверкой допустимых переходов.
+
+        **Допустимые переходы:** created → searching | cancelled; searching → assigned | cancelled; assigned → in_transit | cancelled; in_transit → delivered; delivered и cancelled — конечные. Любой другой переход вернёт 400.
+
+        **Тело запроса:** Один объект с полем status (значение из enum).
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CargoStatusRequest" }
+      responses:
+        "200":
+          description: "Статус обновлён"
+        "400":
+          description: "Переход недопустим (например delivered → searching)"
+  /api/cargo/{id}/offers:
+    get:
+      tags: ["Cargo — Водитель", "Cargo — Диспетчер, компания, админ"]
+      summary: "7. Список офферов по грузу"
+      description: |
+        **Кто вызывает:** Диспетчер, компания, админ (перед принятием оффера). Водитель может смотреть свои офферы через список грузов или отдельный экран.
+        **Назначение:** Просмотр всех офферов по конкретному грузу.
+
+        **Логика:** Возвращаются все записи из offers с cargo_id = id, отсортированные по created_at (новые сверху). В каждом оффере: id, cargo_id, carrier_id (ID водителя), price, currency, comment, status (pending/accepted/rejected), created_at.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+          description: "UUID груза"
+      responses:
+        "200":
+          description: "data.items — массив офферов"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items: { type: array, items: { $ref: "#/components/schemas/Offer" } }
+    post:
+      tags: ["Cargo — Водитель"]
+      summary: "8. Создать оффер (от перевозчика)"
+      description: |
+        **Кто вызывает:** Водитель (мобильное приложение). Диспетчер/компания офферы не создают от своего имени.
+        **Назначение:** Перевозчик отправляет предложение по грузу: цена, валюта, комментарий. Вызывается после выбора груза из списка (GET /api/cargo?status=searching). В теле carrier_id — ID водителя (из JWT/профиля).
+
+        **Логика:** Создаётся запись в offers с status=pending. carrier_id — это ID водителя из таблицы drivers (рекомендуется подставлять из JWT водителя на бэкенде/клиенте). В ответе data.id — UUID созданного оффера.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+          description: "UUID груза"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OfferCreateRequest" }
+      responses:
+        "201":
+          description: "Оффер создан. data.id — UUID оффера."
+        "400":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+  /api/offers/{id}/accept:
+    post:
+      tags: ["Cargo — Диспетчер, компания, админ"]
+      summary: "9. Принять оффер"
+      description: |
+        **Кто вызывает:** Диспетчер, компания, админ. Водитель офферы не принимает.
+        **Назначение:** Принять выбранный оффер. Статус груза → assigned, у принятого оффера status=accepted, остальные офферы по этому грузу → rejected.
+
+        **Логика:** id в path — это ID оффера. Проверяется, что оффер существует и имеет status=pending. После принятия груз привязан к перевозчику (carrier_id принятого оффера).
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+          description: "UUID оффера"
+      responses:
+        "200":
+          description: "data: cargo_id, offer_id, status=accepted"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          cargo_id: { type: string, format: uuid }
+                          offer_id: { type: string, format: uuid }
+                          status: { type: string, example: "accepted" }
+        "400":
+          description: "Оффер не найден или уже не pending"
+
   /v1/transport-options:
     get:
       tags: [Reference]
-      summary: Типы базовой машины и прицепа
+      summary: "Справочник: типы машины и прицепа"
       description: |
-        Возвращает списки для шага «Тип транспорта»:
-        - **power_plate_type** (тип основной машины): TRUCK (Грузовик + прицеп), TRACTOR (Тягач + полуприцеп).
-        - **trailer_plate_type** зависит от power_plate_type: в ответе объект по ключам TRUCK и TRACTOR.
-        В UI поле trailer_plate_type неактивно до выбора power_plate_type; при смене base_type значение trailer сбрасывается.
+        **Кто вызывает:** Водитель (шаг «Тип транспорта»), любое приложение с базовыми заголовками.
+        **Назначение:** Списки для выбора типа ТС. В ответе: power_plate_types (массив {code, label}), trailer_plate_types_by_power — объект, ключи TRUCK/TRACTOR, значения — массивы типов прицепа. В UI сначала выбирают power_plate_type, затем trailer_plate_type из списка по выбранному ключу.
+        **Данные:** Заголовки X-Device-Type, X-Language, X-Client-Token. Тело не требуется.
       security:
         - DeviceTypeHeader: []
           LanguageHeader: []
@@ -264,7 +782,11 @@ paths:
   /v1/auth/phone:
     post:
       tags: ["Drivers / Auth"]
-      summary: Отправить OTP на телефон (через Telegram Gateway)
+      summary: "Шаг 1. Отправить OTP на телефон"
+      description: |
+        **Кто вызывает:** Водитель (мобильное приложение).
+        **Назначение:** Запрос кода подтверждения. Телефон в формате +998XXXXXXXXX. OTP отправляется через Telegram Gateway. Ответ: status=otp_sent, ttl_seconds. Дальше — ввод кода и вызов /v1/auth/otp/verify.
+        **Данные:** В теле только phone (обязательно).
       requestBody:
         required: true
         content:
@@ -304,10 +826,11 @@ paths:
   /v1/auth/otp/verify:
     post:
       tags: ["Drivers / Auth"]
-      summary: Подтвердить OTP
+      summary: "Шаг 2. Подтвердить OTP"
       description: |
-        - Если `phone` уже существует в `drivers` → ответ `status=login` и выдаются JWT токены.
-        - Если `phone` новый → ответ `status=register` и выдаётся `session_id` (JWT ещё нет).
+        **Кто вызывает:** Водитель (мобильное приложение).
+        **Назначение:** Ввод кода из шага 1. Если номер уже в drivers → status=login и tokens (вход выполнен). Если новый → status=register и session_id для регистрации (POST /v1/registration/start), JWT пока не выдаётся.
+        **Данные:** phone, otp (обязательно).
       requestBody:
         required: true
         content:
@@ -349,13 +872,11 @@ paths:
   /v1/registration/start:
     post:
       tags: ["Drivers / Registration"]
-      summary: Создать профиль водителя (имя + оферта)
+      summary: "Шаг 3. Создать профиль (имя + оферта)"
       description: |
-        Использует `session_id` из `/v1/auth/otp/verify` (для новых пользователей).
-        Создаёт запись в `drivers`:
-        - `registration_status=start`
-        - `registration_step=name-oferta`
-        Возвращает JWT токены для продолжения регистрации.
+        **Кто вызывает:** Водитель (мобильное приложение), после otp/verify при status=register.
+        **Назначение:** Создание записи в drivers: registration_status=start, registration_step=name-oferta. В ответе — tokens и объект driver; дальше все запросы с X-User-Token.
+        **Данные:** session_id (из otp/verify), name, oferta_accepted (обязательно).
       requestBody:
         required: true
         content:
@@ -390,7 +911,10 @@ paths:
   /v1/profile:
     get:
       tags: ["Drivers / Profile"]
-      summary: Получить профиль (все поля) текущего водителя
+      summary: "Получить профиль водителя"
+      description: |
+        **Кто вызывает:** Водитель (мобильное приложение). Обязателен X-User-Token (JWT).
+        **Назначение:** Получение текущего профиля — все поля водителя (id, phone, name, паспорт, ТС, прицеп, registration_step, work_status и т.д.). В ответе data — объект driver.
       security:
         - DeviceTypeHeader: []
           LanguageHeader: []
@@ -409,9 +933,10 @@ paths:
               schema: { $ref: "#/components/schemas/Envelope" }
     delete:
       tags: ["Drivers / Profile"]
-      summary: Удалить профиль (жёстко) с архивацией
+      summary: "Удалить профиль водителя"
       description: |
-        Удаляет строку из `drivers` и переносит данные в `deleted_drivers`.
+        **Кто вызывает:** Водитель (мобильное приложение). Обязателен X-User-Token.
+        **Назначение:** Жёсткое удаление аккаунта: запись переносится в deleted_drivers, из drivers удаляется.
       security:
         - DeviceTypeHeader: []
           LanguageHeader: []
@@ -437,9 +962,11 @@ paths:
   /v1/profile/driver:
     patch:
       tags: ["Drivers / Profile"]
-      summary: Редактировать данные водителя
+      summary: "Редактировать данные водителя (имя, статус, паспорт)"
       description: |
-        Изменяет только поля: `name`, `work_status`, `driver_passport_series`, `driver_passport_number`, `driver_pinfl`.
+        **Кто вызывает:** Водитель (мобильное приложение). X-User-Token обязателен.
+        **Назначение:** Частичное обновление: name, work_status (available/loaded/busy), driver_passport_series, driver_passport_number, driver_pinfl. Остальные поля не меняются.
+        **Данные:** В теле только те поля, которые нужно изменить.
       security:
         - DeviceTypeHeader: []
           LanguageHeader: []
@@ -470,10 +997,11 @@ paths:
   /v1/profile/heartbeat:
     put:
       tags: ["Drivers / Profile"]
-      summary: Heartbeat (обновить гео и last_online_at)
+      summary: "Обновить гео и время последней активности"
       description: |
-        Обновляет `latitude`, `longitude`, `last_online_at`.
-        Все 3 параметра обязательны.
+        **Кто вызывает:** Водитель (мобильное приложение). X-User-Token обязателен.
+        **Назначение:** Обновление координат и last_online_at в профиле водителя. Все три параметра обязательны.
+        **Данные:** latitude, longitude, last_online_at (RFC3339).
       security:
         - DeviceTypeHeader: []
           LanguageHeader: []
@@ -500,11 +1028,11 @@ paths:
   /v1/profile/phone-change/request:
     post:
       tags: ["Drivers / Profile"]
-      summary: Сменить телефон — запрос OTP
+      summary: "Смена телефона — запрос OTP"
       description: |
-        Принимает `new_phone` в формате `+998XXXXXXXXX`.
-        - Если номер уже есть в `drivers` → ошибка "уже зарегистрирован".
-        - Если номера нет → отправляет OTP через Telegram Gateway и возвращает `session_id`.
+        **Кто вызывает:** Водитель (мобильное приложение). X-User-Token обязателен.
+        **Назначение:** Запрос OTP на новый номер. Если номер уже занят — ошибка. Иначе OTP отправлен, возвращается session_id для шага verify.
+        **Данные:** new_phone (обязательно, формат +998XXXXXXXXX).
       security:
         - DeviceTypeHeader: []
           LanguageHeader: []
@@ -529,11 +1057,11 @@ paths:
   /v1/profile/phone-change/verify:
     post:
       tags: ["Drivers / Profile"]
-      summary: Сменить телефон — подтверждение OTP
+      summary: "Смена телефона — подтверждение OTP"
       description: |
-        Принимает `session_id` и `otp`.
-        - Если всё верно → обновляет `drivers.phone`.
-        - Если неверно → ничего не меняет и возвращает ошибку (session/otp).
+        **Кто вызывает:** Водитель (мобильное приложение). X-User-Token обязателен.
+        **Назначение:** Подтверждение смены телефона. Передаёте session_id из request и otp. При успехе обновляется drivers.phone; при ошибке — сообщение об ошибке.
+        **Данные:** session_id, otp (обязательно).
       security:
         - DeviceTypeHeader: []
           LanguageHeader: []
@@ -559,7 +1087,11 @@ paths:
   /v1/profile/power:
     patch:
       tags: ["Drivers / Profile"]
-      summary: Редактировать данные Power Unit
+      summary: "Редактировать данные тягача (Power Unit)"
+      description: |
+        **Кто вызывает:** Водитель (мобильное приложение). X-User-Token обязателен.
+        **Назначение:** Обновление полей тягача: power_plate_number, power_tech_series, power_tech_number, power_owner_id, power_owner_name, power_scan_status.
+        **Данные:** В теле только изменяемые поля тягача.
       security:
         - DeviceTypeHeader: []
           LanguageHeader: []
@@ -588,7 +1120,11 @@ paths:
   /v1/profile/trailer:
     patch:
       tags: ["Drivers / Profile"]
-      summary: Редактировать данные Trailer Unit
+      summary: "Редактировать данные прицепа (Trailer Unit)"
+      description: |
+        **Кто вызывает:** Водитель (мобильное приложение). X-User-Token обязателен.
+        **Назначение:** Обновление полей прицепа: trailer_plate_number, trailer_tech_series, trailer_tech_number, trailer_owner_id, trailer_owner_name, trailer_scan_status.
+        **Данные:** В теле только изменяемые поля прицепа.
       security:
         - DeviceTypeHeader: []
           LanguageHeader: []
@@ -617,11 +1153,11 @@ paths:
   /v1/registration/geo-push:
     patch:
       tags: ["Drivers / Registration"]
-      summary: Указать гео (и опционально push)
+      summary: "Шаг 4. Указать гео и push-токен"
       description: |
-        - Если переданы `latitude` и `longitude` → `registration_step=geo-push` (если уже `transport-type`, шаг не понижается).
-        - Если гео не передано → шаг не меняется (no-op).
-        - Если передан `push_token` → он сохраняется в `drivers.push_token` (даже если гео не передано).
+        **Кто вызывает:** Водитель (мобильное приложение). X-User-Token обязателен.
+        **Назначение:** При передаче latitude и longitude — registration_step переводится в geo-push (если ещё не transport-type). push_token сохраняется в любом случае. Без гео шаг не меняется.
+        **Данные:** latitude, longitude (опц.), push_token (опц.).
       security:
         - DeviceTypeHeader: []
           LanguageHeader: []
@@ -657,16 +1193,11 @@ paths:
   /v1/registration/transport-type:
     patch:
       tags: ["Drivers / Registration"]
-      summary: Выбрать тип водителя/транспорта
+      summary: "Шаг 5. Выбрать тип транспорта"
       description: |
-        Для завершения этапа **обязательны**:
-        - `driver_type` (enum)
-        - `power_plate_type`
-        - `trailer_plate_type`
-
-        После успешного заполнения:
-        - `registration_step=transport-type`
-        - `registration_status=basic`
+        **Кто вызывает:** Водитель (мобильное приложение). X-User-Token обязателен.
+        **Назначение:** Указание типа водителя и ТС. После успешного запроса: registration_step=transport-type, registration_status=basic. Справочники кодов: GET /v1/transport-options.
+        **Данные:** driver_type (company/freelancer/driver), power_plate_type, trailer_plate_type (обязательно); freelancer_id, company_id (опц.).
       security:
         - DeviceTypeHeader: []
           LanguageHeader: []
@@ -707,14 +1238,11 @@ paths:
   /v1/kyc:
     patch:
       tags: ["Drivers / KYC"]
-      summary: Отправить KYC поля (паспорт + техпаспорта)
+      summary: "Отправить KYC (паспорт, ТС, прицеп)"
       description: |
-        Выставляет `registration_status=full` только когда:
-        - заполнены серия/номер паспорта и PINFL
-        - `driver_scan_status=true`
-        - заполнены поля power unit + `power_owner_id`, `power_owner_name` + `power_scan_status=true`
-        - заполнены поля trailer unit + `trailer_owner_id`, `trailer_owner_name` + `trailer_scan_status=true`
-        - передан `driver_owner` (true/false)
+        **Кто вызывает:** Водитель (мобильное приложение). X-User-Token обязателен.
+        **Назначение:** Загрузка документов: driver_data (паспорт, PINFL, driver_scan_status), power_data (тягач: номер, техпаспорт, владелец, power_scan_status), trailer_data (прицеп — то же или не указывать), driver_owner (true/false). registration_status=full выставляется только при полном и подтверждённом заполнении (scan_status=true где нужно).
+        **Данные:** driver_owner, driver_data, power_data, trailer_data (все блоки обязательны).
       security:
         - DeviceTypeHeader: []
           LanguageHeader: []
@@ -777,7 +1305,11 @@ paths:
   /v1/auth/refresh:
     post:
       tags: ["Drivers / Auth"]
-      summary: Обновить JWT токены (rotation)
+      summary: "Обновить JWT токены"
+      description: |
+        **Кто вызывает:** Водитель (мобильное приложение) или любой клиент с истёкшим access_token.
+        **Назначение:** Выдача новой пары токенов по refresh_token. В ответе — tokens (access_token, refresh_token, expires_in).
+        **Данные:** refresh_token (обязательно).
       requestBody:
         required: true
         content:
@@ -806,7 +1338,11 @@ paths:
   /v1/auth/logout:
     post:
       tags: ["Drivers / Auth"]
-      summary: Выход (отзыв refresh token)
+      summary: "Выход (отзыв refresh token)"
+      description: |
+        **Кто вызывает:** Водитель (мобильное приложение).
+        **Назначение:** Инвалидация refresh_token. После вызова этот refresh_token больше нельзя использовать для /v1/auth/refresh.
+        **Данные:** refresh_token (обязательно).
       requestBody:
         required: true
         content:
@@ -830,7 +1366,10 @@ paths:
   /v1/dispatchers/auth/phone:
     post:
       tags: ["Freelance Dispatchers / Auth"]
-      summary: Отправить OTP на телефон диспетчера
+      summary: "Шаг 1. Отправить OTP на телефон"
+      description: |
+        **Поток:** Ввод телефона в формате +998XXXXXXXXX → запрос отправляет OTP через Telegram Gateway. Код приходит в Telegram/смс. Используется и для входа (существующий диспетчер), и для регистрации (новый номер). Ответ: status=otp_sent, ttl_seconds.
+        **Данные:** В теле только phone (обязательно).
       requestBody:
         required: true
         content:
@@ -857,10 +1396,10 @@ paths:
   /v1/dispatchers/auth/otp/verify:
     post:
       tags: ["Freelance Dispatchers / Auth"]
-      summary: Подтвердить OTP диспетчера
+      summary: "Шаг 2. Подтвердить OTP"
       description: |
-        Если телефон уже в freelance_dispatchers → status=login + tokens.
-        Если новый → status=register + session_id для registration/complete.
+        **Поток:** Передаёте phone и otp (код из шага 1). Если диспетчер уже зарегистрирован → в ответе status=login и tokens (access_token, refresh_token) — вход выполнен. Если телефон новый → status=register и session_id — переходите к регистрации (POST /v1/dispatchers/registration/complete), JWT пока не выдаётся.
+        **Данные:** phone, otp (обязательно).
       requestBody:
         required: true
         content:
@@ -892,7 +1431,10 @@ paths:
   /v1/dispatchers/auth/login/password:
     post:
       tags: ["Freelance Dispatchers / Auth"]
-      summary: Вход по телефону и паролю
+      summary: "Вход по паролю (без OTP)"
+      description: |
+        **Поток:** Для уже зарегистрированного диспетчера. Передаёте phone и password → в ответе tokens. Дальше все запросы к профилю и т.д. с заголовком X-User-Token = access_token.
+        **Данные:** phone, password (обязательно).
       requestBody:
         required: true
         content:
@@ -972,10 +1514,10 @@ paths:
   /v1/dispatchers/registration/complete:
     post:
       tags: ["Freelance Dispatchers / Registration"]
-      summary: Завершить регистрацию диспетчера
+      summary: "Шаг 3. Завершить регистрацию (имя, пароль, паспорт)"
       description: |
-        Использует session_id из /v1/dispatchers/auth/otp/verify.
-        Обязательны: name, password, passport_series, passport_number, pinfl.
+        **Поток:** Вызывается после otp/verify, когда получен status=register и session_id. В теле передаёте session_id (обязательно), name, password, passport_series, passport_number, pinfl (все обязательны), photo (опционально). Создаётся запись в freelance_dispatchers, в ответе — tokens и объект dispatcher. После этого диспетчер может входить по phone+password или по OTP.
+        **Данные:** session_id, name, password, passport_series, passport_number, pinfl; опционально photo.
       requestBody:
         required: true
         content:
@@ -1008,7 +1550,9 @@ paths:
   /v1/dispatchers/profile:
     get:
       tags: ["Freelance Dispatchers / Profile"]
-      summary: Получить профиль текущего диспетчера
+      summary: "Получить профиль диспетчера"
+      description: |
+        **Поток:** Запрос с заголовком X-User-Token (JWT access_token). В ответе data.dispatcher — объект диспетчера (id, name, phone, паспорт, pinfl, work_status, rating и т.д.).
       security:
         - DeviceTypeHeader: []
           LanguageHeader: []
@@ -1161,7 +1705,10 @@ paths:
   /v1/admin/auth/login/password:
     post:
       tags: ["Admin / Auth"]
-      summary: Admin login (login + password)
+      summary: "Вход админа (логин + пароль)"
+      description: |
+        **Поток:** Передаёте login и password из таблицы admins. В ответе — tokens (access_token, refresh_token) и объект admin (id, login, name, status, type). Для вызова методов Admin / Companies передавайте заголовок X-User-Token = access_token.
+        **Данные:** login, password (обязательно).
       requestBody:
         required: true
         content:
@@ -1196,7 +1743,9 @@ paths:
   /v1/admin/companies:
     post:
       tags: ["Admin / Companies"]
-      summary: Создать компанию (только admin)
+      summary: "Создать компанию (только админ)"
+      description: |
+        **Поток:** Вызывается только с JWT админа (X-User-Token). В теле передаёте name (обязательно), остальные поля опциональны: inn, address, phone, email, website, license_number, status, лимиты (max_vehicles, max_drivers, max_cargo, max_dispatchers, max_managers, max_top_dispatchers, max_top_managers). Создаётся одна запись в таблице companies. При создании поле **status** по умолчанию **active**, если не передан иной (далее можно сменить на inactive, blocked, pending). В ответе — status и company_id (UUID новой компании). Лимиты задают квоты для этой компании.
       security:
         - DeviceTypeHeader: []
           LanguageHeader: []

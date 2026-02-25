@@ -114,6 +114,7 @@ const swaggerHTML = `<!doctype html>
       <button class="btn" data-group="drivers">Drivers Mobile</button>
       <button class="btn" data-group="dispatchers">Freelance Dispatchers</button>
       <button class="btn" data-group="admin">Admin</button>
+      <button class="btn" data-group="cargo">Cargo API</button>
     </div>
     <div id="swagger-ui"></div>
     <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
@@ -246,6 +247,8 @@ const swaggerHTML = `<!doctype html>
           'Freelance Dispatchers / Profile',
           'Admin / Auth',
           'Admin / Companies',
+          'Cargo — Водитель',
+          'Cargo — Диспетчер, компания, админ',
           'Reference',
         ];
         function tagIndex(t) {
@@ -255,7 +258,7 @@ const swaggerHTML = `<!doctype html>
         }
 
         function normalizeGroup(g) {
-          if (g === 'drivers' || g === 'dispatchers' || g === 'admin') return g;
+          if (g === 'drivers' || g === 'dispatchers' || g === 'admin' || g === 'cargo') return g;
           return 'drivers';
         }
 
@@ -271,9 +274,11 @@ const swaggerHTML = `<!doctype html>
 
         function isTagInGroup(tag, group) {
           if (!tag) return false;
-          if (group === 'drivers') return tag.startsWith('Drivers /');
-          if (group === 'dispatchers') return tag.startsWith('Freelance Dispatchers /');
-          if (group === 'admin') return tag.startsWith('Admin /');
+          var t = (typeof tag === 'string' ? tag : '').trim();
+          if (group === 'drivers') return t.startsWith('Drivers /');
+          if (group === 'dispatchers') return t.startsWith('Freelance Dispatchers /');
+          if (group === 'admin') return t.startsWith('Admin /');
+          if (group === 'cargo') return t.startsWith('Cargo —');
           return true;
         }
 
