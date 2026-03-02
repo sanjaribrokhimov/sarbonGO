@@ -92,7 +92,7 @@ func (r *Repo) ListMessages(ctx context.Context, conversationID, userID uuid.UUI
 	var err error
 	if cursor == nil || *cursor == uuid.Nil {
 		rows, err = r.pg.Query(ctx, `
-SELECT id, conversation_id, sender_id, body, created_at, updated_at, deleted_at
+SELECT m.id, m.conversation_id, m.sender_id, m.body, m.created_at, m.updated_at, m.deleted_at
 FROM chat_messages m
 JOIN chat_conversations c ON c.id = m.conversation_id AND (c.user_a_id = $2 OR c.user_b_id = $2)
 WHERE m.conversation_id = $1 AND m.deleted_at IS NULL

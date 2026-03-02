@@ -299,3 +299,23 @@ func (h *DispatcherAuthHandler) ResetPasswordConfirm(c *gin.Context) {
 	}
 	resp.OK(c, gin.H{"status": "ok"})
 }
+
+type dispLogoutReq struct {
+	RefreshToken string `json:"refresh_token" binding:"required"`
+}
+
+// Logout инвалидирует refresh_token (отзыв сессии). Тело: { "refresh_token": "..." }.
+func (h *DispatcherAuthHandler) Logout(c *gin.Context) {
+	var req dispLogoutReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		return
+	}
+	claims, err := h.jwtm.ParseRefresh(strings.TrimSpace(req.RefreshToken))
+	if err != nil {
+		resp.OK(c, gin.H{"status": "ok"})
+		return
+	}
+	_ = h.refresh.Consume(c.Request.Context(), claims.UserID, claims.JTI)
+	resp.OK(c, gin.H{"status": "ok"})
+}

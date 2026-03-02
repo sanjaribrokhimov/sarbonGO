@@ -71,6 +71,8 @@ tags:
       1. POST /v1/dispatchers/auth/reset-password/request (phone) → OTP отправлен, session_id.
       2. POST /v1/dispatchers/auth/reset-password/confirm (session_id, otp, new_password) → пароль обновлён.
 
+      **Logout:** POST /v1/dispatchers/auth/logout (refresh_token) — инвалидация refresh_token; после вызова токен нельзя использовать для обновления.
+
       **Данные в запросах:** phone в формате +998XXXXXXXXX; otp — код из смс/Telegram; password — только при login/password и reset/confirm.
   - name: Freelance Dispatchers / Registration
     description: |
@@ -1639,6 +1641,31 @@ paths:
                   status: { type: string, example: "ok" }
         "401": { description: Сессия/OTP неверны }
         "429": { description: Превышено количество попыток }
+
+  /v1/dispatchers/auth/logout:
+    post:
+      tags: ["Freelance Dispatchers / Auth"]
+      summary: "Выход (отзыв refresh token)"
+      description: |
+        **Кто вызывает:** Freelance-диспетчер (клиент после входа по OTP или по паролю).
+        **Назначение:** Инвалидация refresh_token. После вызова этот refresh_token больше нельзя использовать для обновления пары токенов.
+        **Данные:** refresh_token (обязательно) — тот, что был выдан при login или registration/complete.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token: { type: string, description: "JWT refresh token, выданный при входе" }
+              required: [refresh_token]
+      responses:
+        "200":
+          description: OK (refresh token инвалидирован)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Envelope" }
+        "400": { description: Неверное тело (нет refresh_token) }
 
   /v1/dispatchers/registration/complete:
     post:

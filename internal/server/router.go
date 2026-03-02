@@ -145,6 +145,7 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	v1.POST("/dispatchers/auth/login/password", dispAuthH.LoginPassword)
 	v1.POST("/dispatchers/auth/reset-password/request", dispAuthH.ResetPasswordRequest)
 	v1.POST("/dispatchers/auth/reset-password/confirm", dispAuthH.ResetPasswordConfirm)
+	v1.POST("/dispatchers/auth/logout", dispAuthH.Logout)
 	v1.POST("/dispatchers/registration/complete", dispRegH.Complete)
 
 	// Admin auth (login by password)

@@ -11,14 +11,21 @@ import (
 // tableGenerators returns the map of table name -> generator for GoAdmin.
 func tableGenerators() map[string]table.Generator {
 	return map[string]table.Generator{
-		"companies":             GetCompaniesTable,
-		"admins":                GetOperatorAdminsTable,
-		"drivers":               GetDriversTable,
-		"freelance_dispatchers": GetFreelanceDispatchersTable,
-		"cargo":                 GetCargoTable,
-		"route_points":          GetRoutePointsTable,
+		"companies":              GetCompaniesTable,
+		"admins":                 GetOperatorAdminsTable,
+		"drivers":                GetDriversTable,
+		"freelance_dispatchers":  GetFreelanceDispatchersTable,
+		"cargo":                  GetCargoTable,
+		"route_points":           GetRoutePointsTable,
 		"payments":               GetPaymentsTable,
 		"offers":                 GetOffersTable,
+		"app_users":              GetAppUsersTable,
+		"app_roles":              GetAppRolesTable,
+		"user_company_roles":     GetUserCompanyRolesTable,
+		"invitations":            GetInvitationsTable,
+		"audit_log":              GetAuditLogTable,
+		"chat_conversations":     GetChatConversationsTable,
+		"chat_messages":          GetChatMessagesTable,
 	}
 }
 
@@ -43,6 +50,8 @@ func GetCompaniesTable(ctx *context.Context) (t table.Table) {
 	info.AddField("Max managers", "max_managers", db.Int)
 	info.AddField("Max top dispatchers", "max_top_dispatchers", db.Int)
 	info.AddField("Max top managers", "max_top_managers", db.Int)
+	info.AddField("Owner ID", "owner_id", db.Varchar).FieldFilterable()
+	info.AddField("Company type", "company_type", db.Varchar).FieldFilterable()
 	info.AddField("Rating", "rating", db.Decimal)
 	info.AddField("Completed orders", "completed_orders", db.Int)
 	info.AddField("Cancelled orders", "cancelled_orders", db.Int)
@@ -70,6 +79,8 @@ func GetCompaniesTable(ctx *context.Context) (t table.Table) {
 	formList.AddField("Max managers", "max_managers", db.Int, form.Number).FieldDefault("0")
 	formList.AddField("Max top dispatchers", "max_top_dispatchers", db.Int, form.Number).FieldDefault("0")
 	formList.AddField("Max top managers", "max_top_managers", db.Int, form.Number).FieldDefault("0")
+	formList.AddField("Owner ID", "owner_id", db.Varchar, form.Text)
+	formList.AddField("Company type", "company_type", db.Varchar, form.Text).FieldDefault("Shipper")
 	formList.AddField("Rating", "rating", db.Decimal, form.Text)
 	formList.AddField("Completed orders", "completed_orders", db.Int, form.Number).FieldDefault("0")
 	formList.AddField("Cancelled orders", "cancelled_orders", db.Int, form.Number).FieldDefault("0")
@@ -332,5 +343,167 @@ func GetOffersTable(ctx *context.Context) (t table.Table) {
 	formList.AddField("Comment", "comment", db.Varchar, form.Text)
 	formList.AddField("Status", "status", db.Varchar, form.Text).FieldDefault("pending")
 	formList.SetTable("offers").SetTitle("Offers").SetDescription("Offers")
+	return
+}
+
+// GetAppUsersTable — пользователи приложения (Company TZ: регистрация, владельцы компаний).
+func GetAppUsersTable(ctx *context.Context) (t table.Table) {
+	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
+		SetPrimaryKey("id", db.Varchar))
+	info := t.GetInfo()
+	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("Email", "email", db.Varchar).FieldFilterable()
+	info.AddField("Phone", "phone", db.Varchar).FieldFilterable()
+	info.AddField("First name", "first_name", db.Varchar)
+	info.AddField("Last name", "last_name", db.Varchar)
+	info.AddField("Created at", "created_at", db.Timestamp)
+	info.AddField("Updated at", "updated_at", db.Timestamp)
+	info.SetTable("app_users").SetTitle("App Users").SetDescription("Users (register/login, company owners)")
+
+	formList := t.GetForm()
+	formList.AddField("ID", "id", db.Varchar, form.Default).FieldDisplayButCanNotEditWhenUpdate().FieldDisableWhenCreate()
+	formList.AddField("Email", "email", db.Varchar, form.Text)
+	formList.AddField("Phone", "phone", db.Varchar, form.Text)
+	formList.AddField("Password hash", "password_hash", db.Varchar, form.Password)
+	formList.AddField("First name", "first_name", db.Varchar, form.Text)
+	formList.AddField("Last name", "last_name", db.Varchar, form.Text)
+	formList.SetTable("app_users").SetTitle("App Users").SetDescription("App Users")
+	return
+}
+
+// GetAppRolesTable — роли в компаниях (Owner, CEO, Dispatcher и т.д.).
+func GetAppRolesTable(ctx *context.Context) (t table.Table) {
+	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
+		SetPrimaryKey("id", db.Varchar))
+	info := t.GetInfo()
+	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("Name", "name", db.Varchar).FieldFilterable()
+	info.AddField("Description", "description", db.Varchar)
+	info.SetTable("app_roles").SetTitle("App Roles").SetDescription("Company roles (Owner, CEO, Dispatcher...)")
+
+	formList := t.GetForm()
+	formList.AddField("ID", "id", db.Varchar, form.Default).FieldDisplayButCanNotEditWhenUpdate().FieldDisableWhenCreate()
+	formList.AddField("Name", "name", db.Varchar, form.Text)
+	formList.AddField("Description", "description", db.Varchar, form.Text)
+	formList.SetTable("app_roles").SetTitle("App Roles").SetDescription("App Roles")
+	return
+}
+
+// GetUserCompanyRolesTable — связь пользователь–компания–роль.
+func GetUserCompanyRolesTable(ctx *context.Context) (t table.Table) {
+	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
+		SetPrimaryKey("user_id", db.Varchar))
+	info := t.GetInfo()
+	info.AddField("User ID", "user_id", db.Varchar).FieldSortable().FieldFilterable()
+	info.AddField("Company ID", "company_id", db.Varchar).FieldFilterable()
+	info.AddField("Role ID", "role_id", db.Varchar).FieldFilterable()
+	info.AddField("Assigned by", "assigned_by", db.Varchar)
+	info.AddField("Assigned at", "assigned_at", db.Timestamp)
+	info.SetTable("user_company_roles").SetTitle("User Company Roles").SetDescription("User roles per company")
+
+	formList := t.GetForm()
+	formList.AddField("User ID", "user_id", db.Varchar, form.Text)
+	formList.AddField("Company ID", "company_id", db.Varchar, form.Text)
+	formList.AddField("Role ID", "role_id", db.Varchar, form.Text)
+	formList.AddField("Assigned by", "assigned_by", db.Varchar, form.Text)
+	formList.AddField("Assigned at", "assigned_at", db.Timestamp, form.Datetime)
+	formList.SetTable("user_company_roles").SetTitle("User Company Roles").SetDescription("User Company Roles")
+	return
+}
+
+// GetInvitationsTable — приглашения в компанию.
+func GetInvitationsTable(ctx *context.Context) (t table.Table) {
+	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
+		SetPrimaryKey("id", db.Varchar))
+	info := t.GetInfo()
+	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("Token", "token", db.Varchar).FieldFilterable()
+	info.AddField("Company ID", "company_id", db.Varchar).FieldFilterable()
+	info.AddField("Role ID", "role_id", db.Varchar)
+	info.AddField("Email", "email", db.Varchar).FieldFilterable()
+	info.AddField("Invited by", "invited_by", db.Varchar)
+	info.AddField("Expires at", "expires_at", db.Timestamp)
+	info.AddField("Created at", "created_at", db.Timestamp)
+	info.SetTable("invitations").SetTitle("Invitations").SetDescription("Company invitations")
+
+	formList := t.GetForm()
+	formList.AddField("ID", "id", db.Varchar, form.Default).FieldDisplayButCanNotEditWhenUpdate().FieldDisableWhenCreate()
+	formList.AddField("Token", "token", db.Varchar, form.Text)
+	formList.AddField("Company ID", "company_id", db.Varchar, form.Text)
+	formList.AddField("Role ID", "role_id", db.Varchar, form.Text)
+	formList.AddField("Email", "email", db.Varchar, form.Text)
+	formList.AddField("Invited by", "invited_by", db.Varchar, form.Text)
+	formList.AddField("Expires at", "expires_at", db.Timestamp, form.Datetime)
+	formList.SetTable("invitations").SetTitle("Invitations").SetDescription("Invitations")
+	return
+}
+
+// GetAuditLogTable — журнал аудита (действия в компаниях).
+func GetAuditLogTable(ctx *context.Context) (t table.Table) {
+	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
+		SetPrimaryKey("id", db.Varchar))
+	info := t.GetInfo()
+	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("User ID", "user_id", db.Varchar).FieldFilterable()
+	info.AddField("Company ID", "company_id", db.Varchar).FieldFilterable()
+	info.AddField("Action", "action", db.Varchar).FieldFilterable()
+	info.AddField("Entity type", "entity_type", db.Varchar)
+	info.AddField("Entity ID", "entity_id", db.Varchar)
+	info.AddField("Created at", "created_at", db.Timestamp)
+	info.SetTable("audit_log").SetTitle("Audit Log").SetDescription("Company audit log")
+
+	formList := t.GetForm()
+	formList.AddField("ID", "id", db.Varchar, form.Default).FieldDisplayButCanNotEditWhenUpdate().FieldDisableWhenCreate()
+	formList.AddField("User ID", "user_id", db.Varchar, form.Text)
+	formList.AddField("Company ID", "company_id", db.Varchar, form.Text)
+	formList.AddField("Action", "action", db.Varchar, form.Text)
+	formList.AddField("Entity type", "entity_type", db.Varchar, form.Text)
+	formList.AddField("Entity ID", "entity_id", db.Varchar, form.Text)
+	formList.SetTable("audit_log").SetTitle("Audit Log").SetDescription("Audit Log")
+	return
+}
+
+// GetChatConversationsTable — диалоги чата.
+func GetChatConversationsTable(ctx *context.Context) (t table.Table) {
+	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
+		SetPrimaryKey("id", db.Varchar))
+	info := t.GetInfo()
+	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("User A ID", "user_a_id", db.Varchar).FieldFilterable()
+	info.AddField("User B ID", "user_b_id", db.Varchar).FieldFilterable()
+	info.AddField("Created at", "created_at", db.Timestamp)
+	info.SetTable("chat_conversations").SetTitle("Chat Conversations").SetDescription("Chat conversations")
+
+	formList := t.GetForm()
+	formList.AddField("ID", "id", db.Varchar, form.Default).FieldDisplayButCanNotEditWhenUpdate().FieldDisableWhenCreate()
+	formList.AddField("User A ID", "user_a_id", db.Varchar, form.Text)
+	formList.AddField("User B ID", "user_b_id", db.Varchar, form.Text)
+	formList.SetTable("chat_conversations").SetTitle("Chat Conversations").SetDescription("Chat Conversations")
+	return
+}
+
+// GetChatMessagesTable — сообщения чата.
+func GetChatMessagesTable(ctx *context.Context) (t table.Table) {
+	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
+		SetPrimaryKey("id", db.Varchar))
+	info := t.GetInfo()
+	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("Conversation ID", "conversation_id", db.Varchar).FieldFilterable()
+	info.AddField("Sender ID", "sender_id", db.Varchar).FieldFilterable()
+	info.AddField("Body", "body", db.Varchar)
+	info.AddField("Created at", "created_at", db.Timestamp)
+	info.AddField("Updated at", "updated_at", db.Timestamp)
+	info.AddField("Deleted at", "deleted_at", db.Timestamp)
+	info.SetTable("chat_messages").SetTitle("Chat Messages").SetDescription("Chat messages")
+
+	formList := t.GetForm()
+	formList.AddField("ID", "id", db.Varchar, form.Default).FieldDisplayButCanNotEditWhenUpdate().FieldDisableWhenCreate()
+	formList.AddField("Conversation ID", "conversation_id", db.Varchar, form.Text)
+	formList.AddField("Sender ID", "sender_id", db.Varchar, form.Text)
+	formList.AddField("Body", "body", db.Varchar, form.Text)
+	formList.AddField("Created at", "created_at", db.Timestamp, form.Datetime)
+	formList.AddField("Updated at", "updated_at", db.Timestamp, form.Datetime)
+	formList.AddField("Deleted at", "deleted_at", db.Timestamp, form.Datetime)
+	formList.SetTable("chat_messages").SetTitle("Chat Messages").SetDescription("Chat Messages")
 	return
 }
