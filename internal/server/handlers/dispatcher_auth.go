@@ -144,8 +144,8 @@ func (h *DispatcherAuthHandler) VerifyOTP(c *gin.Context) {
 		case errors.Is(err, store.ErrOTPMaxAttempts):
 			resp.Error(c, http.StatusTooManyRequests, "otp max attempts exceeded")
 		default:
-			h.logger.Error("otp verify error", zap.Error(err))
-			resp.Error(c, http.StatusInternalServerError, "internal error")
+			h.logger.Error("dispatchers auth otp verify failed", zap.String("path", "dispatchers/auth/otp/verify"), zap.Error(err))
+			resp.Error(c, http.StatusInternalServerError, "verification failed")
 		}
 		return
 	}
@@ -155,6 +155,7 @@ func (h *DispatcherAuthHandler) VerifyOTP(c *gin.Context) {
 		id, _ := uuid.Parse(d.ID)
 		tokens, refreshClaims, err := h.jwtm.Issue("dispatcher", id)
 		if err != nil {
+			h.logger.Error("dispatcher token issue failed", zap.Error(err))
 			resp.Error(c, http.StatusInternalServerError, "token issue failed")
 			return
 		}
@@ -163,8 +164,8 @@ func (h *DispatcherAuthHandler) VerifyOTP(c *gin.Context) {
 		return
 	}
 	if !errors.Is(err, dispatchers.ErrNotFound) {
-		h.logger.Error("find dispatcher by phone failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		h.logger.Error("find dispatcher by phone failed", zap.String("path", "dispatchers/auth/otp/verify"), zap.Error(err))
+		resp.Error(c, http.StatusInternalServerError, "verification failed")
 		return
 	}
 

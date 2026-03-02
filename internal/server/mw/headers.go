@@ -15,6 +15,7 @@ const (
 	HeaderLanguage    = "X-Language"
 	HeaderClientToken = "X-Client-Token"
 	HeaderUserToken   = "X-User-Token"
+	HeaderUserID      = "X-User-ID" // optional; for chat Swagger testing — overrides JWT user when set
 )
 
 func RequireBaseHeaders(cfg config.Config) gin.HandlerFunc {

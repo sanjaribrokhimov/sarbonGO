@@ -10,6 +10,7 @@ import (
 
 	"sarbonNew/internal/admins"
 	"sarbonNew/internal/cargo"
+	"sarbonNew/internal/chat"
 	"sarbonNew/internal/companies"
 	"sarbonNew/internal/config"
 	"sarbonNew/internal/dispatchers"
@@ -93,6 +94,11 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	adminCompaniesH := handlers.NewAdminCompaniesHandler(logger, companiesRepo)
 	cargoH := handlers.NewCargoHandler(logger, cargoRepo, jwtm)
 
+	chatRepo := chat.NewRepo(deps.PG)
+	chatPresence := chat.NewPresenceStore(deps.Redis)
+	chatHub := chat.NewHub(chatPresence, logger)
+	chatH := handlers.NewChatHandler(logger, chatRepo, chatPresence, chatHub)
+
 	v1.POST("/auth/phone", authH.SendOTP)
 	v1.POST("/auth/otp/verify", authH.VerifyOTP)
 	v1.POST("/auth/refresh", authH.Refresh)
@@ -150,6 +156,18 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	adminAuthed := v1.Group("/admin")
 	adminAuthed.Use(mw.RequireAdmin(jwtm))
 	adminAuthed.POST("/companies", adminCompaniesH.Create)
+
+	// Chat (driver, dispatcher, admin): JWT or X-User-ID for Swagger testing; WS supports ?user_id= or ?token=
+	chatGroup := v1.Group("/chat")
+	chatGroup.Use(mw.RequireChatUser(jwtm))
+	chatGroup.GET("/conversations", chatH.ListConversations)
+	chatGroup.POST("/conversations", chatH.GetOrCreateConversation)
+	chatGroup.GET("/conversations/:id/messages", chatH.ListMessages)
+	chatGroup.POST("/conversations/:id/messages", chatH.SendMessage)
+	chatGroup.PATCH("/messages/:id", chatH.EditMessage)
+	chatGroup.DELETE("/messages/:id", chatH.DeleteMessage)
+	chatGroup.GET("/presence/:user_id", chatH.GetPresence)
+	chatGroup.GET("/ws", chatH.ServeWS)
 
 	return r
 }

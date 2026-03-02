@@ -115,6 +115,7 @@ const swaggerHTML = `<!doctype html>
       <button class="btn" data-group="dispatchers">Freelance Dispatchers</button>
       <button class="btn" data-group="admin">Admin</button>
       <button class="btn" data-group="cargo">Cargo API</button>
+      <button class="btn" data-group="chat">Chat</button>
     </div>
     <div id="swagger-ui"></div>
     <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
@@ -122,11 +123,12 @@ const swaggerHTML = `<!doctype html>
       window.onload = () => {
         const LS_PREFIX = 'sarbon_auth_';
         const DOCS_GROUP_KEY = LS_PREFIX + 'docs_group';
-        const K = {
+          const K = {
           DeviceTypeHeader: LS_PREFIX + 'DeviceTypeHeader',
           LanguageHeader: LS_PREFIX + 'LanguageHeader',
           ClientTokenHeader: LS_PREFIX + 'ClientTokenHeader',
           UserTokenHeader: LS_PREFIX + 'UserTokenHeader',
+          UserIDHeader: LS_PREFIX + 'UserIDHeader',
         };
 
         function getLS(key, defVal) {
@@ -249,6 +251,7 @@ const swaggerHTML = `<!doctype html>
           'Admin / Companies',
           'Cargo — Водитель',
           'Cargo — Диспетчер, компания, админ',
+          'Chat',
           'Reference',
         ];
         function tagIndex(t) {
@@ -258,7 +261,7 @@ const swaggerHTML = `<!doctype html>
         }
 
         function normalizeGroup(g) {
-          if (g === 'drivers' || g === 'dispatchers' || g === 'admin' || g === 'cargo') return g;
+          if (g === 'drivers' || g === 'dispatchers' || g === 'admin' || g === 'cargo' || g === 'chat') return g;
           return 'drivers';
         }
 
@@ -279,6 +282,7 @@ const swaggerHTML = `<!doctype html>
           if (group === 'dispatchers') return t.startsWith('Freelance Dispatchers /');
           if (group === 'admin') return t.startsWith('Admin /');
           if (group === 'cargo') return t.startsWith('Cargo —');
+          if (group === 'chat') return t.startsWith('Chat');
           return true;
         }
 
@@ -332,6 +336,8 @@ const swaggerHTML = `<!doctype html>
             if (l) req.headers['X-Language'] = l;
             if (ct) req.headers['X-Client-Token'] = ct;
             if (ut) req.headers['X-User-Token'] = ut;
+            var uid = getLS(K.UserIDHeader, '');
+            if (uid) req.headers['X-User-ID'] = uid;
             return req;
           }
         });
@@ -359,6 +365,7 @@ const swaggerHTML = `<!doctype html>
         const ut = getLS(K.UserTokenHeader, '');
         if (ut) {
           try { window.ui.preauthorizeApiKey('UserTokenHeader', ut); } catch(e) {}
+        try { window.ui.preauthorizeApiKey('UserIDHeader', getLS(K.UserIDHeader, '')); } catch(e) {}
         }
 
         // Initial filter apply (after first paint)

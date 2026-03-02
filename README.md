@@ -33,6 +33,41 @@ go run ./cmd/api
 API: `http://localhost:8080`  
 Swagger UI: `http://localhost:8080/docs`
 
+## Run without Docker
+
+Установи локально **PostgreSQL** и **Redis**, затем проверь доступ:
+
+**PostgreSQL** (в `.env`: `DATABASE_URL=postgres://sarbon:sarbon@localhost:5432/sarbon?sslmode=disable`):
+
+```bash
+# Проверка: подключение к БД (пароль: sarbon)
+psql -h localhost -p 5432 -U sarbon -d sarbon -c "SELECT 1"
+```
+
+Если БД или пользователь ещё не созданы:
+
+```bash
+psql -h localhost -p 5432 -U postgres -c "CREATE USER sarbon WITH PASSWORD 'sarbon';"
+psql -h localhost -p 5432 -U postgres -c "CREATE DATABASE sarbon OWNER sarbon;"
+```
+
+**Redis** (в `.env`: `REDIS_ADDR=localhost:6379`):
+
+```bash
+# Проверка
+redis-cli ping
+# Ожидается: PONG
+```
+
+Дальше как с Docker: настрой `.env`, выполни миграции и запусти API:
+
+```bash
+cp .env.example .env   # и поправь DATABASE_URL / REDIS_ADDR при необходимости
+go run ./cmd/api       # миграции применятся при старте
+```
+
+Проверка API: `curl http://localhost:8080/health` → `{"status":"ok",...}`
+
 ## Notes
 
 - Only one DB table is used: `drivers` (see `migrations/`).

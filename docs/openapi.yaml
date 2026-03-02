@@ -123,6 +123,11 @@ tags:
       Создание грузов, редактирование, смена статусов, просмотр офферов, принятие оффера. Заголовки: X-Device-Type, X-Language, X-Client-Token (JWT не обязателен).
 
       **Методы:** Создать груз (POST /api/cargo) → список и карточка (GET) → редактировать (PUT), удалить (DELETE), сменить статус (PATCH .../status) → список офферов (GET .../offers) → принять оффер (POST /api/offers/:id/accept). Жизненный цикл: created → searching → assigned → in_transit → delivered; отмена из created/searching/assigned.
+  - name: Chat
+    description: |
+      **Универсальный чат (driver ↔ dispatcher и др.)**
+      **Кто вызывает:** Водитель, диспетчер или админ (JWT в X-User-Token). Для тестов в Swagger можно передать **X-User-ID** (UUID пользователя) вместо JWT.
+      **Поток:** GET /v1/chat/conversations → POST /v1/chat/conversations (body peer_id) → GET/POST /v1/chat/conversations/:id/messages. PATCH/DELETE /v1/chat/messages/:id. Presence: GET /v1/chat/presence/:user_id. WebSocket: GET /v1/chat/ws?user_id=UUID или ?token=JWT.
 
 components:
   securitySchemes:
@@ -146,6 +151,11 @@ components:
       in: header
       name: X-User-Token
       description: Для авторизованных действий (JWT access token)
+    UserIDHeader:
+      type: apiKey
+      in: header
+      name: X-User-ID
+      description: 'Для теста чата в Swagger — UUID пользователя (водитель/диспетчер). Подставляется вместо JWT.'
   schemas:
     Envelope:
       type: object
@@ -1785,4 +1795,147 @@ paths:
                   status: { type: string, example: "ok" }
                   company_id: { type: string, format: uuid }
         "400": { description: invalid payload }
+        "401": { description: unauthorized }
+
+  /v1/chat/conversations:
+    get:
+      tags: [Chat]
+      summary: "Список диалогов"
+      description: "Список диалогов текущего пользователя. Авторизация: X-User-Token (JWT) или X-User-ID (UUID для теста в Swagger)."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }, { UserIDHeader: [] }]
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+      responses:
+        "200":
+          description: "data.conversations = [{ id, peer_id, created_at }, ...]"
+        "401": { description: unauthorized }
+    post:
+      tags: [Chat]
+      summary: "Получить или создать диалог с пользователем"
+      description: "body.peer_id — UUID второго участника (водитель/диспетчер). Возвращает id диалога и peer_id."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }, { UserIDHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [peer_id], properties: { peer_id: { type: string, format: uuid } } }
+      responses:
+        "200":
+          description: "data = { id, peer_id, created_at }"
+        "400": { description: invalid peer_id or same user }
+        "401": { description: unauthorized }
+
+  /v1/chat/conversations/{id}/messages:
+    get:
+      tags: [Chat]
+      summary: "История сообщений диалога"
+      description: "Пагинация: cursor = id последнего сообщения из предыдущей страницы, limit (по умолчанию 50)."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }, { UserIDHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: cursor
+          in: query
+          schema: { type: string, format: uuid }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+      responses:
+        "200":
+          description: "data.messages = [Message, ...]"
+        "401": { description: unauthorized }
+    post:
+      tags: [Chat]
+      summary: "Отправить сообщение"
+      description: "body.body — текст сообщения. Сообщение сохраняется и рассылается по WebSocket участникам диалога."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserIDHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [body], properties: { body: { type: string } } }
+      responses:
+        "201":
+          description: "data = Message"
+        "400": { description: invalid body }
+        "401": { description: unauthorized }
+        "404": { description: conversation not found }
+
+  /v1/chat/messages/{id}:
+    patch:
+      tags: [Chat]
+      summary: "Редактировать своё сообщение"
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }, { UserIDHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [body], properties: { body: { type: string } } }
+      responses:
+        "200": { description: "data = Message" }
+        "404": { description: message not found or not yours }
+    delete:
+      tags: [Chat]
+      summary: "Удалить своё сообщение (мягкое удаление)"
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }, { UserIDHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: "data.deleted = true" }
+        "404": { description: message not found or not yours }
+
+  /v1/chat/presence/{user_id}:
+    get:
+      tags: [Chat]
+      summary: "Онлайн / печатает / последний раз в сети"
+      description: "Для user_id возвращает online, last_seen (unix), опционально typing в контексте conversation_id (query)."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }, { UserIDHeader: [] }]
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: conversation_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: "data = { user_id, online, typing?, last_seen? }" }
+        "400": { description: invalid user_id }
+
+  /v1/chat/ws:
+    get:
+      tags: [Chat]
+      summary: "WebSocket чат"
+      description: |
+        Подключение к чату в реальном времени. Авторизация через query: **user_id=UUID** (для теста) или **token=JWT**.
+        После подключения: отправка типа "typing" с data.conversation_id; получение событий "message" и "typing".
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      parameters:
+        - name: user_id
+          in: query
+          description: UUID пользователя (для теста без JWT)
+          schema: { type: string, format: uuid }
+        - name: token
+          in: query
+          description: JWT access token
+          schema: { type: string }
+      responses:
+        "101": { description: Switching Protocols (WebSocket) }
         "401": { description: unauthorized }

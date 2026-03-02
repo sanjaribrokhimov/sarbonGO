@@ -49,6 +49,11 @@ func New(ctx context.Context, cfg config.Config, logger *zap.Logger) (*Infra, er
 		return nil, err
 	}
 
+	if err := EnsureChatTables(ctx, pool); err != nil {
+		pool.Close()
+		return nil, err
+	}
+
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     cfg.RedisAddr,
 		Password: cfg.RedisPassword,
