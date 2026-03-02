@@ -106,9 +106,22 @@ const swaggerHTML = `<!doctype html>
 
       /* Keep content width comfortable */
       .swagger-ui .wrapper { max-width: 1240px; }
+
+      .sarbon-docs-hint {
+        padding: 10px 14px;
+        margin: 0 0 12px 0;
+        background: #f0f9ff;
+        border: 1px solid #bae6fd;
+        border-radius: 8px;
+        font-size: 13px;
+        color: #0c4a6e;
+      }
     </style>
   </head>
   <body>
+    <div class="sarbon-docs-hint" id="sarbon-docs-hint">
+      Заголовки задаются в кнопке <b>Authorize</b>: X-Device-Type (web / ios / android), X-Language (ru / uz / en / tr / zh), X-Client-Token. Один раз выбранные значения действуют для <b>всех разделов</b> (Drivers, Freelance Dispatchers, Admin, Cargo, Chat, Company). Можно выбрать любой язык и любой тип устройства.
+    </div>
     <div class="sarbon-topmenu" role="navigation" aria-label="API groups">
       <div class="brand">Sarbon API</div>
       <button class="btn" data-group="drivers">Drivers Mobile</button>
@@ -116,6 +129,8 @@ const swaggerHTML = `<!doctype html>
       <button class="btn" data-group="admin">Admin</button>
       <button class="btn" data-group="cargo">Cargo API</button>
       <button class="btn" data-group="chat">Chat</button>
+      <button class="btn" data-group="company">Company</button>
+      <button class="btn" data-group="reference">Reference</button>
     </div>
     <div id="swagger-ui"></div>
     <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
@@ -163,50 +178,40 @@ const swaggerHTML = `<!doctype html>
                     }
                   };
 
-                  // Render select for device/language; keep default UI for others.
+                  // Render select for device/language — same options in all sections (any language, any device).
                   if (name === 'DeviceTypeHeader' || name === 'LanguageHeader') {
                     const options = (name === 'DeviceTypeHeader')
                       ? ['web', 'ios', 'android']
                       : ['ru', 'uz', 'en', 'tr', 'zh'];
-
-                    const value = currentVal || getLS(K[name], options[0]);
+                    const label = (name === 'DeviceTypeHeader')
+                      ? 'X-Device-Type (web | ios | android)'
+                      : 'X-Language (ru | uz | en | tr | zh)';
+                    var value = (currentVal && currentVal.toString && currentVal.toString().trim()) || getLS(K[name], '');
+                    if (value === '' || options.indexOf(value) === -1) value = options[0];
 
                     return React.createElement(
                       'div',
                       { className: 'auth-container' },
-                      React.createElement('h4', null, name || schema.get('name'), ' \u00A0(apiKey)'),
+                      React.createElement('h4', null, label),
                       React.createElement(
                         Row,
                         null,
                         React.createElement(
                           Col,
                           null,
-                          React.createElement('div', null,
-                            React.createElement('div', { style: { marginBottom: '6px' } },
-                              React.createElement('b', null, 'Name:'), ' ', schema.get('name')
-                            ),
-                            React.createElement('div', { style: { marginBottom: '6px' } },
-                              React.createElement('b', null, 'In:'), ' ', schema.get('in')
-                            ),
-                            React.createElement('div', { style: { marginBottom: '6px' } },
-                              React.createElement('b', null, 'Value:')
-                            ),
-                            React.createElement(
-                              'select',
-                              {
-                                value: value,
-                                onChange: function(e) { onChangeProxy(e.target.value); },
-                                style: { width: '100%', padding: '8px', borderRadius: '4px' }
-                              },
-                              options.map(function(o) {
-                                return React.createElement('option', { key: o, value: o }, o);
-                              })
-                            ),
-                            schema.get('description')
-                              ? React.createElement('div', { style: { marginTop: '8px' } },
-                                  React.createElement(Markdown, { source: schema.get('description') })
-                                )
-                              : null
+                          React.createElement(
+                            'select',
+                            {
+                              value: value,
+                              onChange: function(e) { onChangeProxy(e.target.value); },
+                              style: { width: '100%', padding: '8px', borderRadius: '4px', maxWidth: '280px' }
+                            },
+                            options.map(function(o) {
+                              return React.createElement('option', { key: o, value: o }, o);
+                            })
+                          ),
+                          React.createElement('div', { style: { marginTop: '6px', fontSize: '12px', color: '#64748b' } },
+                            'Применяется ко всем разделам API.'
                           )
                         )
                       )
@@ -252,7 +257,13 @@ const swaggerHTML = `<!doctype html>
           'Cargo — Водитель',
           'Cargo — Диспетчер, компания, админ',
           'Chat',
+          'Company',
           'Reference',
+          'Reference / Drivers',
+          'Reference / Cargo',
+          'Reference / Company',
+          'Reference / Admin',
+          'Reference / Freelance Dispatchers',
         ];
         function tagIndex(t) {
           const n = tagName(t);
@@ -261,7 +272,7 @@ const swaggerHTML = `<!doctype html>
         }
 
         function normalizeGroup(g) {
-          if (g === 'drivers' || g === 'dispatchers' || g === 'admin' || g === 'cargo' || g === 'chat') return g;
+          if (g === 'drivers' || g === 'dispatchers' || g === 'admin' || g === 'cargo' || g === 'chat' || g === 'company' || g === 'reference') return g;
           return 'drivers';
         }
 
@@ -278,19 +289,29 @@ const swaggerHTML = `<!doctype html>
         function isTagInGroup(tag, group) {
           if (!tag) return false;
           var t = (typeof tag === 'string' ? tag : '').trim();
+          var tLower = t.toLowerCase();
           if (group === 'drivers') return t.startsWith('Drivers /');
           if (group === 'dispatchers') return t.startsWith('Freelance Dispatchers /');
           if (group === 'admin') return t.startsWith('Admin /');
           if (group === 'cargo') return t.startsWith('Cargo —');
           if (group === 'chat') return t.startsWith('Chat');
+          if (group === 'company') return t.startsWith('Company') || tLower === 'company' || tLower.startsWith('company ');
+          if (group === 'reference') return t.startsWith('Reference');
           return true;
+        }
+
+        function getSectionTagName(sec) {
+          const tagBtn = sec.querySelector('.opblock-tag');
+          if (!tagBtn) return (sec.querySelector('h3') && sec.querySelector('h3').textContent) || '';
+          var name = tagBtn.getAttribute('data-tag');
+          if (name) return name.trim();
+          return (tagBtn.textContent || '').trim().replace(/\s*\(\d+\)\s*$/, '');
         }
 
         function applyGroupFilter(group) {
           const sections = document.querySelectorAll('#swagger-ui .opblock-tag-section');
           sections.forEach((sec) => {
-            const tagBtn = sec.querySelector('.opblock-tag');
-            const t = (tagBtn && tagBtn.textContent ? tagBtn.textContent : '').trim();
+            const t = getSectionTagName(sec);
             sec.style.display = isTagInGroup(t, group) ? '' : 'none';
           });
         }
@@ -365,8 +386,8 @@ const swaggerHTML = `<!doctype html>
         const ut = getLS(K.UserTokenHeader, '');
         if (ut) {
           try { window.ui.preauthorizeApiKey('UserTokenHeader', ut); } catch(e) {}
-        try { window.ui.preauthorizeApiKey('UserIDHeader', getLS(K.UserIDHeader, '')); } catch(e) {}
         }
+        try { window.ui.preauthorizeApiKey('UserIDHeader', getLS(K.UserIDHeader, '')); } catch(e) {}
 
         // Initial filter apply (after first paint)
         setTimeout(() => setGroup(initialGroup), 0);

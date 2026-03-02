@@ -4,7 +4,13 @@ info:
   version: 0.1.0
   description: |
     Полное руководство по API: потоки (flow), логика, данные для каждой категории.
-    **Категории:** Drivers (водители), Freelance Dispatchers (диспетчеры), Admin (админ), Cargo API (грузы и офферы), Reference (справочники).
+
+    **Использование (Swagger):**
+    1. Нажмите **Authorize** и задайте заголовки: **X-Device-Type** (web / ios / android), **X-Language** (ru / uz / en / tr / zh), **X-Client-Token**. Эти значения действуют для всех разделов — можно выбрать любой язык и любой тип устройства.
+    2. Для защищённых методов дополнительно укажите **X-User-Token** (JWT после входа).
+    3. Вкладки сверху (Drivers Mobile, Freelance Dispatchers, Admin, Cargo API, Chat, Company) фильтруют методы по категориям.
+
+    **Категории:** Drivers (водители), Freelance Dispatchers (диспетчеры), Admin (админ), Cargo API (грузы и офферы), Chat, Company, Reference (справочники).
     В каждом теге вверху — описание потока и ролей; у каждого метода — назначение, логика и что передавать/получать.
 
 servers:
@@ -104,11 +110,34 @@ tags:
       **Поток и данные:** POST /v1/admin/companies — создание компании. В теле передаётся name (обязательно), inn, address, phone, email, website, license_number, status (по умолчанию active), лимиты (max_vehicles, max_drivers, max_cargo, max_dispatchers, max_managers, max_top_dispatchers, max_top_managers). В ответе — status и company_id (UUID новой компании). Логика: одна запись в таблице companies; лимиты задают квоты; статус новой компании по умолчанию active.
   - name: Reference
     description: |
-      **Руководство: Справочники**
+      **Руководство: Справочники (общие)**
 
-      **Кто вызывает:** Водитель (мобильное приложение) на шаге выбора типа транспорта; любой клиент с базовыми заголовками.
+      GET /v1/transport-options — типы машины и прицепа для водителя. Остальные справочники — по категориям ниже (Reference / Drivers, Cargo, Company, Admin, Freelance Dispatchers).
+  - name: "Reference / Drivers"
+    description: |
+      **Справочник для раздела Drivers (водители).** Все допустимые значения статусов и типов — чтобы фронт и мобилка не спрашивали «какие статусы есть».
 
-      **Поток:** GET /v1/transport-options возвращает power_plate_types (типы базовой машины: TRUCK, TRACTOR и др.) и trailer_plate_types_by_power — для каждого типа машины список допустимых типов прицепа (TRUCK → прицепы, TRACTOR → полуприцепы). В UI сначала выбирают power_plate_type, затем trailer_plate_type из соответствующего списка.
+      **GET /v1/reference/drivers** возвращает: registration_step (name-oferta, geo-push, transport-type), registration_status (start, basic, full), driver_type (company, freelancer, driver), work_status (available, loaded, busy), power_plate_types, trailer_plate_types_by_power (TRUCK/TRACTOR → списки прицепов).
+  - name: "Reference / Cargo"
+    description: |
+      **Справочник для раздела Cargo (грузы).** Все статусы груза, точки маршрута, офферы, типы создателя, типы ТС.
+
+      **GET /v1/reference/cargo** возвращает: cargo_status (created, searching, assigned, in_transit, delivered, cancelled), route_point_type (load, unload, customs, transit), offer_status (pending, accepted, rejected), created_by_type (admin, dispatcher, company), truck_type (refrigerator, tent, flatbed, tanker, other).
+  - name: "Reference / Company"
+    description: |
+      **Справочник для раздела Company.** Типы компании, статусы компании, роли (с id и описанием) для приглашений и назначений.
+
+      **GET /v1/reference/company** возвращает: company_type (Shipper, Broker, Fleet, OwnerOperator), company_status (active, inactive, blocked, pending), roles — массив {id, name, description} из БД (Owner, CEO, TopDispatcher, Dispatcher, TopManager, Manager, Carrier, Driver).
+  - name: "Reference / Admin"
+    description: |
+      **Справочник для раздела Admin.** Статусы и типы админа.
+
+      **GET /v1/reference/admin** возвращает: admin_status (active, inactive, blocked), admin_type (creator, operator).
+  - name: "Reference / Freelance Dispatchers"
+    description: |
+      **Справочник для раздела Freelance Dispatchers.** Статусы диспетчера.
+
+      **GET /v1/reference/dispatchers** возвращает: work_status (available, busy, offline).
   - name: "Cargo — Водитель"
     description: |
       **Запросы для водителя (мобильное приложение)**
@@ -128,6 +157,10 @@ tags:
       **Универсальный чат (driver ↔ dispatcher и др.)**
       **Кто вызывает:** Водитель, диспетчер или админ (JWT в X-User-Token). Для тестов в Swagger можно передать **X-User-ID** (UUID пользователя) вместо JWT.
       **Поток:** GET /v1/chat/conversations → POST /v1/chat/conversations (body peer_id) → GET/POST /v1/chat/conversations/:id/messages. PATCH/DELETE /v1/chat/messages/:id. Presence: GET /v1/chat/presence/:user_id. WebSocket: GET /v1/chat/ws?user_id=UUID или ?token=JWT.
+  - name: Company
+    description: |
+      **Компании по ТЗ (раздел 7.1).** Регистрация и вход пользователей, создание компаний (пользователь становится Owner), приглашения, роли, переключение компании.
+      **Заголовки:** Обязательны X-Device-Type, X-Language, X-Client-Token для всех запросов. Для защищённых методов — X-User-Token (JWT после /v1/auth/login или /v1/auth/register).
 
 components:
   securitySchemes:
@@ -135,12 +168,12 @@ components:
       type: apiKey
       in: header
       name: X-Device-Type
-      description: 'Обязателен для всех API-запросов: ios | android | web'
+      description: 'Обязателен для всех запросов. Допустимые значения: web, ios, android. Один раз выбранное значение действует для всех разделов (Drivers, Freelance Dispatchers, Admin, Cargo, Chat, Company).'
     LanguageHeader:
       type: apiKey
       in: header
       name: X-Language
-      description: 'Обязателен для всех API-запросов: ru | uz | en | tr | zh'
+      description: 'Обязателен для всех запросов. Допустимые значения: ru, uz, en, tr, zh. Один раз выбранное значение действует для всех разделов (любой язык в любом разделе).'
     ClientTokenHeader:
       type: apiKey
       in: header
@@ -276,6 +309,51 @@ components:
             items:
               $ref: "#/components/schemas/TrailerPlateOption"
       required: [power_plate_types, trailer_plate_types_by_power]
+    ItemWithLabel:
+      type: object
+      description: Элемент справочника (value — код для API, label — подпись для UI).
+      properties:
+        value: { type: string }
+        label: { type: string }
+    RoleRef:
+      type: object
+      description: Роль в компании (из app_roles).
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+    ReferenceDriversResponse:
+      type: object
+      properties:
+        registration_step: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
+        registration_status: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
+        driver_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
+        work_status: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
+        power_plate_types: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
+        trailer_plate_types_by_power: { type: object, additionalProperties: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } } }
+    ReferenceCargoResponse:
+      type: object
+      properties:
+        cargo_status: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
+        route_point_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
+        offer_status: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
+        created_by_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
+        truck_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
+    ReferenceCompanyResponse:
+      type: object
+      properties:
+        company_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
+        company_status: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
+        roles: { type: array, items: { $ref: "#/components/schemas/RoleRef" } }
+    ReferenceAdminResponse:
+      type: object
+      properties:
+        admin_status: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
+        admin_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
+    ReferenceDispatchersResponse:
+      type: object
+      properties:
+        work_status: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
     Cargo:
       type: object
       description: "Запись груза (таблица cargo). Возвращается в списках и в карточке."
@@ -768,10 +846,7 @@ paths:
         **Кто вызывает:** Водитель (шаг «Тип транспорта»), любое приложение с базовыми заголовками.
         **Назначение:** Списки для выбора типа ТС. В ответе: power_plate_types (массив {code, label}), trailer_plate_types_by_power — объект, ключи TRUCK/TRACTOR, значения — массивы типов прицепа. В UI сначала выбирают power_plate_type, затем trailer_plate_type из списка по выбранному ключу.
         **Данные:** Заголовки X-Device-Type, X-Language, X-Client-Token. Тело не требуется.
-      security:
-        - DeviceTypeHeader: []
-          LanguageHeader: []
-          ClientTokenHeader: []
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
       responses:
         "200":
           description: OK
@@ -788,6 +863,94 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
+
+  /v1/reference/drivers:
+    get:
+      tags: ["Reference / Drivers"]
+      summary: "Справочник Drivers — статусы, типы, шаги регистрации"
+      description: "Все допустимые значения для раздела водителей. Фронт и мобилка могут вызывать один раз и кэшировать."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/ReferenceDriversResponse" }
+
+  /v1/reference/cargo:
+    get:
+      tags: ["Reference / Cargo"]
+      summary: "Справочник Cargo — статусы груза, точки, офферы, типы ТС"
+      description: "Все допустимые значения для раздела грузов."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/ReferenceCargoResponse" }
+
+  /v1/reference/company:
+    get:
+      tags: ["Reference / Company"]
+      summary: "Справочник Company — типы компании, статусы, роли"
+      description: "Роли возвращаются из БД (id, name, description). Используйте role_id при приглашении и смене роли."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/ReferenceCompanyResponse" }
+
+  /v1/reference/admin:
+    get:
+      tags: ["Reference / Admin"]
+      summary: "Справочник Admin — статусы и типы админа"
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/ReferenceAdminResponse" }
+
+  /v1/reference/dispatchers:
+    get:
+      tags: ["Reference / Freelance Dispatchers"]
+      summary: "Справочник Freelance Dispatchers — work_status"
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/ReferenceDispatchersResponse" }
 
   /v1/auth/phone:
     post:
@@ -925,11 +1088,7 @@ paths:
       description: |
         **Кто вызывает:** Водитель (мобильное приложение). Обязателен X-User-Token (JWT).
         **Назначение:** Получение текущего профиля — все поля водителя (id, phone, name, паспорт, ТС, прицеп, registration_step, work_status и т.д.). В ответе data — объект driver.
-      security:
-        - DeviceTypeHeader: []
-          LanguageHeader: []
-          ClientTokenHeader: []
-          UserTokenHeader: []
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       responses:
         "200":
           description: OK
@@ -947,11 +1106,7 @@ paths:
       description: |
         **Кто вызывает:** Водитель (мобильное приложение). Обязателен X-User-Token.
         **Назначение:** Жёсткое удаление аккаунта: запись переносится в deleted_drivers, из drivers удаляется.
-      security:
-        - DeviceTypeHeader: []
-          LanguageHeader: []
-          ClientTokenHeader: []
-          UserTokenHeader: []
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       responses:
         "200":
           description: OK
@@ -977,11 +1132,7 @@ paths:
         **Кто вызывает:** Водитель (мобильное приложение). X-User-Token обязателен.
         **Назначение:** Частичное обновление: name, work_status (available/loaded/busy), driver_passport_series, driver_passport_number, driver_pinfl. Остальные поля не меняются.
         **Данные:** В теле только те поля, которые нужно изменить.
-      security:
-        - DeviceTypeHeader: []
-          LanguageHeader: []
-          ClientTokenHeader: []
-          UserTokenHeader: []
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
         content:
@@ -1012,11 +1163,7 @@ paths:
         **Кто вызывает:** Водитель (мобильное приложение). X-User-Token обязателен.
         **Назначение:** Обновление координат и last_online_at в профиле водителя. Все три параметра обязательны.
         **Данные:** latitude, longitude, last_online_at (RFC3339).
-      security:
-        - DeviceTypeHeader: []
-          LanguageHeader: []
-          ClientTokenHeader: []
-          UserTokenHeader: []
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
         content:
@@ -1043,11 +1190,7 @@ paths:
         **Кто вызывает:** Водитель (мобильное приложение). X-User-Token обязателен.
         **Назначение:** Запрос OTP на новый номер. Если номер уже занят — ошибка. Иначе OTP отправлен, возвращается session_id для шага verify.
         **Данные:** new_phone (обязательно, формат +998XXXXXXXXX).
-      security:
-        - DeviceTypeHeader: []
-          LanguageHeader: []
-          ClientTokenHeader: []
-          UserTokenHeader: []
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
         content:
@@ -1072,11 +1215,7 @@ paths:
         **Кто вызывает:** Водитель (мобильное приложение). X-User-Token обязателен.
         **Назначение:** Подтверждение смены телефона. Передаёте session_id из request и otp. При успехе обновляется drivers.phone; при ошибке — сообщение об ошибке.
         **Данные:** session_id, otp (обязательно).
-      security:
-        - DeviceTypeHeader: []
-          LanguageHeader: []
-          ClientTokenHeader: []
-          UserTokenHeader: []
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
         content:
@@ -1102,11 +1241,7 @@ paths:
         **Кто вызывает:** Водитель (мобильное приложение). X-User-Token обязателен.
         **Назначение:** Обновление полей тягача: power_plate_number, power_tech_series, power_tech_number, power_owner_id, power_owner_name, power_scan_status.
         **Данные:** В теле только изменяемые поля тягача.
-      security:
-        - DeviceTypeHeader: []
-          LanguageHeader: []
-          ClientTokenHeader: []
-          UserTokenHeader: []
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
         content:
@@ -1135,11 +1270,7 @@ paths:
         **Кто вызывает:** Водитель (мобильное приложение). X-User-Token обязателен.
         **Назначение:** Обновление полей прицепа: trailer_plate_number, trailer_tech_series, trailer_tech_number, trailer_owner_id, trailer_owner_name, trailer_scan_status.
         **Данные:** В теле только изменяемые поля прицепа.
-      security:
-        - DeviceTypeHeader: []
-          LanguageHeader: []
-          ClientTokenHeader: []
-          UserTokenHeader: []
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
         content:
@@ -1168,11 +1299,7 @@ paths:
         **Кто вызывает:** Водитель (мобильное приложение). X-User-Token обязателен.
         **Назначение:** При передаче latitude и longitude — registration_step переводится в geo-push (если ещё не transport-type). push_token сохраняется в любом случае. Без гео шаг не меняется.
         **Данные:** latitude, longitude (опц.), push_token (опц.).
-      security:
-        - DeviceTypeHeader: []
-          LanguageHeader: []
-          ClientTokenHeader: []
-          UserTokenHeader: []
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: false
         content:
@@ -1208,11 +1335,7 @@ paths:
         **Кто вызывает:** Водитель (мобильное приложение). X-User-Token обязателен.
         **Назначение:** Указание типа водителя и ТС. После успешного запроса: registration_step=transport-type, registration_status=basic. Справочники кодов: GET /v1/transport-options.
         **Данные:** driver_type (company/freelancer/driver), power_plate_type, trailer_plate_type (обязательно); freelancer_id, company_id (опц.).
-      security:
-        - DeviceTypeHeader: []
-          LanguageHeader: []
-          ClientTokenHeader: []
-          UserTokenHeader: []
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
         content:
@@ -1253,11 +1376,7 @@ paths:
         **Кто вызывает:** Водитель (мобильное приложение). X-User-Token обязателен.
         **Назначение:** Загрузка документов: driver_data (паспорт, PINFL, driver_scan_status), power_data (тягач: номер, техпаспорт, владелец, power_scan_status), trailer_data (прицеп — то же или не указывать), driver_owner (true/false). registration_status=full выставляется только при полном и подтверждённом заполнении (scan_status=true где нужно).
         **Данные:** driver_owner, driver_data, power_data, trailer_data (все блоки обязательны).
-      security:
-        - DeviceTypeHeader: []
-          LanguageHeader: []
-          ClientTokenHeader: []
-          UserTokenHeader: []
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
         content:
@@ -1563,11 +1682,7 @@ paths:
       summary: "Получить профиль диспетчера"
       description: |
         **Поток:** Запрос с заголовком X-User-Token (JWT access_token). В ответе data.dispatcher — объект диспетчера (id, name, phone, паспорт, pinfl, work_status, rating и т.д.).
-      security:
-        - DeviceTypeHeader: []
-          LanguageHeader: []
-          ClientTokenHeader: []
-          UserTokenHeader: []
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       responses:
         "200":
           description: OK, data.dispatcher
@@ -1578,11 +1693,7 @@ paths:
     patch:
       tags: ["Freelance Dispatchers / Profile"]
       summary: Редактировать профиль диспетчера
-      security:
-        - DeviceTypeHeader: []
-          LanguageHeader: []
-          ClientTokenHeader: []
-          UserTokenHeader: []
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         content:
           application/json:
@@ -1604,11 +1715,7 @@ paths:
     delete:
       tags: ["Freelance Dispatchers / Profile"]
       summary: Удалить профиль диспетчера (архивация)
-      security:
-        - DeviceTypeHeader: []
-          LanguageHeader: []
-          ClientTokenHeader: []
-          UserTokenHeader: []
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       responses:
         "200":
           description: OK
@@ -1622,11 +1729,7 @@ paths:
     put:
       tags: ["Freelance Dispatchers / Profile"]
       summary: Сменить пароль (текущий + новый)
-      security:
-        - DeviceTypeHeader: []
-          LanguageHeader: []
-          ClientTokenHeader: []
-          UserTokenHeader: []
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
         content:
@@ -1652,11 +1755,7 @@ paths:
     post:
       tags: ["Freelance Dispatchers / Profile"]
       summary: Смена телефона — запрос OTP
-      security:
-        - DeviceTypeHeader: []
-          LanguageHeader: []
-          ClientTokenHeader: []
-          UserTokenHeader: []
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
         content:
@@ -1684,11 +1783,7 @@ paths:
     post:
       tags: ["Freelance Dispatchers / Profile"]
       summary: Смена телефона — подтверждение OTP
-      security:
-        - DeviceTypeHeader: []
-          LanguageHeader: []
-          ClientTokenHeader: []
-          UserTokenHeader: []
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
         content:
@@ -1756,11 +1851,7 @@ paths:
       summary: "Создать компанию (только админ)"
       description: |
         **Поток:** Вызывается только с JWT админа (X-User-Token). В теле передаёте name (обязательно), остальные поля опциональны: inn, address, phone, email, website, license_number, status, лимиты (max_vehicles, max_drivers, max_cargo, max_dispatchers, max_managers, max_top_dispatchers, max_top_managers). Создаётся одна запись в таблице companies. При создании поле **status** по умолчанию **active**, если не передан иной (далее можно сменить на inactive, blocked, pending). В ответе — status и company_id (UUID новой компании). Лимиты задают квоты для этой компании.
-      security:
-        - DeviceTypeHeader: []
-          LanguageHeader: []
-          ClientTokenHeader: []
-          UserTokenHeader: []
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
         content:
@@ -1939,3 +2030,203 @@ paths:
       responses:
         "101": { description: Switching Protocols (WebSocket) }
         "401": { description: unauthorized }
+
+  /v1/auth/register:
+    post:
+      tags: [Company]
+      summary: "Регистрация пользователя"
+      description: "Создаёт пользователя (app_users). Обязательны X-Device-Type, X-Language, X-Client-Token."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 6 }
+                first_name: { type: string }
+                last_name: { type: string }
+                phone: { type: string }
+      responses:
+        "201": { description: "created, returns user + token" }
+        "400": { description: "invalid payload" }
+        "409": { description: "email already registered" }
+
+  /v1/auth/login:
+    post:
+      tags: [Company]
+      summary: "Вход в систему"
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string }
+                password: { type: string }
+      responses:
+        "200": { description: "token + user" }
+        "401": { description: "invalid email or password" }
+
+  /v1/auth/companies:
+    get:
+      tags: [Company]
+      summary: "Список компаний пользователя"
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      responses:
+        "200": { description: "companies with role and is_current" }
+        "401": { description: "unauthorized" }
+
+  /v1/auth/switch-company:
+    post:
+      tags: [Company]
+      summary: "Переключить текущую компанию"
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [company_id]
+              properties:
+                company_id: { type: string, format: uuid }
+      responses:
+        "200": { description: "new token + company" }
+        "401": { description: "unauthorized" }
+        "403": { description: "not a member" }
+
+  /v1/companies:
+    post:
+      tags: [Company]
+      summary: "Создать компанию"
+      description: "Создатель становится Owner. Тип: Shipper, Broker, Fleet, OwnerOperator."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type]
+              properties:
+                name: { type: string }
+                type: { type: string, enum: [Shipper, Broker, Fleet, OwnerOperator] }
+                inn: { type: string }
+                phone: { type: string }
+                address: { type: string }
+      responses:
+        "201": { description: "company created" }
+        "401": { description: "unauthorized" }
+
+  /v1/companies/{companyId}/invitations:
+    post:
+      tags: [Company]
+      summary: "Пригласить сотрудника (Owner/CEO/TopManager/TopDispatcher)"
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: companyId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, role_id]
+              properties:
+                email: { type: string, format: email }
+                role_id: { type: string, format: uuid }
+      responses:
+        "201": { description: "invite_link, expires_at" }
+        "403": { description: "forbidden" }
+
+  /v1/companies/{companyId}/users:
+    get:
+      tags: [Company]
+      summary: "Список сотрудников компании"
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: companyId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: page
+          in: query
+          schema: { type: integer }
+        - name: limit
+          in: query
+          schema: { type: integer }
+      responses:
+        "200": { description: "users with roles" }
+        "403": { description: "forbidden" }
+
+  /v1/companies/{companyId}/users/{userId}/role:
+    put:
+      tags: [Company]
+      summary: "Изменить роль сотрудника"
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: companyId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role_id]
+              properties:
+                role_id: { type: string, format: uuid }
+      responses:
+        "200": { description: "old_role, new_role" }
+        "403": { description: "forbidden" }
+
+  /v1/companies/{companyId}/users/{userId}:
+    delete:
+      tags: [Company]
+      summary: "Удалить сотрудника из компании"
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: companyId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204": { description: "no content" }
+        "403": { description: "forbidden" }
+
+  /v1/invitations/accept:
+    post:
+      tags: [Company]
+      summary: "Принять приглашение по токену"
+      description: "Без авторизации. Если пользователь с email не зарегистрирован — requires_registration true."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        "200": { description: "status, company_id, company_name, role, requires_registration" }
+        "401": { description: "invitation not found or expired" }

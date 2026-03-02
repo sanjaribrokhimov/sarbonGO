@@ -9,9 +9,12 @@ import (
 	"go.uber.org/zap"
 
 	"sarbonNew/internal/admins"
+	"sarbonNew/internal/appusers"
+	"sarbonNew/internal/approles"
 	"sarbonNew/internal/cargo"
 	"sarbonNew/internal/chat"
 	"sarbonNew/internal/companies"
+	"sarbonNew/internal/companytz"
 	"sarbonNew/internal/config"
 	"sarbonNew/internal/dispatchers"
 	"sarbonNew/internal/goadmin"
@@ -35,7 +38,7 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 
 	r := gin.New()
 	r.Use(gin.Recovery())
-	r.Use(mw.RequestLogger(logger))
+	r.Use(mw.RequestLogger(logger, cfg.AppEnv == "local"))
 
 	r.Use(cors.New(cors.Config{
 		AllowOrigins: []string{"*"},
@@ -99,6 +102,16 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	chatHub := chat.NewHub(chatPresence, logger)
 	chatH := handlers.NewChatHandler(logger, chatRepo, chatPresence, chatHub)
 
+	appusersRepo := appusers.NewRepo(deps.PG)
+	approlesRepo := approles.NewRepo(deps.PG)
+	ucrRepo := companytz.NewRepoUCR(deps.PG)
+	invitationsRepo := companytz.NewRepoInvitations(deps.PG)
+	auditRepo := companytz.NewRepoAudit(deps.PG)
+	userAuthH := handlers.NewUserAuthHandler(logger, appusersRepo, jwtm, refreshStore)
+	companyTZH := handlers.NewCompanyTZHandler(logger, appusersRepo, companiesRepo, approlesRepo, ucrRepo, invitationsRepo, auditRepo, jwtm)
+
+	v1.POST("/auth/register", userAuthH.Register)
+	v1.POST("/auth/login", userAuthH.Login)
 	v1.POST("/auth/phone", authH.SendOTP)
 	v1.POST("/auth/otp/verify", authH.VerifyOTP)
 	v1.POST("/auth/refresh", authH.Refresh)
@@ -106,6 +119,13 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 
 	v1.POST("/registration/start", regH.Start)
 	v1.GET("/transport-options", handlers.GetTransportOptions)
+
+	// Reference: справочники по категориям (статусы, типы, роли — чтобы фронт/мобилка не спрашивали)
+	v1.GET("/reference/drivers", handlers.GetReferenceDrivers)
+	v1.GET("/reference/cargo", handlers.GetReferenceCargo)
+	v1.GET("/reference/company", handlers.GetReferenceCompany(approlesRepo))
+	v1.GET("/reference/admin", handlers.GetReferenceAdmin)
+	v1.GET("/reference/dispatchers", handlers.GetReferenceDispatchers)
 
 	// API /api/cargo (same base headers as v1)
 	api := r.Group("/api")
@@ -156,6 +176,19 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	adminAuthed := v1.Group("/admin")
 	adminAuthed.Use(mw.RequireAdmin(jwtm))
 	adminAuthed.POST("/companies", adminCompaniesH.Create)
+
+	// Company TZ (app users): register/login, companies, invitations, company users
+	appUserAuthed := v1.Group("")
+	appUserAuthed.Use(mw.RequireAppUser(jwtm))
+	appUserAuthed.GET("/auth/companies", companyTZH.ListMyCompanies)
+	appUserAuthed.POST("/auth/switch-company", companyTZH.SwitchCompany)
+	appUserAuthed.POST("/companies", companyTZH.CreateCompany)
+	appUserAuthed.POST("/companies/:companyId/invitations", companyTZH.CreateInvitation)
+	appUserAuthed.GET("/companies/:companyId/users", companyTZH.ListCompanyUsers)
+	appUserAuthed.PUT("/companies/:companyId/users/:userId/role", companyTZH.UpdateUserRole)
+	appUserAuthed.DELETE("/companies/:companyId/users/:userId", companyTZH.RemoveUser)
+
+	v1.POST("/invitations/accept", companyTZH.AcceptInvitation)
 
 	// Chat (driver, dispatcher, admin): JWT or X-User-ID for Swagger testing; WS supports ?user_id= or ?token=
 	chatGroup := v1.Group("/chat")

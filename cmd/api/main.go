@@ -17,6 +17,7 @@ import (
 	"go.uber.org/zap"
 
 	"sarbonNew/internal/config"
+	"sarbonNew/internal/logger"
 	"sarbonNew/internal/infra"
 	"sarbonNew/internal/server"
 )
@@ -24,42 +25,48 @@ import (
 func main() {
 	config.LoadDotEnvUp(8)
 
-	logger, _ := zap.NewProduction()
+	var log *zap.Logger
 	if os.Getenv("APP_ENV") == "local" {
-		logger, _ = zap.NewDevelopment()
+		log = logger.NewDevelopment()
+	} else {
+		var err error
+		log, err = zap.NewProduction()
+		if err != nil {
+			panic(err)
+		}
 	}
-	defer func() { _ = logger.Sync() }()
+	defer func() { _ = log.Sync() }()
 
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
-		logger.Fatal("config load failed", zap.Error(err))
+		log.Fatal("config load failed", zap.Error(err))
 	}
 
 	// Авто-миграции при старте API.
 	// Это заменяет ручной запуск `cmd/migrate` в dev/stage окружениях.
 	if err := runMigrationsUp(cfg.DatabaseURL); err != nil {
-		logger.Fatal("migrations up failed", zap.Error(err))
+		log.Fatal("migrations up failed", zap.Error(err))
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	infraDeps, err := infra.New(ctx, cfg, logger)
+	infraDeps, err := infra.New(ctx, cfg, log)
 	if err != nil {
-		logger.Fatal("infra init failed", zap.Error(err))
+		log.Fatal("infra init failed", zap.Error(err))
 	}
 	defer infraDeps.Close()
 
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           server.NewRouter(cfg, infraDeps, logger),
+		Handler:           server.NewRouter(cfg, infraDeps, log),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	go func() {
-		logger.Info("http server starting", zap.String("addr", cfg.HTTPAddr))
+		log.Info("http server starting", zap.String("addr", cfg.HTTPAddr))
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatal("http server error", zap.Error(err))
+			log.Fatal("http server error", zap.Error(err))
 		}
 	}()
 
