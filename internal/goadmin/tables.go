@@ -1,9 +1,12 @@
 package goadmin
 
 import (
+	"strings"
+
 	"github.com/GoAdminGroup/go-admin/context"
 	"github.com/GoAdminGroup/go-admin/modules/db"
 	"github.com/GoAdminGroup/go-admin/plugins/admin/modules/table"
+	"github.com/GoAdminGroup/go-admin/template/types"
 	"github.com/GoAdminGroup/go-admin/template/types/form"
 	editType "github.com/GoAdminGroup/go-admin/template/types/table"
 )
@@ -19,7 +22,7 @@ func tableGenerators() map[string]table.Generator {
 		"route_points":           GetRoutePointsTable,
 		"payments":               GetPaymentsTable,
 		"offers":                 GetOffersTable,
-		"app_users":              GetAppUsersTable,
+		"company_users":           GetCompanyUsersTable,
 		"app_roles":              GetAppRolesTable,
 		"user_company_roles":     GetUserCompanyRolesTable,
 		"invitations":            GetInvitationsTable,
@@ -52,6 +55,7 @@ func GetCompaniesTable(ctx *context.Context) (t table.Table) {
 	info.AddField("Max top managers", "max_top_managers", db.Int)
 	info.AddField("Owner ID", "owner_id", db.Varchar).FieldFilterable()
 	info.AddField("Company type", "company_type", db.Varchar).FieldFilterable()
+	info.AddField("Auto approve limit", "auto_approve_limit", db.Decimal)
 	info.AddField("Rating", "rating", db.Decimal)
 	info.AddField("Completed orders", "completed_orders", db.Int)
 	info.AddField("Cancelled orders", "cancelled_orders", db.Int)
@@ -60,7 +64,7 @@ func GetCompaniesTable(ctx *context.Context) (t table.Table) {
 	info.AddField("Created at", "created_at", db.Timestamp)
 	info.AddField("Updated at", "updated_at", db.Timestamp)
 	info.AddField("Deleted at", "deleted_at", db.Timestamp)
-	info.SetTable("companies").SetTitle("Companies").SetDescription("Companies")
+	info.SetTable("companies").SetTitle("Companies").SetDescription("Companies (Owner, Status, Type: CargoOwner / Carrier / Expeditor)")
 
 	formList := t.GetForm()
 	formList.AddField("ID", "id", db.Varchar, form.Default).FieldDisplayButCanNotEditWhenUpdate().FieldDisableWhenCreate()
@@ -79,12 +83,13 @@ func GetCompaniesTable(ctx *context.Context) (t table.Table) {
 	formList.AddField("Max managers", "max_managers", db.Int, form.Number).FieldDefault("0")
 	formList.AddField("Max top dispatchers", "max_top_dispatchers", db.Int, form.Number).FieldDefault("0")
 	formList.AddField("Max top managers", "max_top_managers", db.Int, form.Number).FieldDefault("0")
-	formList.AddField("Owner ID", "owner_id", db.Varchar, form.Text)
-	formList.AddField("Company type", "company_type", db.Varchar, form.Text).FieldDefault("Shipper")
-	formList.AddField("Rating", "rating", db.Decimal, form.Text)
+	// owner_id — задаётся через API POST/PATCH /admin/companies (owner_id в теле или PATCH :id/owner)
+	formList.AddField("Company type", "company_type", db.Varchar, form.Text).FieldDefault("CargoOwner")
+	formList.AddField("Auto approve limit", "auto_approve_limit", db.Decimal, form.Text)
+	formList.AddField("Rating", "rating", db.Decimal, form.Text).FieldDefault("0")
 	formList.AddField("Completed orders", "completed_orders", db.Int, form.Number).FieldDefault("0")
 	formList.AddField("Cancelled orders", "cancelled_orders", db.Int, form.Number).FieldDefault("0")
-	formList.AddField("Total revenue", "total_revenue", db.Decimal, form.Text)
+	formList.AddField("Total revenue", "total_revenue", db.Decimal, form.Text).FieldDefault("0")
 	// created_by — UUID; не в форме, чтобы не отправлять "" в PostgreSQL
 	formList.SetTable("companies").SetTitle("Companies").SetDescription("Companies")
 	return
@@ -97,6 +102,13 @@ func GetOperatorAdminsTable(ctx *context.Context) (t table.Table) {
 	info := t.GetInfo()
 	info.AddField("ID", "id", db.Varchar).FieldSortable()
 	info.AddField("Login", "login", db.Varchar).FieldFilterable()
+	info.AddField("Password", "password", db.Varchar).FieldDisplay(func(model types.FieldModel) interface{} {
+		s := strings.TrimSpace(model.Value)
+		if s != "" {
+			return "••••••"
+		}
+		return "—"
+	})
 	info.AddField("Name", "name", db.Varchar).FieldFilterable()
 	info.AddField("Status", "status", db.Varchar).FieldFilterable().FieldEditAble(editType.Text)
 	info.AddField("Type", "type", db.Varchar).FieldFilterable()
@@ -346,28 +358,30 @@ func GetOffersTable(ctx *context.Context) (t table.Table) {
 	return
 }
 
-// GetAppUsersTable — пользователи приложения (Company TZ: регистрация, владельцы компаний).
-func GetAppUsersTable(ctx *context.Context) (t table.Table) {
+// GetCompanyUsersTable — пользователи компаний (OTP auth, владельцы; таблица company_users).
+func GetCompanyUsersTable(ctx *context.Context) (t table.Table) {
 	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
 		SetPrimaryKey("id", db.Varchar))
 	info := t.GetInfo()
 	info.AddField("ID", "id", db.Varchar).FieldSortable()
-	info.AddField("Email", "email", db.Varchar).FieldFilterable()
 	info.AddField("Phone", "phone", db.Varchar).FieldFilterable()
-	info.AddField("First name", "first_name", db.Varchar)
+	info.AddField("First name", "first_name", db.Varchar).FieldFilterable()
 	info.AddField("Last name", "last_name", db.Varchar)
+	info.AddField("Company ID", "company_id", db.Varchar)
+	info.AddField("Role", "role", db.Varchar).FieldFilterable()
 	info.AddField("Created at", "created_at", db.Timestamp)
 	info.AddField("Updated at", "updated_at", db.Timestamp)
-	info.SetTable("app_users").SetTitle("App Users").SetDescription("Users (register/login, company owners)")
+	info.SetTable("company_users").SetTitle("Company Users").SetDescription("Company users (OTP auth, owner role)")
 
 	formList := t.GetForm()
 	formList.AddField("ID", "id", db.Varchar, form.Default).FieldDisplayButCanNotEditWhenUpdate().FieldDisableWhenCreate()
-	formList.AddField("Email", "email", db.Varchar, form.Text)
 	formList.AddField("Phone", "phone", db.Varchar, form.Text)
 	formList.AddField("Password hash", "password_hash", db.Varchar, form.Password)
 	formList.AddField("First name", "first_name", db.Varchar, form.Text)
 	formList.AddField("Last name", "last_name", db.Varchar, form.Text)
-	formList.SetTable("app_users").SetTitle("App Users").SetDescription("App Users")
+	formList.AddField("Company ID", "company_id", db.Varchar, form.Text)
+	formList.AddField("Role", "role", db.Varchar, form.Text).FieldDefault("owner")
+	formList.SetTable("company_users").SetTitle("Company Users").SetDescription("Company Users")
 	return
 }
 

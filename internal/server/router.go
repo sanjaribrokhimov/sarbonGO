@@ -76,12 +76,14 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	jwtm := security.NewJWTManager(cfg.JWTSigningKey, cfg.JWTAccessTTL, cfg.JWTRefreshTTL)
 
 	otpStore := store.NewOTPStore(deps.Redis, cfg.JWTSigningKey, cfg.OTPTTL, cfg.OTPResendCooldown, cfg.OTPMaxAttempts)
+	companyUserOTPStore := store.NewOTPStoreWithPrefix(deps.Redis, cfg.JWTSigningKey, cfg.OTPTTL, cfg.OTPResendCooldown, cfg.OTPMaxAttempts, "company_")
 	sessionStore := store.NewSessionStore(deps.Redis, 15*time.Minute)
 	refreshStore := store.NewRefreshStore(deps.Redis, cfg.JWTRefreshTTL)
 	tgClient := telegram.NewGatewayClient(cfg.TelegramGatewayBaseURL, cfg.TelegramGatewayToken, cfg.TelegramGatewaySenderID)
 	phoneChangeStore := store.NewPhoneChangeStore(deps.Redis, cfg.JWTSigningKey, cfg.OTPTTL, cfg.OTPMaxAttempts)
 
 	dispRegSessions := store.NewDispatcherSessionStore(deps.Redis, "disp_regsession", 15*time.Minute)
+	companyUserRegSessions := store.NewDispatcherSessionStore(deps.Redis, "company_regsession", 15*time.Minute)
 	dispResetActions := store.NewDispatcherOTPActionStore(deps.Redis, cfg.JWTSigningKey, "disp_reset", cfg.OTPTTL, cfg.OTPMaxAttempts)
 	dispPhoneActions := store.NewDispatcherOTPActionStore(deps.Redis, cfg.JWTSigningKey, "disp_phone", cfg.OTPTTL, cfg.OTPMaxAttempts)
 
@@ -107,11 +109,14 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	ucrRepo := companytz.NewRepoUCR(deps.PG)
 	invitationsRepo := companytz.NewRepoInvitations(deps.PG)
 	auditRepo := companytz.NewRepoAudit(deps.PG)
-	userAuthH := handlers.NewUserAuthHandler(logger, appusersRepo, jwtm, refreshStore)
+	companyUserAuthH := handlers.NewCompanyUserAuthHandler(logger, appusersRepo, companyUserOTPStore, companyUserRegSessions, jwtm, refreshStore, tgClient, cfg.OTPTTL, cfg.OTPLength)
+	companyUserRegH := handlers.NewCompanyUserRegistrationHandler(logger, appusersRepo, companyUserRegSessions, jwtm, refreshStore)
 	companyTZH := handlers.NewCompanyTZHandler(logger, appusersRepo, companiesRepo, approlesRepo, ucrRepo, invitationsRepo, auditRepo, jwtm)
 
-	v1.POST("/auth/register", userAuthH.Register)
-	v1.POST("/auth/login", userAuthH.Login)
+	v1.POST("/company-users/auth/phone", companyUserAuthH.SendOTP)
+	v1.POST("/company-users/auth/otp/verify", companyUserAuthH.VerifyOTP)
+	v1.POST("/company-users/registration/complete", companyUserRegH.Complete)
+
 	v1.POST("/auth/phone", authH.SendOTP)
 	v1.POST("/auth/otp/verify", authH.VerifyOTP)
 	v1.POST("/auth/refresh", authH.Refresh)
@@ -153,6 +158,7 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 
 	authed := v1.Group("")
 	authed.Use(mw.RequireDriver(jwtm))
+	authed.Use(mw.UpdateDriverLastOnline(driversRepo))
 	authed.GET("/profile", profileH.Get)
 	authed.PATCH("/profile/driver", profileH.PatchDriver)
 	authed.PUT("/profile/heartbeat", profileH.Heartbeat)
@@ -167,8 +173,11 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 
 	dispAuthed := v1.Group("/dispatchers")
 	dispAuthed.Use(mw.RequireDispatcher(jwtm))
+	dispAuthed.Use(mw.UpdateDispatcherLastOnline(dispatchersRepo))
 	dispAuthed.GET("/profile", dispProfileH.Get)
 	dispAuthed.PATCH("/profile", dispProfileH.Patch)
+	dispAuthed.POST("/profile/photo", dispProfileH.UploadPhoto)
+	dispAuthed.GET("/profile/photo", dispProfileH.GetPhoto)
 	dispAuthed.PUT("/profile/password", dispProfileH.ChangePassword)
 	dispAuthed.POST("/profile/phone-change/request", dispProfileH.PhoneChangeRequest)
 	dispAuthed.POST("/profile/phone-change/verify", dispProfileH.PhoneChangeVerify)
@@ -177,19 +186,19 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	adminAuthed := v1.Group("/admin")
 	adminAuthed.Use(mw.RequireAdmin(jwtm))
 	adminAuthed.POST("/companies", adminCompaniesH.Create)
+	adminAuthed.PATCH("/companies/:id/owner", adminCompaniesH.SetOwner)
 
-	// Company TZ (app users): register/login, companies, invitations, company users
+	// Company users (company_users): OTP auth, companies, invitations
 	appUserAuthed := v1.Group("")
 	appUserAuthed.Use(mw.RequireAppUser(jwtm))
 	appUserAuthed.GET("/auth/companies", companyTZH.ListMyCompanies)
 	appUserAuthed.POST("/auth/switch-company", companyTZH.SwitchCompany)
 	appUserAuthed.POST("/companies", companyTZH.CreateCompany)
 	appUserAuthed.POST("/companies/:companyId/invitations", companyTZH.CreateInvitation)
+	appUserAuthed.POST("/invitations/accept", companyTZH.AcceptInvitation)
 	appUserAuthed.GET("/companies/:companyId/users", companyTZH.ListCompanyUsers)
 	appUserAuthed.PUT("/companies/:companyId/users/:userId/role", companyTZH.UpdateUserRole)
 	appUserAuthed.DELETE("/companies/:companyId/users/:userId", companyTZH.RemoveUser)
-
-	v1.POST("/invitations/accept", companyTZH.AcceptInvitation)
 
 	// Chat (driver, dispatcher, admin): JWT or X-User-ID for Swagger testing; WS supports ?user_id= or ?token=
 	chatGroup := v1.Group("/chat")

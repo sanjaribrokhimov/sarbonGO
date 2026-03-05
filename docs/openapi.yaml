@@ -55,7 +55,7 @@ tags:
 
       **Кто вызывает:** Водитель (мобильное приложение). Все методы требуют X-User-Token (JWT).
 
-      **Поток и данные:** GET /v1/profile — получить профиль (все поля). PATCH /v1/profile/driver — изменить имя, work_status, паспорт. PATCH /v1/profile/power — данные тягача; PATCH /v1/profile/trailer — данные прицепа. PUT /v1/profile/heartbeat — обновить гео и last_online_at. Смена телефона: .../phone-change/request (new_phone) → OTP; .../phone-change/verify (session_id, otp). DELETE /v1/profile — удалить аккаунт (архивация в deleted_drivers).
+      **Поток и данные:** GET /v1/profile — получить профиль (все поля). PATCH /v1/profile/driver — изменить имя, work_status, паспорт. PATCH /v1/profile/power — данные тягача; PATCH /v1/profile/trailer — данные прицепа. PUT /v1/profile/heartbeat — обновить гео (latitude, longitude); last_online_at опционален, также обновляется автоматически при каждом запросе водителя. Смена телефона: .../phone-change/request (new_phone) → OTP; .../phone-change/verify (session_id, otp). DELETE /v1/profile — удалить аккаунт (архивация в deleted_drivers).
   - name: Freelance Dispatchers / Auth
     description: |
       **Руководство: Авторизация диспетчеров**
@@ -81,7 +81,7 @@ tags:
       **Поток (новый номер телефона):**
       1. POST /v1/dispatchers/auth/phone — отправить OTP.
       2. POST /v1/dispatchers/auth/otp/verify — ввести OTP → в ответе status=register и session_id (JWT пока не выдаётся).
-      3. POST /v1/dispatchers/registration/complete — передать session_id, name, password, passport_series, passport_number, pinfl (обязательно), photo (опционально). В ответе — tokens и объект dispatcher; диспетчер считается зарегистрированным.
+      3. POST /v1/dispatchers/registration/complete — передать session_id, name, password, passport_series, passport_number, pinfl (обязательно). В ответе — tokens и объект dispatcher; диспетчер считается зарегистрированным.
 
       **Логика:** Без session_id из шага 2 завершить регистрацию нельзя. После complete диспетчер может входить по phone + password или по OTP.
   - name: Freelance Dispatchers / Profile
@@ -91,8 +91,10 @@ tags:
       **Авторизация:** Все методы требуют заголовок X-User-Token (JWT access_token диспетчера).
 
       **Поток и данные:**
-      - GET /v1/dispatchers/profile — получить текущий профиль (id, name, phone, паспорт, pinfl, work_status, rating и т.д.). В ответе data.dispatcher.
-      - PATCH /v1/dispatchers/profile — изменить имя, паспорт, pinfl, photo (частичное обновление).
+      - GET /v1/dispatchers/profile — получить текущий профиль (id, name, phone, паспорт, pinfl, work_status, rating, has_photo и т.д.). В ответе data.dispatcher.
+      - PATCH /v1/dispatchers/profile — изменить имя, паспорт, pinfl, photo-ссылку (частичное обновление).
+      - POST /v1/dispatchers/profile/photo — загрузить фото (multipart/form-data, поле photo). Фото хранится в БД. Макс. 5 MB, image/jpeg или image/png.
+      - GET /v1/dispatchers/profile/photo — получить фото диспетчера (бинарный ответ с Content-Type). 404 если фото не загружено.
       - DELETE /v1/dispatchers/profile — удалить аккаунт (жёсткое удаление с архивацией в deleted_freelance_dispatchers).
       - PUT /v1/dispatchers/profile/password — сменить пароль (current_password + new_password).
       - POST .../profile/phone-change/request (new_phone) → OTP; .../phone-change/verify (session_id, otp) → телефон обновлён.
@@ -109,7 +111,7 @@ tags:
 
       **Кто вызывает:** Только авторизованный админ (X-User-Token = JWT после /v1/admin/auth/login/password).
 
-      **Поток и данные:** POST /v1/admin/companies — создание компании. В теле передаётся name (обязательно), inn, address, phone, email, website, license_number, status (по умолчанию active), лимиты (max_vehicles, max_drivers, max_cargo, max_dispatchers, max_managers, max_top_dispatchers, max_top_managers). В ответе — status и company_id (UUID новой компании). Логика: одна запись в таблице companies; лимиты задают квоты; статус новой компании по умолчанию active.
+      **Поток и данные:** POST /v1/admin/companies — создание компании. В теле: name (обязательно), опционально owner_id (UUID из company_users — владелец), company_type (CargoOwner / Carrier / Expeditor — грузовладелец, перевозчик, экспедитор), inn, address, phone, email, website, license_number, status, лимиты. Если передан **owner_id**, компания привязывается к владельцу и **status** автоматически устанавливается в **active**. PATCH /v1/admin/companies/:id/owner — привязать владельца к существующей компании (status станет active). В ответе — company_id.
   - name: Reference
     description: |
       **Руководство: Справочники (общие)**
@@ -129,7 +131,7 @@ tags:
     description: |
       **Справочник для раздела Company.** Типы компании, статусы компании, роли (с id и описанием) для приглашений и назначений.
 
-      **GET /v1/reference/company** возвращает: company_type (Shipper, Broker, Fleet, OwnerOperator), company_status (active, inactive, blocked, pending), roles — массив {id, name, description} из БД (Owner, CEO, TopDispatcher, Dispatcher, TopManager, Manager, Carrier, Driver).
+      **GET /v1/reference/company** возвращает: company_type (Shipper, Broker, Fleet, OwnerOperator, CargoOwner, Carrier, Expeditor), company_status (active, inactive, blocked, pending), roles — массив {id, name, description} из БД (Owner, CEO, TopDispatcher, Dispatcher, TopManager, Manager, Carrier, Driver).
   - name: "Reference / Admin"
     description: |
       **Справочник для раздела Admin.** Статусы и типы админа.
@@ -159,10 +161,14 @@ tags:
       **Универсальный чат (driver ↔ dispatcher и др.)**
       **Кто вызывает:** Водитель, диспетчер или админ (JWT в X-User-Token). Для тестов в Swagger можно передать **X-User-ID** (UUID пользователя) вместо JWT.
       **Поток:** GET /v1/chat/conversations → POST /v1/chat/conversations (body peer_id) → GET/POST /v1/chat/conversations/:id/messages. PATCH/DELETE /v1/chat/messages/:id. Presence: GET /v1/chat/presence/:user_id. WebSocket: GET /v1/chat/ws?user_id=UUID или ?token=JWT.
+  - name: Company Users
+    description: |
+      **Один auth API для пользователей компаний.** Все владельцы проходят верификацию номера телефона через OTP.
+      **Поток:** 1) POST /v1/company-users/auth/phone (phone) → OTP отправлен. 2) POST /v1/company-users/auth/otp/verify (phone, otp) → при существующем пользователе status=login и tokens; при новом — status=register и session_id. 3) POST /v1/company-users/registration/complete (session_id, first_name, last_name опц., password) — создать пользователя; телефон из сессии, роль автоматически owner. В ответе — tokens и user (company_id, role). Таблица company_users (без email), поля company_id и role.
   - name: Company
     description: |
-      **Компании по ТЗ (раздел 7.1).** Регистрация и вход пользователей, создание компаний (пользователь становится Owner), приглашения, роли, переключение компании.
-      **Заголовки:** Обязательны X-Device-Type, X-Language, X-Client-Token для всех запросов. Для защищённых методов — X-User-Token (JWT после /v1/auth/login или /v1/auth/register).
+      **Компании по ТЗ.** Создание компаний (пользователь становится Owner), приглашения, роли, переключение компании. Вход/регистрация — через Company Users (OTP).
+      **Заголовки:** X-Device-Type, X-Language, X-Client-Token. Для защищённых методов — X-User-Token (JWT после /v1/company-users/auth/otp/verify или /v1/company-users/registration/complete).
 
 components:
   securitySchemes:
@@ -275,7 +281,9 @@ components:
         rating: { type: number, format: double, nullable: true }
         work_status: { type: string, nullable: true, example: "available" }
         status: { type: string, nullable: true, example: "active" }
-        photo: { type: string, nullable: true }
+        photo: { type: string, nullable: true, description: "Ссылка/путь (устаревшее); для загруженного фото см. has_photo" }
+        has_photo: { type: boolean, description: "true если загружено фото в БД (получить через GET /v1/dispatchers/profile/photo)" }
+        last_online_at: { type: string, format: date-time, nullable: true }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         deleted_at: { type: string, format: date-time, nullable: true }
@@ -1163,8 +1171,8 @@ paths:
       summary: "Обновить гео и время последней активности"
       description: |
         **Кто вызывает:** Водитель (мобильное приложение). X-User-Token обязателен.
-        **Назначение:** Обновление координат и last_online_at в профиле водителя. Все три параметра обязательны.
-        **Данные:** latitude, longitude, last_online_at (RFC3339).
+        **Назначение:** Обновление координат (и при необходимости last_online_at) в профиле водителя.
+        **Данные:** только latitude и longitude. last_online_at в API не передаётся — обновляется на сервере автоматически (в т.ч. при каждом запросе водителя).
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
@@ -1175,8 +1183,7 @@ paths:
               properties:
                 latitude: { type: number, format: double, example: 41.311081 }
                 longitude: { type: number, format: double, example: 69.240562 }
-                last_online_at: { type: string, format: date-time, example: "2026-02-07T12:00:00Z" }
-              required: ["latitude","longitude","last_online_at"]
+              required: ["latitude","longitude"]
       responses:
         "200":
           description: OK
@@ -1672,8 +1679,8 @@ paths:
       tags: ["Freelance Dispatchers / Registration"]
       summary: "Шаг 3. Завершить регистрацию (имя, пароль, паспорт)"
       description: |
-        **Поток:** Вызывается после otp/verify, когда получен status=register и session_id. В теле передаёте session_id (обязательно), name, password, passport_series, passport_number, pinfl (все обязательны), photo (опционально). Создаётся запись в freelance_dispatchers, в ответе — tokens и объект dispatcher. После этого диспетчер может входить по phone+password или по OTP.
-        **Данные:** session_id, name, password, passport_series, passport_number, pinfl; опционально photo.
+        **Поток:** Вызывается после otp/verify, когда получен status=register и session_id. В теле передаёте session_id (обязательно), name, password, passport_series, passport_number, pinfl (все обязательны). Создаётся запись в freelance_dispatchers, в ответе — tokens и объект dispatcher. После этого диспетчер может входить по phone+password или по OTP. Фото загружается отдельно через POST /v1/dispatchers/profile/photo.
+        **Данные:** session_id, name, password, passport_series, passport_number, pinfl.
       requestBody:
         required: true
         content:
@@ -1687,7 +1694,6 @@ paths:
                 passport_series: { type: string, example: "AB" }
                 passport_number: { type: string, example: "1234567" }
                 pinfl: { type: string, example: "12345678901234" }
-                photo: { type: string, nullable: true }
               required: [session_id, name, password, passport_series, passport_number, pinfl]
       responses:
         "200":
@@ -1751,6 +1757,58 @@ paths:
               schema: { $ref: "#/components/schemas/Envelope" }
         "401": { description: Не авторизован }
         "404": { description: Диспетчер не найден }
+
+  /v1/dispatchers/profile/photo:
+    post:
+      tags: ["Freelance Dispatchers / Profile"]
+      summary: "Загрузить фото диспетчера"
+      description: |
+        **Формат:** multipart/form-data, поле **photo** — файл изображения (image/jpeg или image/png). Макс. размер 5 MB.
+        Фото сохраняется в БД. В профиле (GET /profile) поле has_photo будет true; само изображение отдаётся через GET /v1/dispatchers/profile/photo.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [photo]
+              properties:
+                photo:
+                  type: string
+                  format: binary
+                  description: "Файл изображения (JPEG или PNG, макс. 5 MB)"
+      responses:
+        "200":
+          description: Фото сохранено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "success" }
+                  data:
+                    type: object
+                    properties:
+                      status: { type: string, example: "ok" }
+                      event: { type: string, example: "photo_uploaded" }
+        "400": { description: "Нет файла, неверный тип или размер" }
+        "401": { description: Не авторизован }
+    get:
+      tags: ["Freelance Dispatchers / Profile"]
+      summary: "Получить фото диспетчера"
+      description: |
+        Возвращает загруженное фото (бинарные данные) с заголовком Content-Type (image/jpeg или image/png).
+        Если фото не загружалось — 404.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      responses:
+        "200":
+          description: Изображение
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+        "401": { description: Не авторизован }
+        "404": { description: Фото не найдено }
 
   /v1/dispatchers/profile/password:
     put:
@@ -1877,7 +1935,7 @@ paths:
       tags: ["Admin / Companies"]
       summary: "Создать компанию (только админ)"
       description: |
-        **Поток:** Вызывается только с JWT админа (X-User-Token). В теле передаёте name (обязательно), остальные поля опциональны: inn, address, phone, email, website, license_number, status, лимиты (max_vehicles, max_drivers, max_cargo, max_dispatchers, max_managers, max_top_dispatchers, max_top_managers). Создаётся одна запись в таблице companies. При создании поле **status** по умолчанию **active**, если не передан иной (далее можно сменить на inactive, blocked, pending). В ответе — status и company_id (UUID новой компании). Лимиты задают квоты для этой компании.
+        **Поток:** Вызывается только с JWT админа (X-User-Token). В теле передаёте name (обязательно), опционально **owner_id** (UUID из app_users — владелец), **company_type** (CargoOwner / Carrier / Expeditor — грузовладелец, перевозчик, экспедитор), inn, address, phone, email, website, license_number, status, лимиты. Если передан **owner_id**, компания привязывается к владельцу и **status** автоматически **active**; иначе по умолчанию **pending**. В ответе — status и company_id.
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
@@ -1887,6 +1945,8 @@ paths:
               type: object
               properties:
                 name: { type: string, example: "My Logistics LLC" }
+                owner_id: { type: string, format: uuid, nullable: true, description: "UUID владельца (app_users.id); при указании status станет active" }
+                company_type: { type: string, enum: [CargoOwner, Carrier, Expeditor], nullable: true, description: "CargoOwner (грузовладелец), Carrier (перевозчик), Expeditor (экспедитор)" }
                 inn: { type: string, nullable: true }
                 address: { type: string, nullable: true }
                 phone: { type: string, nullable: true }
@@ -1913,6 +1973,41 @@ paths:
                   status: { type: string, example: "ok" }
                   company_id: { type: string, format: uuid }
         "400": { description: invalid payload }
+        "401": { description: unauthorized }
+
+  /v1/admin/companies/{id}/owner:
+    patch:
+      tags: ["Admin / Companies"]
+      summary: "Назначить владельца компании"
+      description: |
+        Привязывает владельца (app_users.id) к компании и переводит **status** компании в **active**. Вызывается с JWT админа.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+          description: "UUID компании"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [owner_id]
+              properties:
+                owner_id: { type: string, format: uuid, description: "UUID владельца (app_users.id)" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "ok" }
+                  message: { type: string, example: "owner set, status set to active" }
+        "400": { description: invalid company id or owner_id }
         "401": { description: unauthorized }
 
   /v1/chat/conversations:
@@ -2058,11 +2153,27 @@ paths:
         "101": { description: Switching Protocols (WebSocket) }
         "401": { description: unauthorized }
 
-  /v1/auth/register:
+  /v1/company-users/auth/phone:
     post:
-      tags: [Company]
-      summary: "Регистрация пользователя"
-      description: "Создаёт пользователя (app_users). Обязательны X-Device-Type, X-Language, X-Client-Token."
+      tags: [Company Users]
+      summary: "Запросить OTP для входа/регистрации"
+      description: "Отправляет OTP на номер телефона. Все владельцы/пользователи компаний проходят верификацию по OTP."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [phone], properties: { phone: { type: string } } }
+      responses:
+        "200": { description: "otp_sent, ttl_seconds" }
+        "400": { description: "invalid phone" }
+        "429": { description: "otp cooldown or rate limited" }
+
+  /v1/company-users/auth/otp/verify:
+    post:
+      tags: [Company Users]
+      summary: "Проверить OTP — вход или регистрация"
+      description: "Если пользователь с таким телефоном есть — возвращает status=login и tokens. Если нет — status=register и session_id для завершения регистрации."
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
       requestBody:
         required: true
@@ -2070,36 +2181,37 @@ paths:
           application/json:
             schema:
               type: object
-              required: [email, password]
+              required: [phone, otp]
               properties:
-                email: { type: string, format: email }
-                password: { type: string, minLength: 6 }
+                phone: { type: string }
+                otp: { type: string }
+      responses:
+        "200": { description: "login (tokens + user) или register (session_id)" }
+        "401": { description: "otp expired or invalid" }
+
+  /v1/company-users/registration/complete:
+    post:
+      tags: [Company Users]
+      summary: "Завершить регистрацию (после OTP)"
+      description: "Вызывается после otp/verify при status=register. Передать session_id, first_name, last_name (опц.), password. Номер телефона берётся из сессии (уже верифицирован в шаге OTP). Роль автоматически owner. В ответе — tokens и user."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [session_id, first_name, password]
+              properties:
+                session_id: { type: string, format: uuid }
                 first_name: { type: string }
                 last_name: { type: string }
-                phone: { type: string }
-      responses:
-        "201": { description: "created, returns user + token" }
-        "400": { description: "invalid payload" }
-        "409": { description: "email already registered" }
-
-  /v1/auth/login:
-    post:
-      tags: [Company]
-      summary: "Вход в систему"
-      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [email, password]
-              properties:
-                email: { type: string }
                 password: { type: string }
       responses:
-        "200": { description: "token + user" }
-        "401": { description: "invalid email or password" }
+        "200": { description: "registered, tokens + user (role=owner)" }
+        "400": { description: "invalid payload or phone mismatch" }
+        "401": { description: "session expired" }
+        "409": { description: "phone already registered" }
 
   /v1/auth/companies:
     get:
@@ -2243,8 +2355,8 @@ paths:
     post:
       tags: [Company]
       summary: "Принять приглашение по токену"
-      description: "Без авторизации. Если пользователь с email не зарегистрирован — requires_registration true."
-      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      description: "Требуется X-User-Token (пользователь компании). Добавляет текущего пользователя в компанию с ролью из приглашения. Сначала войдите или зарегистрируйтесь через /v1/company-users/auth/..."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
         content:

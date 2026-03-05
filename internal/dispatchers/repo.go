@@ -9,6 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"sarbonNew/internal/util"
 )
 
 var (
@@ -32,7 +34,8 @@ SELECT
   cargo_id, driver_id,
   rating, work_status, account_status AS status,
   photo_path AS photo,
-  created_at, updated_at, deleted_at
+  (photo_data IS NOT NULL) AS has_photo,
+  created_at, updated_at, last_online_at, deleted_at
 FROM freelance_dispatchers
 WHERE phone = $1 AND deleted_at IS NULL
 LIMIT 1`
@@ -51,7 +54,8 @@ SELECT
   cargo_id, driver_id,
   rating, work_status, account_status AS status,
   photo_path AS photo,
-  created_at, updated_at, deleted_at
+  (photo_data IS NOT NULL) AS has_photo,
+  created_at, updated_at, last_online_at, deleted_at
 FROM freelance_dispatchers
 WHERE id = $1 AND deleted_at IS NULL
 LIMIT 1`
@@ -70,7 +74,8 @@ func scanDispatcher(row pgx.Row) (*Dispatcher, error) {
 		&d.CargoID, &d.DriverID,
 		&d.Rating, &d.WorkStatus, &d.Status,
 		&d.Photo,
-		&d.CreatedAt, &d.UpdatedAt, &d.DeletedAt,
+		&d.HasPhoto,
+		&d.CreatedAt, &d.UpdatedAt, &d.LastOnlineAt, &d.DeletedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -78,6 +83,18 @@ func scanDispatcher(row pgx.Row) (*Dispatcher, error) {
 		}
 		return nil, err
 	}
+
+	d.CreatedAt = util.InTashkent(d.CreatedAt)
+	d.UpdatedAt = util.InTashkent(d.UpdatedAt)
+	if d.LastOnlineAt != nil {
+		v := util.InTashkent(*d.LastOnlineAt)
+		d.LastOnlineAt = &v
+	}
+	if d.DeletedAt != nil {
+		v := util.InTashkent(*d.DeletedAt)
+		d.DeletedAt = &v
+	}
+
 	return &d, nil
 }
 
@@ -88,7 +105,6 @@ type CreateParams struct {
 	PassportSeries string
 	PassportNumber string
 	PINFL          string
-	Photo          *string
 }
 
 func (r *Repo) Create(ctx context.Context, p CreateParams) (uuid.UUID, error) {
@@ -96,13 +112,11 @@ func (r *Repo) Create(ctx context.Context, p CreateParams) (uuid.UUID, error) {
 INSERT INTO freelance_dispatchers (
   phone, name, password,
   passport_series, passport_number, pinfl,
-  photo_path,
   rating, work_status, account_status,
   created_at, updated_at, deleted_at
 ) VALUES (
   $1, $2, $3,
   $4, $5, $6,
-  $7,
   0, 'available', 'active',
   now(), now(), NULL
 ) RETURNING id`
@@ -111,7 +125,6 @@ INSERT INTO freelance_dispatchers (
 	err := r.pg.QueryRow(ctx, q,
 		p.Phone, p.Name, p.PasswordHash,
 		p.PassportSeries, p.PassportNumber, p.PINFL,
-		p.Photo,
 	).Scan(&id)
 	if err != nil {
 		if e, ok := err.(*pgconn.PgError); ok && e.SQLState() == "23505" {
@@ -195,4 +208,31 @@ func (r *Repo) Touch(ctx context.Context, id uuid.UUID, t time.Time) error {
 	const q = `UPDATE freelance_dispatchers SET updated_at = $2 WHERE id = $1`
 	_, err := r.pg.Exec(ctx, q, id, t)
 	return err
+}
+
+// UpdateLastOnlineAt обновляет last_online_at диспетчера (при каждом запросе).
+func (r *Repo) UpdateLastOnlineAt(ctx context.Context, id uuid.UUID, t time.Time) error {
+	const q = `UPDATE freelance_dispatchers SET last_online_at = $2, updated_at = now() WHERE id = $1`
+	_, err := r.pg.Exec(ctx, q, id, t)
+	return err
+}
+
+// UpdatePhoto сохраняет фото диспетчера в БД (бинарные данные + content-type).
+func (r *Repo) UpdatePhoto(ctx context.Context, id uuid.UUID, data []byte, contentType string) error {
+	const q = `UPDATE freelance_dispatchers SET photo_data = $2, photo_content_type = $3, updated_at = now() WHERE id = $1`
+	_, err := r.pg.Exec(ctx, q, id, data, contentType)
+	return err
+}
+
+// GetPhoto возвращает фото диспетчера (данные и content-type). Если фото нет — ErrNotFound.
+func (r *Repo) GetPhoto(ctx context.Context, id uuid.UUID) (data []byte, contentType string, err error) {
+	const q = `SELECT photo_data, COALESCE(photo_content_type, 'image/jpeg') FROM freelance_dispatchers WHERE id = $1 AND deleted_at IS NULL AND photo_data IS NOT NULL`
+	err = r.pg.QueryRow(ctx, q, id).Scan(&data, &contentType)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, "", ErrNotFound
+		}
+		return nil, "", err
+	}
+	return data, contentType, nil
 }

@@ -32,6 +32,10 @@ type adminCreateCompanyReq struct {
 	LicenseNumber *string `json:"license_number"`
 	Status        *string `json:"status"`
 
+	// Owner (app_users id): при указании компания получает owner и status = active
+	OwnerID     *string `json:"owner_id"`     // UUID
+	CompanyType *string `json:"company_type"` // CargoOwner, Carrier, Expeditor (грузовладелец, перевозчик, экспедитор)
+
 	MaxVehicles       int `json:"max_vehicles"`
 	MaxDrivers        int `json:"max_drivers"`
 	MaxCargo          int `json:"max_cargo"`
@@ -64,23 +68,45 @@ func (h *AdminCompaniesHandler) Create(c *gin.Context) {
 		return
 	}
 
+	var ownerID *uuid.UUID
+	if req.OwnerID != nil {
+		s := strings.TrimSpace(*req.OwnerID)
+		if s != "" {
+			parsed, err := uuid.Parse(s)
+			if err != nil {
+				resp.Error(c, http.StatusBadRequest, "invalid owner_id: must be UUID")
+				return
+			}
+			ownerID = &parsed
+		}
+	}
+	var companyType *string
+	if req.CompanyType != nil {
+		s := strings.TrimSpace(*req.CompanyType)
+		if s != "" {
+			companyType = &s
+		}
+	}
+
 	id, err := h.repo.Create(c.Request.Context(), companies.CreateParams{
-		Name:             req.Name,
-		Inn:              req.Inn,
-		Address:          req.Address,
-		Phone:            req.Phone,
-		Email:            req.Email,
-		Website:          req.Website,
-		LicenseNumber:    req.LicenseNumber,
-		Status:           req.Status,
-		MaxVehicles:      req.MaxVehicles,
-		MaxDrivers:       req.MaxDrivers,
-		MaxCargo:         req.MaxCargo,
-		MaxDispatchers:   req.MaxDispatchers,
-		MaxManagers:      req.MaxManagers,
+		Name:              req.Name,
+		Inn:               req.Inn,
+		Address:           req.Address,
+		Phone:             req.Phone,
+		Email:             req.Email,
+		Website:           req.Website,
+		LicenseNumber:     req.LicenseNumber,
+		Status:            req.Status,
+		OwnerID:           ownerID,
+		CompanyType:       companyType,
+		MaxVehicles:       req.MaxVehicles,
+		MaxDrivers:        req.MaxDrivers,
+		MaxCargo:          req.MaxCargo,
+		MaxDispatchers:    req.MaxDispatchers,
+		MaxManagers:       req.MaxManagers,
 		MaxTopDispatchers: req.MaxTopDispatchers,
-		MaxTopManagers:   req.MaxTopManagers,
-		CreatedBy:        adminID,
+		MaxTopManagers:    req.MaxTopManagers,
+		CreatedBy:         adminID,
 	})
 	if err != nil {
 		h.logger.Error("company create failed", zap.Error(err))
@@ -89,5 +115,40 @@ func (h *AdminCompaniesHandler) Create(c *gin.Context) {
 	}
 
 	resp.OK(c, gin.H{"company_id": id})
+}
+
+// adminSetOwnerReq body for PATCH /admin/companies/:id/owner
+type adminSetOwnerReq struct {
+	OwnerID string `json:"owner_id" binding:"required"` // app_users UUID
+}
+
+// SetOwner PATCH /admin/companies/:id/owner — привязывает владельца к компании и переводит status в active.
+func (h *AdminCompaniesHandler) SetOwner(c *gin.Context) {
+	companyIDStr := c.Param("id")
+	if companyIDStr == "" {
+		resp.Error(c, http.StatusBadRequest, "company id required")
+		return
+	}
+	companyID, err := uuid.Parse(companyIDStr)
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, "invalid company id")
+		return
+	}
+	var req adminSetOwnerReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		return
+	}
+	ownerID, err := uuid.Parse(strings.TrimSpace(req.OwnerID))
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, "invalid owner_id: must be UUID")
+		return
+	}
+	if err := h.repo.SetOwner(c.Request.Context(), companyID, ownerID); err != nil {
+		h.logger.Error("company set owner failed", zap.Error(err))
+		resp.Error(c, http.StatusInternalServerError, "set owner failed")
+		return
+	}
+	resp.OK(c, gin.H{"status": "ok", "message": "owner set, status set to active"})
 }
 

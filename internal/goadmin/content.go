@@ -58,7 +58,7 @@ func DashboardContent(ctx *context.Context) (types.Panel, error) {
 			</a></div>
 		</div>
 		<div class="row">
-			<div class="col-md-6 col-lg-3"><a href="` + prefix + `/info/app_users" class="admin-dash-card">
+			<div class="col-md-6 col-lg-3"><a href="` + prefix + `/info/company_users" class="admin-dash-card">
 				<div class="admin-dash-card-icon"><i class="fa fa-user"></i></div>
 				<div class="admin-dash-card-title">App Users</div>
 				<div class="admin-dash-card-desc">Пользователи (Company TZ)</div>

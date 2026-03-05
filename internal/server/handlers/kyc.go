@@ -138,6 +138,7 @@ func (h *KYCHandler) Submit(c *gin.Context) {
 		DriverOwner:          req.DriverOwner,
 		KYCStatus:            kycStatus,
 		RegistrationStatus:   regStatus,
+		RegistrationStep:     string(domain.StepCompleted), // регистрация завершена после отправки KYC
 	}
 
 	if err := h.drivers.UpdateKYC(c.Request.Context(), driverID, u); err != nil {
@@ -146,13 +147,12 @@ func (h *KYCHandler) Submit(c *gin.Context) {
 		return
 	}
 
-	// When registration becomes FULL, auto-fill default columns.
-	if isFull {
-		if err := h.drivers.ApplyFullDefaults(c.Request.Context(), driverID); err != nil {
-			h.logger.Error("apply full defaults failed", zap.Error(err))
-			resp.Error(c, http.StatusInternalServerError, "internal error")
-			return
-		}
+	// После отправки KYC выставляем work_status и account_status, чтобы водитель мог работать
+	// (даже при kyc_status=pending, например если не все скан-статусы true).
+	if err := h.drivers.ApplyFullDefaults(c.Request.Context(), driverID); err != nil {
+		h.logger.Error("apply full defaults failed", zap.Error(err))
+		resp.Error(c, http.StatusInternalServerError, "internal error")
+		return
 	}
 	updated, _ := h.drivers.FindByID(c.Request.Context(), driverID)
 	resp.OK(c, gin.H{

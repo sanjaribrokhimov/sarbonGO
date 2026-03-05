@@ -248,8 +248,13 @@ func (h *CompanyTZHandler) CreateInvitation(c *gin.Context) {
 	})
 }
 
-// AcceptInvitation POST /invitations/accept (TZ 3.3) — no auth required for accept
+// AcceptInvitation POST /invitations/accept — требуется X-User-Token (пользователь компании). Добавляет текущего пользователя в компанию с ролью из приглашения.
 func (h *CompanyTZHandler) AcceptInvitation(c *gin.Context) {
+	userID, ok := h.appUserID(c)
+	if !ok {
+		resp.Error(c, http.StatusUnauthorized, "unauthorized: login or register first")
+		return
+	}
 	var req struct {
 		Token string `json:"token" binding:"required"`
 	}
@@ -268,14 +273,11 @@ func (h *CompanyTZHandler) AcceptInvitation(c *gin.Context) {
 	}
 	comp, _ := h.companies.GetByIDTZ(c.Request.Context(), inv.CompanyID)
 	role, _ := h.roles.FindByID(c.Request.Context(), inv.RoleID)
-	user, err := h.appusers.FindByEmail(c.Request.Context(), inv.Email)
-	requiresReg := (err != nil || user == nil)
 	out := gin.H{
-		"status":               "accepted",
-		"company_id":           inv.CompanyID,
-		"company_name":         "",
-		"role":                 "",
-		"requires_registration": requiresReg,
+		"status":       "accepted",
+		"company_id":   inv.CompanyID,
+		"company_name": "",
+		"role":         "",
 	}
 	if comp != nil {
 		out["company_name"] = comp.Name
@@ -283,15 +285,12 @@ func (h *CompanyTZHandler) AcceptInvitation(c *gin.Context) {
 	if role != nil {
 		out["role"] = role.Name
 	}
-	if !requiresReg && user != nil {
-		userID, _ := uuid.Parse(user.ID)
-		if err := h.ucr.Add(c.Request.Context(), userID, inv.CompanyID, inv.RoleID, inv.InvitedBy); err != nil {
-			h.logger.Error("ucr add on accept failed", zap.Error(err))
-		} else {
-			_ = h.audit.Log(c.Request.Context(), &userID, &inv.CompanyID, "create", "user_company_role", userID, nil, map[string]interface{}{"role_id": inv.RoleID})
-		}
-		_ = h.invitations.Delete(c.Request.Context(), inv.ID)
+	if err := h.ucr.Add(c.Request.Context(), userID, inv.CompanyID, inv.RoleID, inv.InvitedBy); err != nil {
+		h.logger.Error("ucr add on accept failed", zap.Error(err))
+	} else {
+		_ = h.audit.Log(c.Request.Context(), &userID, &inv.CompanyID, "create", "user_company_role", userID, nil, map[string]interface{}{"role_id": inv.RoleID})
 	}
+	_ = h.invitations.Delete(c.Request.Context(), inv.ID)
 	resp.OK(c, out)
 }
 
@@ -326,7 +325,7 @@ func (h *CompanyTZHandler) ListCompanyUsers(c *gin.Context) {
 	users := make([]gin.H, 0, len(list))
 	for _, u := range list {
 		users = append(users, gin.H{
-			"id": u.UserID, "email": u.Email, "first_name": u.FirstName, "last_name": u.LastName, "phone": u.Phone,
+			"id": u.UserID, "phone": u.Phone, "first_name": u.FirstName, "last_name": u.LastName,
 			"role": gin.H{"id": u.RoleID, "name": u.RoleName, "description": u.RoleDescription},
 			"assigned_by": gin.H{"id": u.AssignedBy, "name": u.AssignedByName},
 			"assigned_at": u.AssignedAt,

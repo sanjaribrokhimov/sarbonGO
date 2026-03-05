@@ -118,12 +118,11 @@ func (h *ProfileHandler) PatchDriver(c *gin.Context) {
 }
 
 type heartbeatReq struct {
-	Latitude     float64 `json:"latitude" binding:"required"`
-	Longitude    float64 `json:"longitude" binding:"required"`
-	LastOnlineAt string  `json:"last_online_at" binding:"required"` // RFC3339
+	Latitude  float64 `json:"latitude" binding:"required"`
+	Longitude float64 `json:"longitude" binding:"required"`
 }
 
-// PUT /v1/profile/heartbeat
+// PUT /v1/profile/heartbeat — только latitude и longitude; last_online_at всегда обновляется на сервере автоматически.
 func (h *ProfileHandler) Heartbeat(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	var req heartbeatReq
@@ -131,12 +130,7 @@ func (h *ProfileHandler) Heartbeat(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	t, err := time.Parse(time.RFC3339, strings.TrimSpace(req.LastOnlineAt))
-	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "last_online_at must be RFC3339")
-		return
-	}
-	if err := h.drivers.UpdateHeartbeat(c.Request.Context(), driverID, req.Latitude, req.Longitude, t); err != nil {
+	if err := h.drivers.UpdateHeartbeat(c.Request.Context(), driverID, req.Latitude, req.Longitude, time.Now().UTC()); err != nil {
 		h.logger.Error("heartbeat update failed", zap.Error(err))
 		resp.Error(c, http.StatusInternalServerError, "internal error")
 		return

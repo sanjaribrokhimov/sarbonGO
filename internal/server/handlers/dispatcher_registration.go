@@ -29,13 +29,12 @@ func NewDispatcherRegistrationHandler(logger *zap.Logger, repo *dispatchers.Repo
 }
 
 type dispCompleteReq struct {
-	SessionID      string  `json:"session_id" binding:"required"`
-	Name           string  `json:"name" binding:"required"`
-	Password       string  `json:"password" binding:"required"`
-	PassportSeries string  `json:"passport_series" binding:"required"`
-	PassportNumber string  `json:"passport_number" binding:"required"`
-	PINFL          string  `json:"pinfl" binding:"required"`
-	Photo          *string `json:"photo,omitempty"`
+	SessionID      string `json:"session_id" binding:"required"`
+	Name           string `json:"name" binding:"required"`
+	Password       string `json:"password" binding:"required"`
+	PassportSeries string `json:"passport_series" binding:"required"`
+	PassportNumber string `json:"passport_number" binding:"required"`
+	PINFL          string `json:"pinfl" binding:"required"`
 }
 
 func (h *DispatcherRegistrationHandler) Complete(c *gin.Context) {
@@ -95,13 +94,6 @@ func (h *DispatcherRegistrationHandler) Complete(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, "passport_series, passport_number, pinfl are required")
 		return
 	}
-	var photo *string
-	if req.Photo != nil {
-		v := strings.TrimSpace(*req.Photo)
-		if v != "" {
-			photo = &v
-		}
-	}
 
 	id, err := h.repo.Create(c.Request.Context(), dispatchers.CreateParams{
 		Phone:          phone,
@@ -110,7 +102,6 @@ func (h *DispatcherRegistrationHandler) Complete(c *gin.Context) {
 		PassportSeries: ps,
 		PassportNumber: pn,
 		PINFL:          pinfl,
-		Photo:          photo,
 	})
 	if err != nil {
 		if errors.Is(err, dispatchers.ErrPhoneAlreadyRegistered) {

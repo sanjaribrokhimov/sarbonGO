@@ -60,6 +60,7 @@ var refDrivers = ReferenceDriversResponse{
 		{Value: "name-oferta", Label: "Имя и оферта"},
 		{Value: "geo-push", Label: "Геолокация и push"},
 		{Value: "transport-type", Label: "Тип транспорта"},
+		{Value: "completed", Label: "Регистрация завершена"},
 	},
 	RegistrationStatus: []ItemWithLabel{
 		{Value: "start", Label: "Начало"},
@@ -142,6 +143,9 @@ var refCompany = ReferenceCompanyResponse{
 		{Value: "Broker", Label: "Брокер"},
 		{Value: "Fleet", Label: "Автопарк"},
 		{Value: "OwnerOperator", Label: "Владелец-оператор"},
+		{Value: "CargoOwner", Label: "Грузовладелец"},
+		{Value: "Carrier", Label: "Перевозчик"},
+		{Value: "Expeditor", Label: "Экспедитор"},
 	},
 	CompanyStatus: []ItemWithLabel{
 		{Value: "active", Label: "Активна"},

@@ -33,29 +33,38 @@ type CreateParams struct {
 	MaxTopDispatchers int
 	MaxTopManagers    int
 
-	CreatedBy uuid.UUID
+	OwnerID     *uuid.UUID // app_users id; when set, status is set to active
+	CompanyType *string    // CargoOwner, Carrier, Expeditor (or Shipper, Broker, Fleet, OwnerOperator)
+	CreatedBy   uuid.UUID
 }
 
 func (r *Repo) Create(ctx context.Context, p CreateParams) (uuid.UUID, error) {
+	status := "pending"
+	if p.Status != nil && *p.Status != "" {
+		status = *p.Status
+	}
+	if p.OwnerID != nil {
+		status = "active" // после добавления owner статус переводится в active
+	}
 	const q = `
 INSERT INTO companies (
   name, inn, address, phone, email, website, license_number,
-  status,
+  status, owner_id, company_type,
   max_vehicles, max_drivers, max_cargo, max_dispatchers, max_managers, max_top_dispatchers, max_top_managers,
   completed_orders, cancelled_orders, total_revenue,
   created_by, created_at, updated_at, deleted_at
 ) VALUES (
   $1, $2, $3, $4, $5, $6, $7,
-  COALESCE($8, 'active'),
-  $9, $10, $11, $12, $13, $14, $15,
+  $8, $9, $10,
+  $11, $12, $13, $14, $15, $16, $17,
   0, 0, 0,
-  $16, now(), now(), NULL
+  $18, now(), now(), NULL
 ) RETURNING id`
 
 	var id uuid.UUID
 	err := r.pg.QueryRow(ctx, q,
 		p.Name, p.Inn, p.Address, p.Phone, p.Email, p.Website, p.LicenseNumber,
-		p.Status,
+		status, p.OwnerID, p.CompanyType,
 		p.MaxVehicles, p.MaxDrivers, p.MaxCargo, p.MaxDispatchers, p.MaxManagers, p.MaxTopDispatchers, p.MaxTopManagers,
 		p.CreatedBy,
 	).Scan(&id)
@@ -108,6 +117,13 @@ FROM companies WHERE id = $1 AND deleted_at IS NULL LIMIT 1`
 		return nil, err
 	}
 	return &c, nil
+}
+
+// SetOwner sets company owner_id and sets status to active (for admin: link owner to company).
+func (r *Repo) SetOwner(ctx context.Context, companyID, ownerID uuid.UUID) error {
+	const q = `UPDATE companies SET owner_id = $2, status = 'active', updated_at = now() WHERE id = $1 AND deleted_at IS NULL`
+	_, err := r.pg.Exec(ctx, q, companyID, ownerID)
+	return err
 }
 
 // ListForUser returns companies where user is owner or has a role (for GET /auth/companies).

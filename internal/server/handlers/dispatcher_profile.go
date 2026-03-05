@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -17,6 +18,9 @@ import (
 	"sarbonNew/internal/telegram"
 	"sarbonNew/internal/util"
 )
+
+const maxDispatcherPhotoSize = 5 * 1024 * 1024 // 5 MB
+var allowedPhotoTypes = map[string]bool{"image/jpeg": true, "image/png": true}
 
 type DispatcherProfileHandler struct {
 	logger      *zap.Logger
@@ -201,6 +205,61 @@ func (h *DispatcherProfileHandler) PhoneChangeVerify(c *gin.Context) {
 	}
 	d, _ := h.repo.FindByID(c.Request.Context(), payload.DispatcherID)
 	resp.OK(c, gin.H{"status": "ok", "dispatcher": d})
+}
+
+// UploadPhoto — POST multipart/form-data с полем "photo" (файл). Фото сохраняется в БД.
+func (h *DispatcherProfileHandler) UploadPhoto(c *gin.Context) {
+	id := c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
+	file, err := c.FormFile("photo")
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, "missing or invalid file: use form field 'photo'")
+		return
+	}
+	if file.Size > maxDispatcherPhotoSize {
+		resp.Error(c, http.StatusBadRequest, "file too large (max 5 MB)")
+		return
+	}
+	contentType := file.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+	if !allowedPhotoTypes[contentType] {
+		resp.Error(c, http.StatusBadRequest, "allowed types: image/jpeg, image/png")
+		return
+	}
+	f, err := file.Open()
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, "cannot read file")
+		return
+	}
+	defer f.Close()
+	data, err := io.ReadAll(f)
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, "cannot read file")
+		return
+	}
+	if err := h.repo.UpdatePhoto(c.Request.Context(), id, data, contentType); err != nil {
+		h.logger.Error("dispatcher photo update failed", zap.Error(err))
+		resp.Error(c, http.StatusInternalServerError, "internal error")
+		return
+	}
+	resp.OK(c, gin.H{"status": "ok", "event": "photo_uploaded"})
+}
+
+// GetPhoto — GET фото диспетчера (бинарный ответ с Content-Type). 404 если фото нет.
+func (h *DispatcherProfileHandler) GetPhoto(c *gin.Context) {
+	id := c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
+	data, contentType, err := h.repo.GetPhoto(c.Request.Context(), id)
+	if err != nil {
+		if errors.Is(err, dispatchers.ErrNotFound) {
+			resp.Error(c, http.StatusNotFound, "photo not found")
+			return
+		}
+		h.logger.Error("dispatcher get photo failed", zap.Error(err))
+		resp.Error(c, http.StatusInternalServerError, "internal error")
+		return
+	}
+	c.Data(http.StatusOK, contentType, data)
 }
 
 func (h *DispatcherProfileHandler) Delete(c *gin.Context) {

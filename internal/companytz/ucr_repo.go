@@ -78,13 +78,13 @@ func (r *RepoUCR) ListUsersByCompany(ctx context.Context, companyID uuid.UUID, l
 	}
 	rows, err := r.pg.Query(ctx, `
 SELECT ucr.user_id, ucr.company_id, ucr.role_id, ucr.assigned_by, ucr.assigned_at,
-  u.email, u.first_name, u.last_name, u.phone,
+  u.phone, u.first_name, u.last_name,
   r.name as role_name, r.description as role_description,
   ab.first_name as assigned_by_first_name, ab.last_name as assigned_by_last_name
 FROM user_company_roles ucr
-JOIN app_users u ON u.id = ucr.user_id
+JOIN company_users u ON u.id = ucr.user_id
 JOIN app_roles r ON r.id = ucr.role_id
-LEFT JOIN app_users ab ON ab.id = ucr.assigned_by
+LEFT JOIN company_users ab ON ab.id = ucr.assigned_by
 WHERE ucr.company_id = $1
 ORDER BY ucr.assigned_at DESC
 LIMIT $2 OFFSET $3`,
@@ -98,7 +98,7 @@ LIMIT $2 OFFSET $3`,
 		var row UserCompanyRoleWithUser
 		var abFn, abLn *string
 		err := rows.Scan(&row.UserID, &row.CompanyID, &row.RoleID, &row.AssignedBy, &row.AssignedAt,
-			&row.Email, &row.FirstName, &row.LastName, &row.Phone,
+			&row.Phone, &row.FirstName, &row.LastName,
 			&row.RoleName, &row.RoleDescription,
 			&abFn, &abLn)
 		if err != nil {
@@ -119,10 +119,9 @@ type UserCompanyRoleWithUser struct {
 	RoleID          uuid.UUID `json:"role_id"`
 	AssignedBy      *uuid.UUID `json:"assigned_by"`
 	AssignedAt      string    `json:"assigned_at"`
-	Email           string    `json:"email"`
+	Phone           string    `json:"phone"`
 	FirstName       *string   `json:"first_name"`
 	LastName        *string   `json:"last_name"`
-	Phone           *string   `json:"phone"`
 	RoleName        string    `json:"role_name"`
 	RoleDescription *string   `json:"role_description"`
 	AssignedByName  *string   `json:"assigned_by_name"`

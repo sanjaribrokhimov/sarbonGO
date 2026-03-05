@@ -8,6 +8,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"sarbonNew/internal/util"
 )
 
 var ErrNotFound = errors.New("driver not found")
@@ -79,6 +81,14 @@ func scanDriver(row pgx.Row) (*Driver, error) {
 		}
 		return nil, err
 	}
+
+	d.CreatedAt = util.InTashkent(d.CreatedAt)
+	d.UpdatedAt = util.InTashkent(d.UpdatedAt)
+	if d.LastOnlineAt != nil {
+		v := util.InTashkent(*d.LastOnlineAt)
+		d.LastOnlineAt = &v
+	}
+
 	return &d, nil
 }
 
@@ -291,6 +301,7 @@ type KYCUpdate struct {
 	KYCStatus     string
 
 	RegistrationStatus string
+	RegistrationStep  string // после KYC — "completed"
 }
 
 func (r *Repo) UpdateKYC(ctx context.Context, id uuid.UUID, u KYCUpdate) error {
@@ -315,6 +326,7 @@ SET driver_passport_series = $2,
     driver_owner = $18,
     kyc_status = $19,
     registration_status = $20,
+    registration_step = $21,
     updated_at = now(),
     last_online_at = now()
 WHERE id = $1`
@@ -340,6 +352,7 @@ WHERE id = $1`
 		u.DriverOwner,
 		u.KYCStatus,
 		u.RegistrationStatus,
+		u.RegistrationStep,
 	)
 	return err
 }

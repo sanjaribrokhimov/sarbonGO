@@ -23,9 +23,11 @@ type Dispatcher struct {
 	WorkStatus *string  `json:"work_status"`
 	Status     *string  `json:"status"`
 
-	Photo *string `json:"photo"`
+	Photo     *string `json:"photo,omitempty"`      // ссылка/путь (устаревшее), для загруженного фото см. has_photo
+	HasPhoto  bool    `json:"has_photo"`             // true если загружено фото в БД (получить через GET /profile/photo)
 
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
-	DeletedAt *time.Time `json:"deleted_at"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	LastOnlineAt *time.Time `json:"last_online_at"`
+	DeletedAt    *time.Time `json:"deleted_at"`
 }

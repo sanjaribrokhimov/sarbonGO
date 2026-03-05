@@ -21,29 +21,26 @@ var (
 )
 
 type OTPStore struct {
-	rdb *redis.Client
-	// secret is used only to hash OTP in Redis (not a JWT secret).
+	rdb    *redis.Client
 	secret string
-
-	ttl            time.Duration
-	cooldown       time.Duration
-	maxAttempts    int
+	ttl    time.Duration
+	cooldown time.Duration
+	maxAttempts int
+	prefix string // e.g. "" or "company_" for separate key namespace
 }
 
 func NewOTPStore(rdb *redis.Client, secret string, ttl, cooldown time.Duration, maxAttempts int) *OTPStore {
-	return &OTPStore{
-		rdb:         rdb,
-		secret:      secret,
-		ttl:         ttl,
-		cooldown:    cooldown,
-		maxAttempts: maxAttempts,
-	}
+	return &OTPStore{rdb: rdb, secret: secret, ttl: ttl, cooldown: cooldown, maxAttempts: maxAttempts, prefix: ""}
 }
 
-func (s *OTPStore) otpKey(phone string) string      { return "otp:" + phone }
-func (s *OTPStore) cooldownKey(phone string) string { return "otp:cooldown:" + phone }
-func (s *OTPStore) sendCountKey(phone string) string { return "otp:send_count:" + phone }
-func (s *OTPStore) sendCountIPKey(ip string) string  { return "otp:send_count_ip:" + ip }
+func NewOTPStoreWithPrefix(rdb *redis.Client, secret string, ttl, cooldown time.Duration, maxAttempts int, prefix string) *OTPStore {
+	return &OTPStore{rdb: rdb, secret: secret, ttl: ttl, cooldown: cooldown, maxAttempts: maxAttempts, prefix: prefix}
+}
+
+func (s *OTPStore) otpKey(phone string) string      { return s.prefix + "otp:" + phone }
+func (s *OTPStore) cooldownKey(phone string) string { return s.prefix + "otp:cooldown:" + phone }
+func (s *OTPStore) sendCountKey(phone string) string { return s.prefix + "otp:send_count:" + phone }
+func (s *OTPStore) sendCountIPKey(ip string) string  { return s.prefix + "otp:send_count_ip:" + ip }
 
 func (s *OTPStore) hash(phone, code string) string {
 	sum := sha256.Sum256([]byte(phone + ":" + code + ":" + s.secret))

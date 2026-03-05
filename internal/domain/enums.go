@@ -6,6 +6,7 @@ const (
 	StepNameOferta    RegistrationStep = "name-oferta"
 	StepGeoPush       RegistrationStep = "geo-push"
 	StepTransportType RegistrationStep = "transport-type"
+	StepCompleted     RegistrationStep = "completed" // после отправки KYC регистрация считается завершённой
 )
 
 type RegistrationStatus string
