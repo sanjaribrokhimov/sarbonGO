@@ -61,7 +61,7 @@ func LoadFromEnv() (Config, error) {
 	cfg.JWTRefreshTTL = time.Duration(mustAtoi(getEnv("JWT_REFRESH_TTL_SECONDS", "2592000"))) * time.Second
 
 	cfg.OTPLength = mustAtoi(getEnv("OTP_LENGTH", "6"))
-	cfg.OTPTTL = time.Duration(mustAtoi(getEnv("OTP_TTL_SECONDS", "180"))) * time.Second
+	cfg.OTPTTL = time.Duration(mustAtoi(getEnv("OTP_TTL_SECONDS", "120"))) * time.Second
 	cfg.OTPResendCooldown = time.Duration(mustAtoi(getEnv("OTP_RESEND_COOLDOWN_SECONDS", "30"))) * time.Second
 	cfg.OTPMaxAttempts = mustAtoi(getEnv("OTP_MAX_ATTEMPTS", "5"))
 	cfg.OTPSendLimitPerPhonePerHour = mustAtoi(getEnv("OTP_SEND_LIMIT_PER_PHONE_PER_HOUR", "10"))

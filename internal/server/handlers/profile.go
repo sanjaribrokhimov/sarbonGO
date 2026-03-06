@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -163,28 +162,13 @@ func (h *ProfileHandler) PhoneChangeRequest(c *gin.Context) {
 		return
 	}
 
-	code, err := util.GenerateNumericOTP(h.otpLen)
+	ttlSec := int(h.otpTTL.Seconds())
+	code, _, err := SendOTP(c.Request.Context(), h.tg, newPhone, ttlSec, h.otpLen)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, "otp generation failed")
-		return
-	}
-	if _, err := h.tg.SendVerificationMessage(c.Request.Context(), newPhone, code, int(h.otpTTL.Seconds())); err != nil {
-		var tgErr *telegram.GatewayError
-		if errors.As(err, &tgErr) {
-			if errors.Is(err, telegram.ErrNoAccount) {
-				resp.Error(c, http.StatusBadRequest, strings.ToLower(tgErr.Error()))
-				return
-			}
-			if errors.Is(err, telegram.ErrRateLimited) {
-				resp.Error(c, http.StatusTooManyRequests, strings.ToLower(tgErr.Error()))
-				return
-			}
-			h.logger.Warn("telegram sendVerificationMessage failed", zap.Error(err))
-			resp.Error(c, http.StatusBadGateway, strings.ToLower(tgErr.Error()))
+		if WriteOTPSendError(c, err, h.logger, "telegram sendVerificationMessage failed") {
 			return
 		}
-		h.logger.Warn("telegram sendVerificationMessage failed", zap.Error(err))
-		resp.Error(c, http.StatusBadGateway, strings.ToLower(err.Error()))
+		resp.Error(c, http.StatusInternalServerError, "otp generation failed")
 		return
 	}
 	sessionID, err := h.phoneChange.Create(c.Request.Context(), driverID, newPhone, code)
@@ -193,7 +177,7 @@ func (h *ProfileHandler) PhoneChangeRequest(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, "internal error")
 		return
 	}
-	resp.OK(c, gin.H{"event": "otp_sent", "session_id": sessionID, "ttl_seconds": int(h.otpTTL.Seconds())})
+	resp.OK(c, gin.H{"event": "otp_sent", "session_id": sessionID, "ttl_seconds": ttlSec})
 }
 
 type phoneChangeVerifyReq struct {

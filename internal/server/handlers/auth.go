@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -67,42 +66,23 @@ func (h *AuthHandler) SendOTP(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	phone, err := util.NormalizeE164(req.Phone)
+	phone, err := util.NormalizeE164StrictPlus(req.Phone)
 	if err != nil {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	code, err := util.GenerateNumericOTP(h.otpLen)
+	ttlSec := int(h.otpTTL.Seconds())
+	code, requestID, err := SendOTP(c.Request.Context(), h.tg, phone, ttlSec, h.otpLen)
 	if err != nil {
+		if WriteOTPSendError(c, err, h.logger, "telegram sendVerificationMessage failed") {
+			return
+		}
 		resp.Error(c, http.StatusInternalServerError, "otp generation failed")
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
-	defer cancel()
-
-	requestID, err := h.tg.SendVerificationMessage(ctx, phone, code, int(h.otpTTL.Seconds()))
-	if err != nil {
-		var tgErr *telegram.GatewayError
-		if errors.As(err, &tgErr) {
-			if errors.Is(err, telegram.ErrNoAccount) {
-				resp.Error(c, http.StatusBadRequest, strings.ToLower(tgErr.Error()))
-				return
-			}
-			if errors.Is(err, telegram.ErrRateLimited) {
-				resp.Error(c, http.StatusTooManyRequests, strings.ToLower(tgErr.Error()))
-				return
-			}
-			h.logger.Warn("telegram sendVerificationMessage failed", zap.Error(err))
-			resp.Error(c, http.StatusBadGateway, strings.ToLower(tgErr.Error()))
-			return
-		}
-		h.logger.Warn("telegram sendVerificationMessage failed", zap.Error(err))
-		resp.Error(c, http.StatusBadGateway, strings.ToLower(err.Error()))
-		return
-	}
-
+	ctx := c.Request.Context()
 	ip := strings.TrimSpace(c.ClientIP())
 	if err := h.otp.SaveOTP(ctx, phone, code, requestID, ip); err != nil {
 		if errors.Is(err, store.ErrOTPCooldown) {
@@ -118,10 +98,7 @@ func (h *AuthHandler) SendOTP(c *gin.Context) {
 		return
 	}
 
-	resp.OK(c, gin.H{
-		"status":      "otp_sent",
-		"ttl_seconds": int(h.otpTTL.Seconds()),
-	})
+	resp.OK(c, gin.H{"status": "otp_sent", "ttl_seconds": ttlSec})
 }
 
 type verifyOTPReq struct {
