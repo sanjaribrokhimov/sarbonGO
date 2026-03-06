@@ -13,32 +13,61 @@ import (
 )
 
 var (
-	ErrOTPCooldown     = errors.New("otp cooldown")
-	ErrOTPExpired      = errors.New("otp expired")
-	ErrOTPInvalid      = errors.New("otp invalid")
-	ErrOTPMaxAttempts  = errors.New("otp max attempts exceeded")
-	ErrOTPRateLimited  = errors.New("otp rate limited")
+	ErrOTPCooldown    = errors.New("otp cooldown")
+	ErrOTPExpired     = errors.New("otp expired")
+	ErrOTPInvalid     = errors.New("otp invalid")
+	ErrOTPMaxAttempts = errors.New("otp max attempts exceeded")
+	ErrOTPRateLimited = errors.New("otp rate limited")
 )
 
 type OTPStore struct {
-	rdb    *redis.Client
-	secret string
-	ttl    time.Duration
-	cooldown time.Duration
-	maxAttempts int
-	prefix string // e.g. "" or "company_" for separate key namespace
+	rdb               *redis.Client
+	secret            string
+	ttl               time.Duration
+	cooldown          time.Duration
+	maxAttempts       int
+	sendLimitPerPhone int64
+	sendLimitPerIP    int64
+	sendWindow        time.Duration
+	prefix            string // e.g. "" or "company_" for separate key namespace
 }
 
-func NewOTPStore(rdb *redis.Client, secret string, ttl, cooldown time.Duration, maxAttempts int) *OTPStore {
-	return &OTPStore{rdb: rdb, secret: secret, ttl: ttl, cooldown: cooldown, maxAttempts: maxAttempts, prefix: ""}
+func NewOTPStore(rdb *redis.Client, secret string, ttl, cooldown time.Duration, maxAttempts int, sendLimitPerPhone, sendLimitPerIP int64, sendWindow time.Duration) *OTPStore {
+	if sendWindow <= 0 {
+		sendWindow = time.Hour
+	}
+	return &OTPStore{
+		rdb:               rdb,
+		secret:            secret,
+		ttl:               ttl,
+		cooldown:          cooldown,
+		maxAttempts:       maxAttempts,
+		sendLimitPerPhone: sendLimitPerPhone,
+		sendLimitPerIP:    sendLimitPerIP,
+		sendWindow:        sendWindow,
+		prefix:            "",
+	}
 }
 
-func NewOTPStoreWithPrefix(rdb *redis.Client, secret string, ttl, cooldown time.Duration, maxAttempts int, prefix string) *OTPStore {
-	return &OTPStore{rdb: rdb, secret: secret, ttl: ttl, cooldown: cooldown, maxAttempts: maxAttempts, prefix: prefix}
+func NewOTPStoreWithPrefix(rdb *redis.Client, secret string, ttl, cooldown time.Duration, maxAttempts int, sendLimitPerPhone, sendLimitPerIP int64, sendWindow time.Duration, prefix string) *OTPStore {
+	if sendWindow <= 0 {
+		sendWindow = time.Hour
+	}
+	return &OTPStore{
+		rdb:               rdb,
+		secret:            secret,
+		ttl:               ttl,
+		cooldown:          cooldown,
+		maxAttempts:       maxAttempts,
+		sendLimitPerPhone: sendLimitPerPhone,
+		sendLimitPerIP:    sendLimitPerIP,
+		sendWindow:        sendWindow,
+		prefix:            prefix,
+	}
 }
 
-func (s *OTPStore) otpKey(phone string) string      { return s.prefix + "otp:" + phone }
-func (s *OTPStore) cooldownKey(phone string) string { return s.prefix + "otp:cooldown:" + phone }
+func (s *OTPStore) otpKey(phone string) string       { return s.prefix + "otp:" + phone }
+func (s *OTPStore) cooldownKey(phone string) string  { return s.prefix + "otp:cooldown:" + phone }
 func (s *OTPStore) sendCountKey(phone string) string { return s.prefix + "otp:send_count:" + phone }
 func (s *OTPStore) sendCountIPKey(ip string) string  { return s.prefix + "otp:send_count_ip:" + ip }
 
@@ -53,17 +82,22 @@ type OTPRecord struct {
 
 // SaveOTP stores OTP hash + request_id with TTL and starts resend cooldown.
 func (s *OTPStore) SaveOTP(ctx context.Context, phone, code, requestID, ip string) error {
-	// cooldown check
-	if ok, _ := s.rdb.Exists(ctx, s.cooldownKey(phone)).Result(); ok > 0 {
-		return ErrOTPCooldown
+	// cooldown check (if enabled). When cooldown == 0, Redis SET would persist forever,
+	// so we must skip cooldown entirely.
+	if s.cooldown > 0 {
+		if ok, _ := s.rdb.Exists(ctx, s.cooldownKey(phone)).Result(); ok > 0 {
+			return ErrOTPCooldown
+		}
 	}
 
-	// basic rate limit: per phone and per ip, 10/hour
-	if err := s.incrWithLimit(ctx, s.sendCountKey(phone), 10, time.Hour); err != nil {
-		return err
+	// basic rate limit: per phone and per ip (configurable)
+	if s.sendLimitPerPhone > 0 {
+		if err := s.incrWithLimit(ctx, s.sendCountKey(phone), s.sendLimitPerPhone, s.sendWindow); err != nil {
+			return err
+		}
 	}
-	if ip != "" {
-		if err := s.incrWithLimit(ctx, s.sendCountIPKey(ip), 30, time.Hour); err != nil {
+	if ip != "" && s.sendLimitPerIP > 0 {
+		if err := s.incrWithLimit(ctx, s.sendCountIPKey(ip), s.sendLimitPerIP, s.sendWindow); err != nil {
 			return err
 		}
 	}
@@ -76,7 +110,9 @@ func (s *OTPStore) SaveOTP(ctx context.Context, phone, code, requestID, ip strin
 		"request_id", requestID,
 	)
 	pipe.Expire(ctx, key, s.ttl)
-	pipe.Set(ctx, s.cooldownKey(phone), "1", s.cooldown)
+	if s.cooldown > 0 {
+		pipe.Set(ctx, s.cooldownKey(phone), "1", s.cooldown)
+	}
 	_, err := pipe.Exec(ctx)
 	return err
 }
@@ -126,4 +162,3 @@ func (s *OTPStore) incrWithLimit(ctx context.Context, key string, limit int64, w
 	}
 	return nil
 }
-

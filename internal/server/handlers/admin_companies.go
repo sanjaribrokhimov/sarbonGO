@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -8,18 +9,20 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
+	"sarbonNew/internal/appusers"
 	"sarbonNew/internal/companies"
 	"sarbonNew/internal/server/mw"
 	"sarbonNew/internal/server/resp"
 )
 
 type AdminCompaniesHandler struct {
-	logger *zap.Logger
-	repo   *companies.Repo
+	logger   *zap.Logger
+	repo     *companies.Repo
+	usersRepo *appusers.Repo
 }
 
-func NewAdminCompaniesHandler(logger *zap.Logger, repo *companies.Repo) *AdminCompaniesHandler {
-	return &AdminCompaniesHandler{logger: logger, repo: repo}
+func NewAdminCompaniesHandler(logger *zap.Logger, repo *companies.Repo, usersRepo *appusers.Repo) *AdminCompaniesHandler {
+	return &AdminCompaniesHandler{logger: logger, repo: repo, usersRepo: usersRepo}
 }
 
 type adminCreateCompanyReq struct {
@@ -77,6 +80,16 @@ func (h *AdminCompaniesHandler) Create(c *gin.Context) {
 				resp.Error(c, http.StatusBadRequest, "invalid owner_id: must be UUID")
 				return
 			}
+			_, err = h.usersRepo.FindByID(c.Request.Context(), parsed)
+			if err != nil {
+				if errors.Is(err, appusers.ErrNotFound) {
+					resp.Error(c, http.StatusBadRequest, "owner_id must be an existing company user (register via POST /v1/company-users/auth/phone and registration/complete first)")
+					return
+				}
+				h.logger.Error("company user find by id failed", zap.Error(err))
+				resp.Error(c, http.StatusInternalServerError, "company create failed")
+				return
+			}
 			ownerID = &parsed
 		}
 	}
@@ -110,7 +123,11 @@ func (h *AdminCompaniesHandler) Create(c *gin.Context) {
 	})
 	if err != nil {
 		h.logger.Error("company create failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "company create failed")
+		msg := "company create failed"
+		if errStr := err.Error(); errStr != "" {
+			msg = msg + ": " + errStr
+		}
+		resp.Error(c, http.StatusInternalServerError, msg)
 		return
 	}
 
@@ -119,7 +136,7 @@ func (h *AdminCompaniesHandler) Create(c *gin.Context) {
 
 // adminSetOwnerReq body for PATCH /admin/companies/:id/owner
 type adminSetOwnerReq struct {
-	OwnerID string `json:"owner_id" binding:"required"` // app_users UUID
+	OwnerID string `json:"owner_id" binding:"required"` // company_users.id
 }
 
 // SetOwner PATCH /admin/companies/:id/owner — привязывает владельца к компании и переводит status в active.
@@ -142,6 +159,16 @@ func (h *AdminCompaniesHandler) SetOwner(c *gin.Context) {
 	ownerID, err := uuid.Parse(strings.TrimSpace(req.OwnerID))
 	if err != nil {
 		resp.Error(c, http.StatusBadRequest, "invalid owner_id: must be UUID")
+		return
+	}
+	_, err = h.usersRepo.FindByID(c.Request.Context(), ownerID)
+	if err != nil {
+		if errors.Is(err, appusers.ErrNotFound) {
+			resp.Error(c, http.StatusBadRequest, "owner_id must be an existing company user (register via POST /v1/company-users/auth/phone and registration/complete first)")
+			return
+		}
+		h.logger.Error("company user find by id failed", zap.Error(err))
+		resp.Error(c, http.StatusInternalServerError, "set owner failed")
 		return
 	}
 	if err := h.repo.SetOwner(c.Request.Context(), companyID, ownerID); err != nil {

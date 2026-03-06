@@ -79,8 +79,22 @@ func (h *CompanyUserAuthHandler) SendOTP(c *gin.Context) {
 	defer cancel()
 	requestID, err := h.tg.SendVerificationMessage(ctx, phone, code, int(h.otpTTL.Seconds()))
 	if err != nil {
+		var tgErr *telegram.GatewayError
+		if errors.As(err, &tgErr) {
+			if errors.Is(err, telegram.ErrNoAccount) {
+				resp.Error(c, http.StatusBadRequest, strings.ToLower(tgErr.Error()))
+				return
+			}
+			if errors.Is(err, telegram.ErrRateLimited) {
+				resp.Error(c, http.StatusTooManyRequests, strings.ToLower(tgErr.Error()))
+				return
+			}
+			h.logger.Warn("company user otp send failed", zap.Error(err))
+			resp.Error(c, http.StatusBadGateway, strings.ToLower(tgErr.Error()))
+			return
+		}
 		h.logger.Warn("company user otp send failed", zap.Error(err))
-		resp.Error(c, http.StatusBadGateway, "otp send failed")
+		resp.Error(c, http.StatusBadGateway, strings.ToLower(err.Error()))
 		return
 	}
 	ip := strings.TrimSpace(c.ClientIP())

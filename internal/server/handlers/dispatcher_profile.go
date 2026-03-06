@@ -149,8 +149,22 @@ func (h *DispatcherProfileHandler) PhoneChangeRequest(c *gin.Context) {
 		return
 	}
 	if _, err := h.tg.SendVerificationMessage(c.Request.Context(), newPhone, code, int(h.otpTTL.Seconds())); err != nil {
+		var tgErr *telegram.GatewayError
+		if errors.As(err, &tgErr) {
+			if errors.Is(err, telegram.ErrNoAccount) {
+				resp.Error(c, http.StatusBadRequest, strings.ToLower(tgErr.Error()))
+				return
+			}
+			if errors.Is(err, telegram.ErrRateLimited) {
+				resp.Error(c, http.StatusTooManyRequests, strings.ToLower(tgErr.Error()))
+				return
+			}
+			h.logger.Warn("telegram sendVerificationMessage failed", zap.Error(err))
+			resp.Error(c, http.StatusBadGateway, strings.ToLower(tgErr.Error()))
+			return
+		}
 		h.logger.Warn("telegram sendVerificationMessage failed", zap.Error(err))
-		resp.Error(c, http.StatusBadGateway, "otp send failed")
+		resp.Error(c, http.StatusBadGateway, strings.ToLower(err.Error()))
 		return
 	}
 	sessionID, err := h.phoneChange.Create(c.Request.Context(), id, "", newPhone, code)

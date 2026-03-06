@@ -17,8 +17,8 @@ import (
 	"go.uber.org/zap"
 
 	"sarbonNew/internal/config"
-	"sarbonNew/internal/logger"
 	"sarbonNew/internal/infra"
+	"sarbonNew/internal/logger"
 	"sarbonNew/internal/server"
 )
 
@@ -41,6 +41,15 @@ func main() {
 	if err != nil {
 		log.Fatal("config load failed", zap.Error(err))
 	}
+	log.Info("otp config",
+		zap.Bool("telegram_gateway_bypass", cfg.TelegramGatewayBypass),
+		zap.Int("otp_len", cfg.OTPLength),
+		zap.Duration("otp_ttl", cfg.OTPTTL),
+		zap.Duration("otp_resend_cooldown", cfg.OTPResendCooldown),
+		zap.Int("otp_send_limit_phone_per_hour", cfg.OTPSendLimitPerPhonePerHour),
+		zap.Int("otp_send_limit_ip_per_hour", cfg.OTPSendLimitPerIPPerHour),
+		zap.Duration("otp_send_window", cfg.OTPSendWindow),
+	)
 
 	// Авто-миграции при старте API.
 	// Это заменяет ручной запуск `cmd/migrate` в dev/stage окружениях.
@@ -129,4 +138,3 @@ func findMigrationsSourceURL() (string, error) {
 	}
 	return "", fmt.Errorf("migrations directory not found from cwd: %s", wd)
 }
-

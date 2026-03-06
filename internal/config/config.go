@@ -20,17 +20,21 @@ type Config struct {
 	RedisPassword string
 	RedisDB       int
 
-	JWTSigningKey    string
-	JWTAccessTTL     time.Duration
-	JWTRefreshTTL    time.Duration
-	OTPLength        int
-	OTPTTL           time.Duration
-	OTPResendCooldown time.Duration
-	OTPMaxAttempts   int
+	JWTSigningKey               string
+	JWTAccessTTL                time.Duration
+	JWTRefreshTTL               time.Duration
+	OTPLength                   int
+	OTPTTL                      time.Duration
+	OTPResendCooldown           time.Duration
+	OTPMaxAttempts              int
+	OTPSendLimitPerPhonePerHour int
+	OTPSendLimitPerIPPerHour    int
+	OTPSendWindow               time.Duration
 
-	TelegramGatewayBaseURL string
-	TelegramGatewayToken   string
+	TelegramGatewayBaseURL  string
+	TelegramGatewayToken    string
 	TelegramGatewaySenderID string
+	TelegramGatewayBypass   bool // dev: do not call gateway, just log OTP
 }
 
 func LoadFromEnv() (Config, error) {
@@ -60,10 +64,14 @@ func LoadFromEnv() (Config, error) {
 	cfg.OTPTTL = time.Duration(mustAtoi(getEnv("OTP_TTL_SECONDS", "180"))) * time.Second
 	cfg.OTPResendCooldown = time.Duration(mustAtoi(getEnv("OTP_RESEND_COOLDOWN_SECONDS", "30"))) * time.Second
 	cfg.OTPMaxAttempts = mustAtoi(getEnv("OTP_MAX_ATTEMPTS", "5"))
+	cfg.OTPSendLimitPerPhonePerHour = mustAtoi(getEnv("OTP_SEND_LIMIT_PER_PHONE_PER_HOUR", "10"))
+	cfg.OTPSendLimitPerIPPerHour = mustAtoi(getEnv("OTP_SEND_LIMIT_PER_IP_PER_HOUR", "30"))
+	cfg.OTPSendWindow = time.Duration(mustAtoi(getEnv("OTP_SEND_WINDOW_SECONDS", "3600"))) * time.Second
 
 	cfg.TelegramGatewayBaseURL = getEnv("TELEGRAM_GATEWAY_BASE_URL", "https://gatewayapi.telegram.org")
 	cfg.TelegramGatewayToken = os.Getenv("TELEGRAM_GATEWAY_TOKEN")
 	cfg.TelegramGatewaySenderID = os.Getenv("TELEGRAM_GATEWAY_SENDER_ID")
+	cfg.TelegramGatewayBypass = mustBool(getEnv("TELEGRAM_GATEWAY_BYPASS", "false"))
 
 	// Normalize base URL (no trailing slash)
 	cfg.TelegramGatewayBaseURL = strings.TrimRight(cfg.TelegramGatewayBaseURL, "/")
@@ -86,3 +94,10 @@ func mustAtoi(s string) int {
 	return n
 }
 
+func mustBool(s string) bool {
+	b, err := strconv.ParseBool(strings.TrimSpace(s))
+	if err != nil {
+		panic(err)
+	}
+	return b
+}

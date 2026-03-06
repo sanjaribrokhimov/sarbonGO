@@ -89,8 +89,22 @@ func (h *DispatcherAuthHandler) SendOTP(c *gin.Context) {
 
 	requestID, err := h.tg.SendVerificationMessage(ctx, phone, code, int(h.otpTTL.Seconds()))
 	if err != nil {
+		var tgErr *telegram.GatewayError
+		if errors.As(err, &tgErr) {
+			if errors.Is(err, telegram.ErrNoAccount) {
+				resp.Error(c, http.StatusBadRequest, strings.ToLower(tgErr.Error()))
+				return
+			}
+			if errors.Is(err, telegram.ErrRateLimited) {
+				resp.Error(c, http.StatusTooManyRequests, strings.ToLower(tgErr.Error()))
+				return
+			}
+			h.logger.Warn("telegram sendVerificationMessage failed", zap.Error(err))
+			resp.Error(c, http.StatusBadGateway, strings.ToLower(tgErr.Error()))
+			return
+		}
 		h.logger.Warn("telegram sendVerificationMessage failed", zap.Error(err))
-		resp.Error(c, http.StatusBadGateway, "otp send failed")
+		resp.Error(c, http.StatusBadGateway, strings.ToLower(err.Error()))
 		return
 	}
 
@@ -240,8 +254,22 @@ func (h *DispatcherAuthHandler) ResetPasswordRequest(c *gin.Context) {
 		return
 	}
 	if _, err := h.tg.SendVerificationMessage(c.Request.Context(), phone, code, int(h.otpTTL.Seconds())); err != nil {
+		var tgErr *telegram.GatewayError
+		if errors.As(err, &tgErr) {
+			if errors.Is(err, telegram.ErrNoAccount) {
+				resp.Error(c, http.StatusBadRequest, strings.ToLower(tgErr.Error()))
+				return
+			}
+			if errors.Is(err, telegram.ErrRateLimited) {
+				resp.Error(c, http.StatusTooManyRequests, strings.ToLower(tgErr.Error()))
+				return
+			}
+			h.logger.Warn("telegram sendVerificationMessage failed", zap.Error(err))
+			resp.Error(c, http.StatusBadGateway, strings.ToLower(tgErr.Error()))
+			return
+		}
 		h.logger.Warn("telegram sendVerificationMessage failed", zap.Error(err))
-		resp.Error(c, http.StatusBadGateway, "otp send failed")
+		resp.Error(c, http.StatusBadGateway, strings.ToLower(err.Error()))
 		return
 	}
 	dispID, _ := uuid.Parse(d.ID)

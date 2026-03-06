@@ -991,7 +991,7 @@ paths:
                   ttl_seconds: { type: integer, example: 180 }
                 required: [status, ttl_seconds]
         "400":
-          description: Некорректный payload / телефон
+          description: Некорректный payload / телефон; или no account — у номера нет аккаунта Telegram
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
@@ -1001,7 +1001,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
         "502":
-          description: Ошибка Telegram Gateway
+          description: OTP не отправлен (ошибка шлюза/сети), message — otp send failed
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
@@ -1215,6 +1215,8 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
+        "400": { description: Некорректный new_phone; или no account — у номера нет аккаунта Telegram }
+        "502": { description: otp send failed — OTP не отправлен }
 
   /v1/profile/phone-change/verify:
     post:
@@ -1527,9 +1529,9 @@ paths:
                 properties:
                   status: { type: string, example: "otp_sent" }
                   ttl_seconds: { type: integer, example: 180 }
-        "400": { description: Некорректный payload }
+        "400": { description: Некорректный payload; или no account — у номера нет аккаунта Telegram }
         "429": { description: Cooldown / rate limit }
-        "502": { description: Ошибка Telegram Gateway }
+        "502": { description: OTP не отправлен (otp send failed) }
 
   /v1/dispatchers/auth/otp/verify:
     post:
@@ -1619,8 +1621,9 @@ paths:
                   status: { type: string, example: "otp_sent" }
                   session_id: { type: string, format: uuid }
                   ttl_seconds: { type: integer }
+        "400": { description: no account — у номера нет аккаунта Telegram }
         "404": { description: Диспетчер не найден }
-        "502": { description: Ошибка Telegram Gateway }
+        "502": { description: otp send failed — OTP не отправлен }
 
   /v1/dispatchers/auth/reset-password/confirm:
     post:
@@ -1861,8 +1864,9 @@ paths:
                   status: { type: string, example: "otp_sent" }
                   session_id: { type: string, format: uuid }
                   ttl_seconds: { type: integer }
+        "400": { description: no account — у номера нет аккаунта Telegram }
         "409": { description: Телефон уже зарегистрирован }
-        "502": { description: Ошибка Telegram Gateway }
+        "502": { description: otp send failed — OTP не отправлен }
 
   /v1/dispatchers/profile/phone-change/verify:
     post:
@@ -2166,8 +2170,9 @@ paths:
             schema: { type: object, required: [phone], properties: { phone: { type: string } } }
       responses:
         "200": { description: "otp_sent, ttl_seconds" }
-        "400": { description: "invalid phone" }
+        "400": { description: "invalid phone; или no account — у номера нет аккаунта Telegram" }
         "429": { description: "otp cooldown or rate limited" }
+        "502": { description: "otp send failed — OTP не отправлен (ошибка шлюза/сети)" }
 
   /v1/company-users/auth/otp/verify:
     post:

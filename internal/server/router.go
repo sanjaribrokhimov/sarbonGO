@@ -9,16 +9,16 @@ import (
 	"go.uber.org/zap"
 
 	"sarbonNew/internal/admins"
-	"sarbonNew/internal/appusers"
 	"sarbonNew/internal/approles"
+	"sarbonNew/internal/appusers"
 	"sarbonNew/internal/cargo"
 	"sarbonNew/internal/chat"
 	"sarbonNew/internal/companies"
 	"sarbonNew/internal/companytz"
 	"sarbonNew/internal/config"
 	"sarbonNew/internal/dispatchers"
-	"sarbonNew/internal/goadmin"
 	"sarbonNew/internal/drivers"
+	"sarbonNew/internal/goadmin"
 	"sarbonNew/internal/infra"
 	"sarbonNew/internal/security"
 	"sarbonNew/internal/server/handlers"
@@ -72,14 +72,34 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	dispatchersRepo := dispatchers.NewRepo(deps.PG)
 	adminsRepo := admins.NewRepo(deps.PG)
 	companiesRepo := companies.NewRepo(deps.PG)
+	appusersRepo := appusers.NewRepo(deps.PG)
 	cargoRepo := cargo.NewRepo(deps.PG)
 	jwtm := security.NewJWTManager(cfg.JWTSigningKey, cfg.JWTAccessTTL, cfg.JWTRefreshTTL)
 
-	otpStore := store.NewOTPStore(deps.Redis, cfg.JWTSigningKey, cfg.OTPTTL, cfg.OTPResendCooldown, cfg.OTPMaxAttempts)
-	companyUserOTPStore := store.NewOTPStoreWithPrefix(deps.Redis, cfg.JWTSigningKey, cfg.OTPTTL, cfg.OTPResendCooldown, cfg.OTPMaxAttempts, "company_")
+	otpStore := store.NewOTPStore(
+		deps.Redis,
+		cfg.JWTSigningKey,
+		cfg.OTPTTL,
+		cfg.OTPResendCooldown,
+		cfg.OTPMaxAttempts,
+		int64(cfg.OTPSendLimitPerPhonePerHour),
+		int64(cfg.OTPSendLimitPerIPPerHour),
+		cfg.OTPSendWindow,
+	)
+	companyUserOTPStore := store.NewOTPStoreWithPrefix(
+		deps.Redis,
+		cfg.JWTSigningKey,
+		cfg.OTPTTL,
+		cfg.OTPResendCooldown,
+		cfg.OTPMaxAttempts,
+		int64(cfg.OTPSendLimitPerPhonePerHour),
+		int64(cfg.OTPSendLimitPerIPPerHour),
+		cfg.OTPSendWindow,
+		"company_",
+	)
 	sessionStore := store.NewSessionStore(deps.Redis, 15*time.Minute)
 	refreshStore := store.NewRefreshStore(deps.Redis, cfg.JWTRefreshTTL)
-	tgClient := telegram.NewGatewayClient(cfg.TelegramGatewayBaseURL, cfg.TelegramGatewayToken, cfg.TelegramGatewaySenderID)
+	tgClient := telegram.NewGatewayClient(cfg.TelegramGatewayBaseURL, cfg.TelegramGatewayToken, cfg.TelegramGatewaySenderID, cfg.TelegramGatewayBypass)
 	phoneChangeStore := store.NewPhoneChangeStore(deps.Redis, cfg.JWTSigningKey, cfg.OTPTTL, cfg.OTPMaxAttempts)
 
 	dispRegSessions := store.NewDispatcherSessionStore(deps.Redis, "disp_regsession", 15*time.Minute)
@@ -96,7 +116,7 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	dispRegH := handlers.NewDispatcherRegistrationHandler(logger, dispatchersRepo, dispRegSessions, jwtm, refreshStore)
 	dispProfileH := handlers.NewDispatcherProfileHandler(logger, dispatchersRepo, dispPhoneActions, tgClient, cfg.OTPTTL, cfg.OTPLength)
 	adminAuthH := handlers.NewAdminAuthHandler(logger, adminsRepo, jwtm, refreshStore)
-	adminCompaniesH := handlers.NewAdminCompaniesHandler(logger, companiesRepo)
+	adminCompaniesH := handlers.NewAdminCompaniesHandler(logger, companiesRepo, appusersRepo)
 	cargoH := handlers.NewCargoHandler(logger, cargoRepo, jwtm)
 
 	chatRepo := chat.NewRepo(deps.PG)
@@ -104,7 +124,6 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	chatHub := chat.NewHub(chatPresence, logger)
 	chatH := handlers.NewChatHandler(logger, chatRepo, chatPresence, chatHub)
 
-	appusersRepo := appusers.NewRepo(deps.PG)
 	approlesRepo := approles.NewRepo(deps.PG)
 	ucrRepo := companytz.NewRepoUCR(deps.PG)
 	invitationsRepo := companytz.NewRepoInvitations(deps.PG)
@@ -214,4 +233,3 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 
 	return r
 }
-
