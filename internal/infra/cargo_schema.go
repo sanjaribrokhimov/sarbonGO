@@ -123,6 +123,15 @@ CREATE TABLE IF NOT EXISTS route_points (
 	if _, err := pg.Exec(ctx, `ALTER TABLE route_points ADD COLUMN IF NOT EXISTS is_main_unload BOOLEAN NOT NULL DEFAULT false;`); err != nil {
 		return err
 	}
+	if _, err := pg.Exec(ctx, `ALTER TABLE route_points ADD COLUMN IF NOT EXISTS city_code VARCHAR(20) NULL;`); err != nil {
+		return err
+	}
+	if _, err := pg.Exec(ctx, `ALTER TABLE route_points ADD COLUMN IF NOT EXISTS region_code VARCHAR(20) NULL;`); err != nil {
+		return err
+	}
+	if _, err := pg.Exec(ctx, `ALTER TABLE route_points ADD COLUMN IF NOT EXISTS orientir VARCHAR(500) NULL;`); err != nil {
+		return err
+	}
 	_, err = pg.Exec(ctx, `
 DO $$
 BEGIN
@@ -169,6 +178,44 @@ END$$;
 `)
 	if err != nil {
 		return err
+	}
+
+	_, err = pg.Exec(ctx, `
+CREATE TABLE IF NOT EXISTS cities (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  code VARCHAR(20) NOT NULL UNIQUE,
+  name_ru VARCHAR(255) NOT NULL,
+  name_en VARCHAR(255) NULL,
+  country_code VARCHAR(3) NOT NULL,
+  lat DOUBLE PRECISION NULL,
+  lng DOUBLE PRECISION NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT now()
+);
+`)
+	if err != nil {
+		return err
+	}
+	_, err = pg.Exec(ctx, `
+CREATE TABLE IF NOT EXISTS regions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  code VARCHAR(20) NOT NULL,
+  name_ru VARCHAR(255) NOT NULL,
+  name_en VARCHAR(255) NULL,
+  country_code VARCHAR(3) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT now(),
+  UNIQUE(country_code, code)
+);
+`)
+	if err != nil {
+		return err
+	}
+	for _, q := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_cities_country ON cities (country_code)`,
+		`CREATE INDEX IF NOT EXISTS idx_regions_country ON regions (country_code)`,
+	} {
+		if _, err := pg.Exec(ctx, q); err != nil {
+			return err
+		}
 	}
 
 	_, err = pg.Exec(ctx, `

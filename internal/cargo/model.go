@@ -66,7 +66,10 @@ type RoutePoint struct {
 	ID           uuid.UUID
 	CargoID      uuid.UUID
 	Type         string // load, unload, customs, transit
-	Address      string
+	CityCode     string // код города (TAS, SAM, DXB и т.д.) — из справочника cities
+	RegionCode   string // код региона/области — из справочника regions
+	Address      string // адрес (улица, дом)
+	Orientir     string // ориентир (что написать для водителя)
 	Lat          float64
 	Lng          float64
 	Comment      *string

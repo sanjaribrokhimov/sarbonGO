@@ -16,7 +16,10 @@ import (
 	"sarbonNew/internal/companies"
 	"sarbonNew/internal/companytz"
 	"sarbonNew/internal/config"
+	"sarbonNew/internal/dispatchercompanies"
+	"sarbonNew/internal/dispatcherinvitations"
 	"sarbonNew/internal/dispatchers"
+	"sarbonNew/internal/driverinvitations"
 	"sarbonNew/internal/drivers"
 	"sarbonNew/internal/goadmin"
 	"sarbonNew/internal/infra"
@@ -27,6 +30,7 @@ import (
 	"sarbonNew/internal/server/swaggerui"
 	"sarbonNew/internal/store"
 	"sarbonNew/internal/telegram"
+	"sarbonNew/internal/trips"
 )
 
 func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Handler {
@@ -76,6 +80,10 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	companiesRepo := companies.NewRepo(deps.PG)
 	appusersRepo := appusers.NewRepo(deps.PG)
 	cargoRepo := cargo.NewRepo(deps.PG)
+	tripsRepo := trips.NewRepo(deps.PG)
+	dcrRepo := dispatchercompanies.NewRepo(deps.PG)
+	dispInvRepo := dispatcherinvitations.NewRepo(deps.PG)
+	driverInvRepo := driverinvitations.NewRepo(deps.PG)
 	jwtm := security.NewJWTManager(cfg.JWTSigningKey, cfg.JWTAccessTTL, cfg.JWTRefreshTTL)
 
 	otpStore := store.NewOTPStore(
@@ -119,7 +127,11 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	dispProfileH := handlers.NewDispatcherProfileHandler(logger, dispatchersRepo, dispPhoneActions, tgClient, cfg.OTPTTL, cfg.OTPLength)
 	adminAuthH := handlers.NewAdminAuthHandler(logger, adminsRepo, jwtm, refreshStore)
 	adminCompaniesH := handlers.NewAdminCompaniesHandler(logger, companiesRepo, appusersRepo)
-	cargoH := handlers.NewCargoHandler(logger, cargoRepo, jwtm)
+	cargoH := handlers.NewCargoHandler(logger, cargoRepo, tripsRepo, jwtm)
+	dispCompaniesH := handlers.NewDispatcherCompaniesHandler(logger, companiesRepo, dcrRepo, jwtm)
+	dispInvH := handlers.NewDispatcherInvitationsHandler(logger, dispInvRepo, dcrRepo, dispatchersRepo)
+	driverInvH := handlers.NewDriverInvitationsHandler(logger, driverInvRepo, dcrRepo, driversRepo)
+	tripsH := handlers.NewTripsHandler(logger, tripsRepo)
 
 	chatRepo := chat.NewRepo(deps.PG)
 	chatPresence := chat.NewPresenceStore(deps.Redis)
@@ -152,6 +164,8 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	v1.GET("/reference/company", handlers.GetReferenceCompany(approlesRepo))
 	v1.GET("/reference/admin", handlers.GetReferenceAdmin)
 	v1.GET("/reference/dispatchers", handlers.GetReferenceDispatchers)
+	v1.GET("/reference/cities", handlers.GetReferenceCities())
+	v1.GET("/reference/regions", handlers.GetReferenceRegions(deps.PG))
 
 	// API /api/cargo (same base headers as v1)
 	api := r.Group("/api")
@@ -165,6 +179,8 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	api.POST("/cargo/:id/offers", cargoH.CreateOffer)
 	api.GET("/cargo/:id/offers", cargoH.ListOffers)
 	api.POST("/offers/:id/accept", cargoH.AcceptOffer)
+	api.GET("/trips", tripsH.List)
+	api.GET("/trips/:id", tripsH.Get)
 
 	v1.POST("/dispatchers/auth/phone", dispAuthH.SendOTP)
 	v1.POST("/dispatchers/auth/otp/verify", dispAuthH.VerifyOTP)
@@ -198,6 +214,11 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	authed.PATCH("/registration/geo-push", regH.GeoPush)
 	authed.PATCH("/registration/transport-type", regH.TransportType)
 	authed.PATCH("/kyc", kycH.Submit)
+	authed.GET("/trips", tripsH.ListMy)
+	authed.POST("/trips/:id/confirm", tripsH.DriverConfirm)
+	authed.POST("/trips/:id/reject", tripsH.DriverReject)
+	authed.PATCH("/trips/:id/status", tripsH.PatchStatus)
+	authed.POST("/driver-invitations/accept", driverInvH.Accept)
 
 	dispAuthed := v1.Group("/dispatchers")
 	dispAuthed.Use(mw.RequireDispatcher(jwtm))
@@ -210,6 +231,16 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	dispAuthed.POST("/profile/phone-change/request", dispProfileH.PhoneChangeRequest)
 	dispAuthed.POST("/profile/phone-change/verify", dispProfileH.PhoneChangeVerify)
 	dispAuthed.DELETE("/profile", dispProfileH.Delete)
+	// Freelance: no create company; list/switch only when invited. Cargo/offers/trips via /api and below.
+	dispAuthed.GET("/companies", dispCompaniesH.ListMyCompanies)
+	dispAuthed.POST("/auth/switch-company", dispCompaniesH.SwitchCompany)
+	dispAuthed.POST("/companies/:companyId/invitations", dispInvH.CreateInvitation)
+	dispAuthed.POST("/invitations/accept", dispInvH.Accept)
+	dispAuthed.POST("/invitations/decline", dispInvH.Decline)
+	dispAuthed.POST("/driver-invitations", driverInvH.CreateForFreelance)
+	dispAuthed.POST("/companies/:companyId/driver-invitations", driverInvH.Create)
+	dispAuthed.GET("/drivers", driverInvH.ListMyDrivers)
+	dispAuthed.PATCH("/trips/:id/assign-driver", tripsH.AssignDriver)
 
 	// Company users (company_users): OTP auth, companies, invitations
 	appUserAuthed := v1.Group("")

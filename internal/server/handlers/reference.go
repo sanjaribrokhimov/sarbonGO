@@ -1,13 +1,18 @@
 package handlers
 
 import (
+	"strings"
+
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"sarbonNew/internal/approles"
+	"sarbonNew/internal/reference"
 	"sarbonNew/internal/server/resp"
 )
 
-// ReferenceDriversResponse — справочник для раздела Drivers (водители).
+// ReferenceDriversResponse — справочник для раздела Drivers (водители). Все value в верхнем регистре.
 type ReferenceDriversResponse struct {
 	RegistrationStep   []ItemWithLabel `json:"registration_step"`
 	RegistrationStatus []ItemWithLabel `json:"registration_status"`
@@ -17,13 +22,14 @@ type ReferenceDriversResponse struct {
 	TrailerPlateTypes  map[string][]ItemWithLabel `json:"trailer_plate_types_by_power"`
 }
 
-// ReferenceCargoResponse — справочник для раздела Cargo (грузы).
+// ReferenceCargoResponse — справочник для раздела Cargo (грузы). Все value в верхнем регистре.
 type ReferenceCargoResponse struct {
 	CargoStatus    []ItemWithLabel `json:"cargo_status"`
 	RoutePointType []ItemWithLabel `json:"route_point_type"`
 	OfferStatus    []ItemWithLabel `json:"offer_status"`
 	CreatedByType  []ItemWithLabel `json:"created_by_type"`
 	TruckType      []ItemWithLabel `json:"truck_type"`
+	TripStatus     []ItemWithLabel `json:"trip_status"` // статусы рейса
 }
 
 // ReferenceCompanyResponse — справочник для раздела Company. Все value в верхнем регистре.
@@ -34,13 +40,13 @@ type ReferenceCompanyResponse struct {
 	Roles             []RoleRef       `json:"roles"`             // из БД (id, name, description) для приглашений
 }
 
-// ReferenceAdminResponse — справочник для раздела Admin.
+// ReferenceAdminResponse — справочник для раздела Admin. Все value в верхнем регистре.
 type ReferenceAdminResponse struct {
 	AdminStatus []ItemWithLabel `json:"admin_status"`
 	AdminType   []ItemWithLabel `json:"admin_type"`
 }
 
-// ReferenceDispatchersResponse — справочник для раздела Freelance Dispatchers.
+// ReferenceDispatchersResponse — справочник для раздела Freelance Dispatchers. Все value в верхнем регистре.
 type ReferenceDispatchersResponse struct {
 	WorkStatus []ItemWithLabel `json:"work_status"`
 }
@@ -136,6 +142,15 @@ var refCargo = ReferenceCargoResponse{
 		{Value: "TANKER", Label: "Цистерна"},
 		{Value: "OTHER", Label: "Другое"},
 	},
+	TripStatus: []ItemWithLabel{
+		{Value: "PENDING_DRIVER", Label: "Ожидание водителя"},
+		{Value: "ASSIGNED", Label: "Назначен"},
+		{Value: "LOADING", Label: "Погрузка"},
+		{Value: "EN_ROUTE", Label: "В пути"},
+		{Value: "UNLOADING", Label: "Выгрузка"},
+		{Value: "COMPLETED", Label: "Завершён"},
+		{Value: "CANCELLED", Label: "Отменён"},
+	},
 }
 
 // Допустимые роли пользователей компании (company_users.role) — только эти 6, в верхнем регистре.
@@ -222,8 +237,87 @@ func GetReferenceCompany(rolesRepo *approles.Repo) gin.HandlerFunc {
 			if r.Description != nil {
 				desc = *r.Description
 			}
-			out.Roles = append(out.Roles, RoleRef{ID: r.ID, Name: r.Name, Description: desc})
+			out.Roles = append(out.Roles, RoleRef{ID: r.ID, Name: strings.ToUpper(r.Name), Description: desc})
 		}
 		resp.OK(c, out)
+	}
+}
+
+// CityRef — элемент справочника городов (код TAS, SAM, DXB и т.д.).
+type CityRef struct {
+	ID          string   `json:"id"`
+	Code        string   `json:"code"`
+	NameRu      string   `json:"name_ru"`
+	NameEn      *string  `json:"name_en,omitempty"`
+	CountryCode string   `json:"country_code"`
+	Lat         *float64 `json:"lat,omitempty"`
+	Lng         *float64 `json:"lng,omitempty"`
+}
+
+// RegionRef — элемент справочника регионов (области).
+type RegionRef struct {
+	ID          string  `json:"id"`
+	Code        string  `json:"code"`
+	NameRu      string  `json:"name_ru"`
+	NameEn      *string `json:"name_en,omitempty"`
+	CountryCode string  `json:"country_code"`
+}
+
+// GetReferenceCities возвращает справочник городов мира из встроенного датасета (in-memory, быстрый API).
+// Query: country_code — фильтр по стране (UZ, AE, RU и т.д.). Данные: ~150k городов (lutangar/cities.json).
+func GetReferenceCities() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		countryCode := strings.TrimSpace(c.Query("country_code"))
+		list, err := reference.CitiesByCountry(countryCode)
+		if err != nil {
+			resp.Error(c, 500, "failed to load cities")
+			return
+		}
+		// Convert to handler response shape (reference.CityRef already matches)
+		items := make([]CityRef, len(list))
+		for i := range list {
+			items[i] = CityRef{
+				ID:          list[i].ID,
+				Code:        list[i].Code,
+				NameRu:      list[i].NameRu,
+				NameEn:      list[i].NameEn,
+				CountryCode: list[i].CountryCode,
+				Lat:         list[i].Lat,
+				Lng:         list[i].Lng,
+			}
+		}
+		resp.OK(c, gin.H{"items": items})
+	}
+}
+
+// GetReferenceRegions возвращает справочник регионов (области по странам). Query: country_code — фильтр.
+func GetReferenceRegions(pg *pgxpool.Pool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx := c.Request.Context()
+		countryCode := strings.TrimSpace(c.Query("country_code"))
+		var rows pgx.Rows
+		var err error
+		if countryCode != "" {
+			rows, err = pg.Query(ctx, `SELECT id, code, name_ru, name_en, country_code FROM regions WHERE country_code = $1 ORDER BY name_ru`, countryCode)
+		} else {
+			rows, err = pg.Query(ctx, `SELECT id, code, name_ru, name_en, country_code FROM regions ORDER BY country_code, name_ru`)
+		}
+		if err != nil {
+			resp.Error(c, 500, "failed to load regions")
+			return
+		}
+		defer rows.Close()
+		var list []RegionRef
+		for rows.Next() {
+			var ref RegionRef
+			var nameEn *string
+			if err := rows.Scan(&ref.ID, &ref.Code, &ref.NameRu, &nameEn, &ref.CountryCode); err != nil {
+				resp.Error(c, 500, "failed to scan region")
+				return
+			}
+			ref.NameEn = nameEn
+			list = append(list, ref)
+		}
+		resp.OK(c, gin.H{"items": list})
 	}
 }

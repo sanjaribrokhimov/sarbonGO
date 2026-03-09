@@ -13,6 +13,7 @@ import (
 
 const CtxDriverID = "driver_id"
 const CtxDispatcherID = "dispatcher_id"
+const CtxDispatcherCompanyID = "dispatcher_company_id" // optional, set when JWT has company_id (after switch-company)
 const CtxUserID = "user_id"   // chat: any authenticated user UUID
 const CtxUserRole = "user_role" // chat: driver | dispatcher | admin
 
@@ -43,13 +44,16 @@ func RequireDispatcher(jwtm *security.JWTManager) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		id, role, err := jwtm.ParseAccess(raw)
+		id, role, companyID, err := jwtm.ParseAccessWithCompany(raw)
 		if err != nil || id == uuid.Nil || role != "dispatcher" {
 			resp.Error(c, http.StatusUnauthorized, "invalid X-User-Token")
 			c.Abort()
 			return
 		}
 		c.Set(CtxDispatcherID, id)
+		if companyID != uuid.Nil {
+			c.Set(CtxDispatcherCompanyID, companyID)
+		}
 		c.Next()
 	}
 }

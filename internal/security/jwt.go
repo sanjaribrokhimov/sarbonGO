@@ -9,9 +9,12 @@ import (
 )
 
 type Tokens struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	ExpiresIn    int64  `json:"expires_in"` // access token seconds
+	AccessToken       string `json:"access_token"`
+	RefreshToken      string `json:"refresh_token"`
+	ExpiresIn         int64  `json:"expires_in"`          // время жизни access токена (секунды)
+	ExpiresAt         int64  `json:"expires_at"`           // Unix timestamp — когда истекает access токен (когда обновить)
+	RefreshExpiresIn  int64  `json:"refresh_expires_in"`  // время жизни refresh токена (секунды)
+	RefreshExpiresAt  int64  `json:"refresh_expires_at"`   // Unix timestamp — когда истекает refresh токен
 }
 
 type JWTManager struct {
@@ -84,10 +87,15 @@ func (m *JWTManager) IssueWithCompany(role string, userID uuid.UUID, companyID u
 		return Tokens{}, RefreshClaims{}, err
 	}
 
+	accessExpiresAt := now.Add(m.accessTTL)
+	refreshExpiresAt := now.Add(m.refreshTTL)
 	return Tokens{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		ExpiresIn:    int64(m.accessTTL.Seconds()),
+		AccessToken:      accessToken,
+		RefreshToken:     refreshToken,
+		ExpiresIn:        int64(m.accessTTL.Seconds()),
+		ExpiresAt:        accessExpiresAt.Unix(),
+		RefreshExpiresIn: int64(m.refreshTTL.Seconds()),
+		RefreshExpiresAt: refreshExpiresAt.Unix(),
 	}, refreshClaims, nil
 }
 

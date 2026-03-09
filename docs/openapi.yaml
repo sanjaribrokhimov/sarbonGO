@@ -64,7 +64,7 @@ tags:
 
       **Поток входа (существующий диспетчер):**
       1. POST /v1/dispatchers/auth/phone — отправить OTP на телефон (через Telegram Gateway).
-      2. POST /v1/dispatchers/auth/otp/verify — ввести OTP → в ответе status=login и tokens (access_token, refresh_token, expires_in).
+      2. POST /v1/dispatchers/auth/otp/verify — ввести OTP → в ответе status=login и tokens (expires_at, refresh_expires_at — Unix).
       Либо вход по паролю: POST /v1/dispatchers/auth/login/password (phone + password) → tokens.
 
       **Поток сброса пароля:**
@@ -98,6 +98,35 @@ tags:
       - DELETE /v1/dispatchers/profile — удалить аккаунт (жёсткое удаление с архивацией в deleted_freelance_dispatchers).
       - PUT /v1/dispatchers/profile/password — сменить пароль (current_password + new_password).
       - POST .../profile/phone-change/request (new_phone) → OTP; .../phone-change/verify (session_id, otp) → телефон обновлён.
+  - name: "Freelance Dispatchers / Добавление груза"
+    description: |
+      **В первую очередь: добавление груза (фриланс-диспетчер).**
+      Диспетчер не создаёт компанию — только аккаунт. Основной сценарий: создать груз, опубликовать, получать офферы, принять оффер, назначить водителя.
+      **API:** POST /api/cargo — создать груз (обязателен X-User-Token диспетчера → created_by_type=dispatcher). GET /api/cargo — список грузов. GET /api/cargo/:id — карточка. PUT /api/cargo/:id — изменить. PATCH /api/cargo/:id/status — сменить статус (например на searching). GET /api/cargo/:id/offers — список офферов. POST /api/offers/:id/accept — принять оффер (создаётся рейс). GET /api/trips?cargo_id=, GET /api/trips/:id — рейс по грузу.
+  - name: "Freelance Dispatchers / Приглашения водителей"
+    description: |
+      **Отправка приглашений водителям (фриланс-диспетчер).**
+      Пригласить водителя по телефону (без компании): POST /v1/dispatchers/driver-invitations (body: phone). В ответе — token; отправить водителю (чат/ссылку). Водитель принимает: POST /v1/driver-invitations/accept (token) с X-User-Token → у водителя freelancer_id = диспетчер. Список моих водителей: GET /v1/dispatchers/drivers. Требуется X-User-Token (dispatcher).
+  - name: "Cargo — Freelance dispatcher"
+    description: |
+      **Грузы для фриланс-диспетчера.** POST /api/cargo (X-User-Token), GET /api/cargo, GET /api/cargo/:id, PUT, PATCH status, POST/GET offers, POST /api/offers/:id/accept. GET /api/trips?cargo_id=, GET /api/trips/:id.
+  - name: "Company / Dispatcher (приглашённый)"
+    description: |
+      **Диспетчер компании — только через приглашение.** GET /v1/dispatchers/companies (мои компании), POST /v1/dispatchers/auth/switch-company. Приглашение: POST /v1/dispatchers/companies/:companyId/invitations, accept, decline.
+  - name: "Freelance Dispatchers / My drivers"
+    description: |
+      **Мои водители.** Пригласить без компании: POST /v1/dispatchers/driver-invitations (phone). Список: GET /v1/dispatchers/drivers. В компании: POST .../companies/:companyId/driver-invitations.
+  - name: Freelance Dispatchers / Trips
+    description: |
+      **Назначение водителя на рейс.** PATCH /v1/dispatchers/trips/:id/assign-driver (driver_id). Водитель: POST /v1/trips/:id/confirm или reject. Статусы: pending_driver → assigned → loading → en_route → unloading → completed.
+  - name: Drivers / Trips
+    description: |
+      **Рейсы водителя**
+      GET /v1/trips — список рейсов, назначенных текущему водителю. POST /v1/trips/:id/confirm — принять назначение (рейс → assigned). POST /v1/trips/:id/reject — отклонить (диспетчер может назначить другого). PATCH /v1/trips/:id/status — смена статуса водителем (loading, en_route, unloading, completed, cancelled). Требуется X-User-Token (driver).
+  - name: Drivers / Driver invitations
+    description: |
+      **Принятие приглашения (компания или фриланс-диспетчер).**
+      POST /v1/driver-invitations/accept (body token) с X-User-Token (driver). Телефон должен совпадать. Приглашение от компании → driver.company_id; от фриланс-диспетчера → driver.freelancer_id. В ответе company_id или freelancer_id.
   - name: Admin / Auth
     description: |
       **Руководство: Авторизация админа (оператор)**
@@ -123,12 +152,12 @@ tags:
     description: |
       **Справочник для раздела Drivers (водители).** Все допустимые значения статусов и типов — чтобы фронт и мобилка не спрашивали «какие статусы есть».
 
-      **GET /v1/reference/drivers** возвращает: registration_step (name-oferta, geo-push, transport-type), registration_status (start, basic, full), driver_type (company, freelancer, driver), work_status (available, loaded, busy), power_plate_types, trailer_plate_types_by_power (TRUCK/TRACTOR → списки прицепов).
+      **GET /v1/reference/drivers** возвращает (все value в верхнем регистре): registration_step (NAME-OFERTA, GEO-PUSH, TRANSPORT-TYPE, COMPLETED), registration_status (START, BASIC, FULL), driver_type (COMPANY, FREELANCER, DRIVER), work_status (AVAILABLE, LOADED, BUSY), power_plate_types, trailer_plate_types_by_power (TRUCK/TRACTOR → списки прицепов).
   - name: "Reference / Cargo"
     description: |
       **Справочник для раздела Cargo (грузы).** Все статусы груза, точки маршрута, офферы, типы создателя, типы ТС.
 
-      **GET /v1/reference/cargo** возвращает: cargo_status (created, searching, assigned, in_transit, delivered, cancelled), route_point_type (load, unload, customs, transit), offer_status (pending, accepted, rejected), created_by_type (admin, dispatcher, company), truck_type (refrigerator, tent, flatbed, tanker, other).
+      **GET /v1/reference/cargo** возвращает (все value в верхнем регистре): cargo_status (CREATED, SEARCHING, ASSIGNED, IN_TRANSIT, DELIVERED, CANCELLED), route_point_type (LOAD, UNLOAD, CUSTOMS, TRANSIT), offer_status (PENDING, ACCEPTED, REJECTED), created_by_type (ADMIN, DISPATCHER, COMPANY), truck_type (REFRIGERATOR, TENT, FLATBED, TANKER, OTHER), trip_status (PENDING_DRIVER, ASSIGNED, LOADING, EN_ROUTE, UNLOADING, COMPLETED, CANCELLED).
   - name: "Reference / Company"
     description: |
       **Справочник для раздела Company.** Типы компании, статусы компании, роли (с id и описанием) для приглашений и назначений.
@@ -138,12 +167,14 @@ tags:
     description: |
       **Справочник для раздела Admin.** Статусы и типы админа.
 
-      **GET /v1/reference/admin** возвращает: admin_status (active, inactive, blocked), admin_type (creator, operator).
+      **GET /v1/reference/admin** возвращает (все value в верхнем регистре): admin_status (ACTIVE, INACTIVE, BLOCKED), admin_type (CREATOR, OPERATOR).
   - name: "Reference / Freelance Dispatchers"
     description: |
       **Справочник для раздела Freelance Dispatchers.** Статусы диспетчера.
 
-      **GET /v1/reference/dispatchers** возвращает: work_status (available, busy, offline).
+      **GET /v1/reference/dispatchers** возвращает (все value в верхнем регистре): work_status (AVAILABLE, BUSY, OFFLINE).
+
+      **GET /v1/reference/cities** — справочник городов (tidwall/cities + UZ/AE/TM/KG/TJ); in-memory, быстрый API; коды TAS, SAM, DXB и т.д.; query country_code — фильтр. **GET /v1/reference/regions** — справочник регионов/областей из БД; query country_code — фильтр.
   - name: "Cargo — Водитель"
     description: |
       **Запросы для водителя (мобильное приложение)**
@@ -210,11 +241,17 @@ components:
       required: [status, code, description, data]
     Tokens:
       type: object
+      description: |
+        Во всех auth API: 1) время жизни (expires_in, refresh_expires_in — секунды);
+        2) даты в Unix-формате (секунды с 01.01.1970): expires_at — когда истекает access (когда обновить), refresh_expires_at — когда истекает refresh.
       properties:
         access_token: { type: string, example: "eyJhbGciOi..." }
         refresh_token: { type: string, example: "eyJhbGciOi..." }
-        expires_in: { type: integer, example: 900 }
-      required: [access_token, refresh_token, expires_in]
+        expires_in: { type: integer, example: 900, description: "Время жизни access токена (секунды)" }
+        expires_at: { type: integer, example: 1741600800, description: "Unix timestamp — когда истекает access токен (когда обновить)" }
+        refresh_expires_in: { type: integer, example: 604800, description: "Время жизни refresh токена (секунды)" }
+        refresh_expires_at: { type: integer, example: 1742205600, description: "Unix timestamp — когда истекает refresh токен" }
+      required: [access_token, refresh_token, expires_in, expires_at]
     Driver:
       type: object
       properties:
@@ -399,12 +436,15 @@ components:
         company_id: { type: string, format: uuid, nullable: true, description: "UUID компании (companies), от имени которой создан груз; при created_by_type=company совпадает с created_by_id" }
     RoutePoint:
       type: object
-      description: "Точка маршрута (таблица route_points): погрузка, выгрузка, таможня, транзит."
+      description: "Точка маршрута (таблица route_points): погрузка, выгрузка, таможня, транзит. Город — по коду (TAS, SAM, DXB), регион — отдельно, адрес и ориентир."
       properties:
         id: { type: string, format: uuid }
         cargo_id: { type: string, format: uuid }
         type: { type: string, enum: [load, unload, customs, transit], description: "load — погрузка, unload — выгрузка, customs — таможня, transit — транзит" }
-        address: { type: string, description: "Адрес точки" }
+        city_code: { type: string, description: "Код города из справочника (TAS — Ташкент, SAM — Самарканд, DXB — Дубай и т.д.)" }
+        region_code: { type: string, description: "Код региона/области из справочника (опционально)" }
+        address: { type: string, description: "Адрес (улица, дом)" }
+        orientir: { type: string, description: "Ориентир для водителя (что написать для поиска места)" }
         lat: { type: number, description: "Широта" }
         lng: { type: number, description: "Долгота" }
         comment: { type: string, nullable: true }
@@ -486,17 +526,24 @@ components:
       required: [title, weight, truck_type, capacity, route_points]
     RoutePointInput:
       type: object
-      description: Одна точка маршрута при создании/обновлении груза.
+      description: |
+        Одна точка маршрута при создании/обновлении груза.
+        city_code — код города из справочника (GET /v1/reference/cities): TAS, SAM, DXB и т.д.
+        region_code — код региона/области (GET /v1/reference/regions), опционально.
+        address — адрес (улица, дом). orientir — ориентир для водителя, опционально.
       properties:
         type: { type: string, enum: [load, unload, customs, transit], description: "Тип точки" }
-        address: { type: string }
+        city_code: { type: string, description: "Код города (TAS, SAM, DXB)", example: "TAS" }
+        region_code: { type: string, description: "Код региона/области", example: "TK" }
+        address: { type: string, description: "Адрес (улица, дом)" }
+        orientir: { type: string, description: "Ориентир для водителя", example: "склад №5, въезд с ул. Мира" }
         lat: { type: number }
         lng: { type: number }
         comment: { type: string, nullable: true }
         point_order: { type: integer, description: "Порядок следования" }
         is_main_load: { type: boolean, default: false }
         is_main_unload: { type: boolean, default: false }
-      required: [type, address, lat, lng, point_order]
+      required: [type, city_code, address, lat, lng, point_order]
     PaymentInput:
       type: object
       description: Блок оплаты при создании/обновлении груза (1:1 с грузом).
@@ -517,16 +564,16 @@ components:
       type: object
       description: Тело PATCH /api/cargo/:id/status — смена статуса с проверкой допустимых переходов.
       properties:
-        status: { type: string, enum: [created, searching, assigned, in_transit, delivered, cancelled] }
+        status: { type: string, enum: [created, searching, assigned, in_transit, delivered, cancelled], example: "searching" }
       required: [status]
     OfferCreateRequest:
       type: object
       description: Тело POST /api/cargo/:id/offers. Оффер от перевозчика (водителя); carrier_id — ID водителя из таблицы drivers.
       properties:
-        carrier_id: { type: string, format: uuid, description: "ID перевозчика (водителя)" }
-        price: { type: number, description: "Предлагаемая цена" }
-        currency: { type: string, example: USD }
-        comment: { type: string, nullable: true }
+        carrier_id: { type: string, format: uuid, description: "ID перевозчика (водителя)", example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890" }
+        price: { type: number, description: "Предлагаемая цена", example: 1500 }
+        currency: { type: string, example: "USD" }
+        comment: { type: string, nullable: true, example: "Готов выехать завтра, своя тентовая фура" }
       required: [carrier_id, price, currency]
     CargoDetailResponse:
       type: object
@@ -548,13 +595,13 @@ paths:
 
   /api/cargo:
     post:
-      tags: ["Cargo — Диспетчер, компания, админ"]
-      summary: "1. Создать груз"
+      tags: ["Freelance Dispatchers / Добавление груза", "Cargo — Диспетчер, компания, админ", "Cargo — Freelance dispatcher"]
+      summary: "1. Создать груз (добавление груза — фриланс-диспетчер)"
       description: |
-        **Кто вызывает:** Диспетчер, компания, админ или интеграция.
+        **Фриланс-диспетчер:** передайте X-User-Token (JWT после входа) — в груз запишется created_by_type=dispatcher.
         **Назначение:** Создание нового груза с точками маршрута и блоком оплаты.
 
-        **Логика:** В одной транзакции создаются запись в `cargo`, записи в `route_points` (все переданные точки), одна запись в `payments` (если передан блок payment). Валидация: weight > 0; минимум одна точка с type=load и одна с type=unload; у каждой точки обязательны address, lat, lng, point_order; если указаны temp_min/temp_max — truck_type должен быть refrigerator; если adr_enabled=true — обязателен adr_class; если ready_enabled=true — обязателен ready_at.
+        **Логика:** В одной транзакции создаются запись в `cargo`, записи в `route_points` (все переданные точки), одна запись в `payments` (если передан блок payment). Валидация: weight > 0; минимум одна точка с type=load и одна с type=unload; у каждой точки обязательны city_code (код города из справочника), address, lat, lng, point_order; опционально region_code, orientir; если указаны temp_min/temp_max — truck_type должен быть refrigerator; если adr_enabled=true — обязателен adr_class; если ready_enabled=true — обязателен ready_at. Справочники: GET /v1/reference/cities (все города, код TAS/SAM/DXB и т.д.), GET /v1/reference/regions (области по странам).
 
         **Создатель (автоматически):** Если передан заголовок **X-User-Token** (JWT) с ролью admin или dispatcher — в груз записываются created_by_type и created_by_id. Если JWT не передан, но в теле есть company_id — создателем считается компания (created_by_type=company). Опционально в теле можно передать company_id для привязки груза к компании.
 
@@ -565,6 +612,44 @@ paths:
         content:
           application/json:
             schema: { $ref: "#/components/schemas/CargoCreateRequest" }
+            example:
+              title: "Ташкент — Самарканд, пшеница 20т"
+              weight: 20
+              truck_type: "tent"
+              capacity: 22
+              route_points:
+                - type: "load"
+                  city_code: "TAS"
+                  region_code: "TAS"
+                  address: "ул. Амира Темура 1, склад №5"
+                  orientir: "въезд со стороны метро Хамза"
+                  lat: 41.311081
+                  lng: 69.240562
+                  point_order: 1
+                  is_main_load: true
+                  is_main_unload: false
+                - type: "unload"
+                  city_code: "SAM"
+                  region_code: "SA"
+                  address: "промзона, терминал А"
+                  orientir: "за КПП 2"
+                  lat: 39.654167
+                  lng: 66.959722
+                  point_order: 2
+                  is_main_load: false
+                  is_main_unload: true
+              payment:
+                is_negotiable: false
+                price_request: false
+                total_amount: 1500
+                total_currency: "USD"
+                with_prepayment: true
+                without_prepayment: false
+                prepayment_amount: 500
+                prepayment_currency: "USD"
+              contact_name: "Иван Петров"
+              contact_phone: "+998901234567"
+              status: "created"
       responses:
         "201":
           description: "Груз создан. В data возвращается id (UUID)."
@@ -582,7 +667,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
     get:
-      tags: ["Cargo — Водитель", "Cargo — Диспетчер, компания, админ"]
+      tags: ["Freelance Dispatchers / Добавление груза", "Cargo — Водитель", "Cargo — Диспетчер, компания, админ", "Cargo — Freelance dispatcher"]
       summary: "2. Список грузов (фильтры, пагинация)"
       description: |
         **Кто вызывает:** Водитель (чаще всего с status=searching), диспетчер, компания, админ.
@@ -595,20 +680,20 @@ paths:
       parameters:
         - name: status
           in: query
-          schema: { type: string, example: "created,searching" }
-          description: "Статусы через запятую (created, searching, assigned, in_transit, delivered, cancelled)"
+          schema: { type: string, example: "searching" }
+          description: "Статусы через запятую (created, searching, assigned, in_transit, delivered, cancelled). Для теста: searching"
         - name: weight_min
           in: query
-          schema: { type: number }
+          schema: { type: number, example: 10 }
           description: "Минимальный вес (т)"
         - name: weight_max
           in: query
-          schema: { type: number }
+          schema: { type: number, example: 25 }
           description: "Максимальный вес (т)"
         - name: truck_type
           in: query
-          schema: { type: string }
-          description: "Тип транспорта"
+          schema: { type: string, example: "tent" }
+          description: "Тип транспорта (tent, refrigerator, flatbed, tanker, other)"
         - name: created_from
           in: query
           schema: { type: string, format: date }
@@ -619,7 +704,7 @@ paths:
           description: "Дата создания до (YYYY-MM-DD)"
         - name: search
           in: query
-          schema: { type: string }
+          schema: { type: string, example: "пшеница" }
           description: "Поиск по названию (title)"
         - name: with_offers
           in: query
@@ -627,11 +712,11 @@ paths:
           description: "true — только грузы, у которых есть хотя бы один оффер"
         - name: page
           in: query
-          schema: { type: integer, default: 1 }
+          schema: { type: integer, default: 1, example: 1 }
           description: "Номер страницы (с 1)"
         - name: limit
           in: query
-          schema: { type: integer, default: 20 }
+          schema: { type: integer, default: 20, example: 20 }
           description: "Записей на странице (макс. 100)"
         - name: sort
           in: query
@@ -654,7 +739,7 @@ paths:
               schema: { $ref: "#/components/schemas/Envelope" }
   /api/cargo/{id}:
     get:
-      tags: ["Cargo — Водитель", "Cargo — Диспетчер, компания, админ"]
+      tags: ["Freelance Dispatchers / Добавление груза", "Cargo — Водитель", "Cargo — Диспетчер, компания, админ", "Cargo — Freelance dispatcher"]
       summary: "3. Получить груз по ID (карточка)"
       description: |
         **Кто вызывает:** Водитель (перед отправкой оффера), диспетчер, компания, админ.
@@ -666,7 +751,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: { type: string, format: uuid }
+          schema: { type: string, format: uuid, example: "b2c3d4e5-f6a7-8901-bcde-f12345678901" }
           description: "UUID груза"
       responses:
         "200":
@@ -685,7 +770,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
     put:
-      tags: ["Cargo — Диспетчер, компания, админ"]
+      tags: ["Freelance Dispatchers / Добавление груза", "Cargo — Диспетчер, компания, админ", "Cargo — Freelance dispatcher"]
       summary: "4. Обновить груз"
       description: |
         **Кто вызывает:** Диспетчер, компания, админ. Водитель не редактирует грузы.
@@ -697,7 +782,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: { type: string, format: uuid }
+          schema: { type: string, format: uuid, example: "b2c3d4e5-f6a7-8901-bcde-f12345678901" }
       requestBody:
         content:
           application/json:
@@ -714,7 +799,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
     delete:
-      tags: ["Cargo — Диспетчер, компания, админ"]
+      tags: ["Freelance Dispatchers / Добавление груза", "Cargo — Диспетчер, компания, админ", "Cargo — Freelance dispatcher"]
       summary: "5. Удалить груз (soft delete)"
       description: |
         **Кто вызывает:** Диспетчер, компания, админ.
@@ -724,7 +809,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: { type: string, format: uuid }
+          schema: { type: string, format: uuid, example: "b2c3d4e5-f6a7-8901-bcde-f12345678901" }
       responses:
         "200":
           description: "Груз помечен удалённым"
@@ -734,7 +819,7 @@ paths:
               schema: { $ref: "#/components/schemas/Envelope" }
   /api/cargo/{id}/status:
     patch:
-      tags: ["Cargo — Диспетчер, компания, админ"]
+      tags: ["Freelance Dispatchers / Добавление груза", "Cargo — Диспетчер, компания, админ", "Cargo — Freelance dispatcher"]
       summary: "6. Изменить статус груза"
       description: |
         **Кто вызывает:** Диспетчер, компания, админ. Водитель статусы груза не меняет.
@@ -748,12 +833,14 @@ paths:
         - name: id
           in: path
           required: true
-          schema: { type: string, format: uuid }
+          schema: { type: string, format: uuid, example: "b2c3d4e5-f6a7-8901-bcde-f12345678901" }
       requestBody:
         required: true
         content:
           application/json:
             schema: { $ref: "#/components/schemas/CargoStatusRequest" }
+            example:
+              status: "searching"
       responses:
         "200":
           description: "Статус обновлён"
@@ -761,7 +848,7 @@ paths:
           description: "Переход недопустим (например delivered → searching)"
   /api/cargo/{id}/offers:
     get:
-      tags: ["Cargo — Водитель", "Cargo — Диспетчер, компания, админ"]
+      tags: ["Freelance Dispatchers / Добавление груза", "Cargo — Водитель", "Cargo — Диспетчер, компания, админ", "Cargo — Freelance dispatcher"]
       summary: "7. Список офферов по грузу"
       description: |
         **Кто вызывает:** Диспетчер, компания, админ (перед принятием оффера). Водитель может смотреть свои офферы через список грузов или отдельный экран.
@@ -773,7 +860,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: { type: string, format: uuid }
+          schema: { type: string, format: uuid, example: "b2c3d4e5-f6a7-8901-bcde-f12345678901" }
           description: "UUID груза"
       responses:
         "200":
@@ -802,13 +889,18 @@ paths:
         - name: id
           in: path
           required: true
-          schema: { type: string, format: uuid }
+          schema: { type: string, format: uuid, example: "b2c3d4e5-f6a7-8901-bcde-f12345678901" }
           description: "UUID груза"
       requestBody:
         required: true
         content:
           application/json:
             schema: { $ref: "#/components/schemas/OfferCreateRequest" }
+            example:
+              carrier_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+              price: 1500
+              currency: "USD"
+              comment: "Готов выехать завтра, своя тентовая фура"
       responses:
         "201":
           description: "Оффер создан. data.id — UUID оффера."
@@ -818,7 +910,7 @@ paths:
               schema: { $ref: "#/components/schemas/Envelope" }
   /api/offers/{id}/accept:
     post:
-      tags: ["Cargo — Диспетчер, компания, админ"]
+      tags: ["Freelance Dispatchers / Добавление груза", "Cargo — Диспетчер, компания, админ", "Cargo — Freelance dispatcher"]
       summary: "9. Принять оффер"
       description: |
         **Кто вызывает:** Диспетчер, компания, админ. Водитель офферы не принимает.
@@ -830,7 +922,7 @@ paths:
         - name: id
           in: path
           required: true
-          schema: { type: string, format: uuid }
+          schema: { type: string, format: uuid, example: "e5f6a7b8-c9d0-1234-ef56-789012345678" }
           description: "UUID оффера"
       responses:
         "200":
@@ -847,9 +939,38 @@ paths:
                         properties:
                           cargo_id: { type: string, format: uuid }
                           offer_id: { type: string, format: uuid }
+                          trip_id: { type: string, format: uuid, description: "Созданный рейс (pending_driver)" }
                           status: { type: string, example: "accepted" }
         "400":
           description: "Оффер не найден или уже не pending"
+
+  /api/trips:
+    get:
+      tags: ["Freelance Dispatchers / Добавление груза", "Cargo — Диспетчер, компания, админ", "Cargo — Freelance dispatcher", "Cargo — Водитель"]
+      summary: "Список рейсов по грузу"
+      description: "Query cargo_id (обязателен) — возвращает рейс по этому грузу. Базовые заголовки."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      parameters:
+        - name: cargo_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid, example: "b2c3d4e5-f6a7-8901-bcde-f12345678901" }
+      responses:
+        "200":
+          description: items — массив рейсов (id, cargo_id, offer_id, driver_id, status, created_at, updated_at)
+  /api/trips/{id}:
+    get:
+      tags: ["Freelance Dispatchers / Добавление груза", "Cargo — Диспетчер, компания, админ", "Cargo — Freelance dispatcher", "Cargo — Водитель"]
+      summary: "Рейс по ID"
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Рейс (id, cargo_id, offer_id, driver_id, status) }
+        "404": { description: Рейс не найден }
 
   /v1/transport-options:
     get:
@@ -964,6 +1085,79 @@ paths:
                   - type: object
                     properties:
                       data: { $ref: "#/components/schemas/ReferenceDispatchersResponse" }
+
+  /v1/reference/cities:
+    get:
+      tags: ["Reference / Cargo", "Freelance Dispatchers / Добавление груза"]
+      summary: "Справочник городов (все города мира)"
+      description: |
+        Справочник городов на основе библиотеки tidwall/cities (~10k городов) + доп. список для UZ, AE, TM, KG, TJ (Ташкент TAS, Самарканд SAM, Дубай DXB и др.). Ответ из памяти — быстрый hit API.
+        В route_points указывается city_code из этого справочника.
+        **Query:** country_code (опционально) — фильтр по стране (UZ, AE, KZ, RU и т.д.).
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      parameters:
+        - name: country_code
+          in: query
+          schema: { type: string, example: "UZ" }
+          description: "Фильтр по коду страны (UZ, AE, KZ, RU и т.д.)"
+      responses:
+        "200":
+          description: "data.items — массив { id, code, name_ru, name_en, country_code, lat, lng }"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: string, format: uuid }
+                            code: { type: string, example: "TAS" }
+                            name_ru: { type: string, example: "Ташкент" }
+                            name_en: { type: string, nullable: true }
+                            country_code: { type: string, example: "UZ" }
+                            lat: { type: number, nullable: true }
+                            lng: { type: number, nullable: true }
+
+  /v1/reference/regions:
+    get:
+      tags: ["Reference / Cargo", "Freelance Dispatchers / Добавление груза"]
+      summary: "Справочник регионов (области по странам)"
+      description: |
+        Возвращает список регионов/областей для выбора в точках маршрута (region_code).
+        **Query:** country_code (опционально) — фильтр по стране.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      parameters:
+        - name: country_code
+          in: query
+          schema: { type: string, example: "UZ" }
+          description: "Фильтр по коду страны"
+      responses:
+        "200":
+          description: "data.items — массив { id, code, name_ru, name_en, country_code }"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: string, format: uuid }
+                            code: { type: string, example: "TK" }
+                            name_ru: { type: string, example: "Ташкентская область" }
+                            name_en: { type: string, nullable: true }
+                            country_code: { type: string, example: "UZ" }
 
   /v1/auth/phone:
     post:
@@ -1451,7 +1645,7 @@ paths:
       summary: "Обновить JWT токены"
       description: |
         **Кто вызывает:** Водитель (мобильное приложение) или любой клиент с истёкшим access_token.
-        **Назначение:** Выдача новой пары токенов по refresh_token. В ответе — tokens (access_token, refresh_token, expires_in).
+        **Назначение:** Выдача новой пары токенов по refresh_token. В ответе — tokens (даты expires_at, refresh_expires_at в Unix).
         **Данные:** refresh_token (обязательно).
       requestBody:
         required: true
@@ -1520,8 +1714,10 @@ paths:
             schema:
               type: object
               properties:
-                phone: { type: string, example: "+998331108810" }
+                phone: { type: string, example: "+998901234567" }
               required: [phone]
+            example:
+              phone: "+998901234567"
       responses:
         "200":
           description: OTP отправлен
@@ -1550,9 +1746,12 @@ paths:
             schema:
               type: object
               properties:
-                phone: { type: string, example: "+998331108810" }
+                phone: { type: string, example: "+998901234567" }
                 otp: { type: string, example: "123456" }
               required: [phone, otp]
+            example:
+              phone: "+998901234567"
+              otp: "123456"
       responses:
         "200":
           description: login (tokens) или register (session_id)
@@ -1585,9 +1784,12 @@ paths:
             schema:
               type: object
               properties:
-                phone: { type: string, example: "+998331108810" }
-                password: { type: string, example: "secret" }
+                phone: { type: string, example: "+998901234567" }
+                password: { type: string, example: "TestPass123!" }
               required: [phone, password]
+            example:
+              phone: "+998901234567"
+              password: "TestPass123!"
       responses:
         "200":
           description: OK, tokens в data
@@ -1611,8 +1813,10 @@ paths:
             schema:
               type: object
               properties:
-                phone: { type: string, example: "+998331108810" }
+                phone: { type: string, example: "+998901234567" }
               required: [phone]
+            example:
+              phone: "+998901234567"
       responses:
         "200":
           description: OTP отправлен, session_id для confirm
@@ -1643,6 +1847,10 @@ paths:
                 otp: { type: string, example: "123456" }
                 new_password: { type: string }
               required: [session_id, otp, new_password]
+            example:
+              session_id: "d4e5f6a7-b8c9-0123-def0-234567890123"
+              otp: "123456"
+              new_password: "NewPass456!"
       responses:
         "200":
           description: Пароль обновлён
@@ -1672,6 +1880,8 @@ paths:
               properties:
                 refresh_token: { type: string, description: "JWT refresh token, выданный при входе" }
               required: [refresh_token]
+            example:
+              refresh_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhYmMxMjMiLCJ0eXBlIjoicmVmcmVzaCJ9.xxx"
       responses:
         "200":
           description: OK (refresh token инвалидирован)
@@ -1701,6 +1911,13 @@ paths:
                 passport_number: { type: string, example: "1234567" }
                 pinfl: { type: string, example: "12345678901234" }
               required: [session_id, name, password, passport_series, passport_number, pinfl]
+            example:
+              session_id: "d4e5f6a7-b8c9-0123-def0-234567890123"
+              name: "Алексей Диспетчеров"
+              password: "SecurePass123!"
+              passport_series: "AB"
+              passport_number: "1234567"
+              pinfl: "31234567890123"
       responses:
         "200":
           description: Зарегистрирован или логин (если телефон уже был)
@@ -1898,6 +2115,269 @@ paths:
                   dispatcher: { $ref: "#/components/schemas/Dispatcher" }
         "401": { description: Сессия/OTP неверны }
         "409": { description: Телефон уже занят }
+
+  /v1/dispatchers/companies:
+    get:
+      tags: ["Company / Dispatcher (приглашённый)"]
+      summary: "Список моих компаний"
+      description: "Компании, где диспетчер приглашён (диспетчер не создаёт компанию). Требуется X-User-Token."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      responses:
+        "200": { description: "data.items — массив объектов с полями id, name, type, role" }
+
+  /v1/dispatchers/auth/switch-company:
+    post:
+      tags: ["Company / Dispatcher (приглашённый)"]
+      summary: "Переключить контекст на компанию"
+      description: "Тело: company_id (UUID). В ответе — access_token, refresh_token, expires_in, expires_at (Unix), refresh_expires_in, refresh_expires_at (Unix)."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                company_id: { type: string, format: uuid }
+              required: [company_id]
+      responses:
+        "200": { description: "access_token, refresh_token, expires_in, expires_at, refresh_expires_in, refresh_expires_at (все даты — Unix)" }
+        "403": { description: company not found or access denied }
+
+  /v1/dispatchers/companies/{companyId}/invitations:
+    post:
+      tags: ["Company / Dispatcher (приглашённый)"]
+      summary: "Пригласить диспетчера в компанию (по телефону)"
+      description: "Тело: phone, role (dispatcher | top_dispatcher). Требуется доступ к компании. В ответе — token для accept."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: companyId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone: { type: string, example: "+998901234567" }
+                role: { type: string, enum: [dispatcher, top_dispatcher] }
+              required: [phone, role]
+      responses:
+        "201": { description: data.token, data.expires_in_hours }
+        "403": { description: access denied }
+
+  /v1/dispatchers/invitations/accept:
+    post:
+      tags: ["Company / Dispatcher (приглашённый)"]
+      summary: "Принять приглашение в компанию"
+      description: "Тело: token. Телефон диспетчера должен совпадать с приглашением. Требуется X-User-Token (dispatcher)."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token: { type: string }
+              required: [token]
+      responses:
+        "200": { description: data.company_id }
+        "400": { description: invitation not found or expired }
+        "403": { description: invitation was sent to another phone }
+
+  /v1/dispatchers/invitations/decline:
+    post:
+      tags: ["Company / Dispatcher (приглашённый)"]
+      summary: "Отклонить приглашение"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token: { type: string }
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      responses:
+        "200": { description: declined }
+
+  /v1/dispatchers/driver-invitations:
+    post:
+      tags: ["Freelance Dispatchers / Приглашения водителей", "Freelance Dispatchers / My drivers"]
+      summary: "Отправить приглашение водителю (фриланс — без компании)"
+      description: |
+        **Фриланс-диспетчер:** отправить приглашение водителю по телефону. Тело: phone (обязательно). В ответе — token; передать водителю (чат/ссылка). Водитель принимает через POST /v1/driver-invitations/accept (token). После принятия у водителя freelancer_id = текущий диспетчер. Требуется X-User-Token (dispatcher).
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone: { type: string, example: "+998901234567" }
+              required: [phone]
+            example:
+              phone: "+998901234567"
+      responses:
+        "201": { description: "data.token, data.expires_in_hours" }
+        "400": { description: invalid payload }
+
+  /v1/dispatchers/drivers:
+    get:
+      tags: ["Freelance Dispatchers / Приглашения водителей", "Freelance Dispatchers / My drivers"]
+      summary: "Список моих водителей"
+      description: "Водители, привязанные к фриланс-диспетчеру (freelancer_id = me). Query limit (default 100). X-User-Token (dispatcher)."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 100, example: 20 }
+      responses:
+        "200": { description: "data.items — массив водителей" }
+
+  /v1/dispatchers/companies/{companyId}/driver-invitations:
+    post:
+      tags: ["Freelance Dispatchers / My drivers"]
+      summary: "Пригласить водителя в компанию (по телефону)"
+      description: "Тело: phone. В ответе — token. Водитель принимает через POST /v1/driver-invitations/accept."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: companyId
+          in: path
+          required: true
+          schema: { type: string, format: uuid, example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone: { type: string, example: "+998901234567" }
+              required: [phone]
+            example:
+              phone: "+998971234567"
+      responses:
+        "201": { description: data.token, data.expires_in_hours }
+        "403": { description: access denied }
+
+  /v1/dispatchers/trips/{id}/assign-driver:
+    patch:
+      tags: ["Freelance Dispatchers / Trips"]
+      summary: "Назначить водителя на рейс"
+      description: "Тело: driver_id (UUID). Рейс должен быть в статусе pending_driver. Водитель подтверждает через POST /v1/trips/:id/confirm."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid, example: "f6a7b8c9-d0e1-2345-f678-901234567890" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                driver_id: { type: string, format: uuid }
+              required: [driver_id]
+            example:
+              driver_id: "c3d4e5f6-a7b8-9012-cdef-123456789012"
+      responses:
+        "200": { description: status pending_driver, driver_id }
+        "404": { description: trip not found or not pending_driver }
+
+  /v1/trips:
+    get:
+      tags: ["Drivers / Trips"]
+      summary: "Список моих рейсов"
+      description: "Рейсы, назначенные текущему водителю. Требуется X-User-Token (driver). Опционально limit."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+      responses:
+        "200": { description: data.items — массив рейсов }
+
+  /v1/trips/{id}/confirm:
+    post:
+      tags: ["Drivers / Trips"]
+      summary: "Принять назначение на рейс"
+      description: "Водитель подтверждает рейс; статус рейса → assigned. Рейс должен быть назначен этому водителю (driver_id = me)."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: status assigned }
+        "404": { description: trip not found or not assigned to you }
+
+  /v1/trips/{id}/reject:
+    post:
+      tags: ["Drivers / Trips"]
+      summary: "Отклонить назначение на рейс"
+      description: "Снимает водителя с рейса; диспетчер может назначить другого."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: status pending_driver }
+        "404": { description: trip not found }
+
+  /v1/trips/{id}/status:
+    patch:
+      tags: ["Drivers / Trips"]
+      summary: "Сменить статус рейса (водитель)"
+      description: "Тело: status (loading | en_route | unloading | completed | cancelled). Допустимые переходы по ТЗ."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: string, enum: [loading, en_route, unloading, completed, cancelled] }
+              required: [status]
+      responses:
+        "200": { description: status }
+        "400": { description: invalid status transition }
+        "403": { description: trip not assigned to you }
+
+  /v1/driver-invitations/accept:
+    post:
+      tags: ["Drivers / Driver invitations"]
+      summary: "Принять приглашение в компанию (водитель)"
+      description: "Тело: token. Телефон водителя должен совпадать с приглашением. После принятия driver.company_id устанавливается."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token: { type: string }
+              required: [token]
+      responses:
+        "200": { description: data.company_id }
+        "400": { description: invitation not found or expired }
+        "403": { description: invitation was sent to another phone }
 
   /v1/admin/auth/login/password:
     post:

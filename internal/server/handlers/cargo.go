@@ -14,16 +14,18 @@ import (
 	"sarbonNew/internal/security"
 	"sarbonNew/internal/server/mw"
 	"sarbonNew/internal/server/resp"
+	"sarbonNew/internal/trips"
 )
 
 type CargoHandler struct {
-	logger *zap.Logger
-	repo   *cargo.Repo
-	jwtm   *security.JWTManager
+	logger    *zap.Logger
+	repo      *cargo.Repo
+	tripsRepo *trips.Repo
+	jwtm      *security.JWTManager
 }
 
-func NewCargoHandler(logger *zap.Logger, repo *cargo.Repo, jwtm *security.JWTManager) *CargoHandler {
-	return &CargoHandler{logger: logger, repo: repo, jwtm: jwtm}
+func NewCargoHandler(logger *zap.Logger, repo *cargo.Repo, tripsRepo *trips.Repo, jwtm *security.JWTManager) *CargoHandler {
+	return &CargoHandler{logger: logger, repo: repo, tripsRepo: tripsRepo, jwtm: jwtm}
 }
 
 // CreateCargoReq body for POST /api/cargo.
@@ -55,7 +57,10 @@ type CreateCargoReq struct {
 
 type RoutePointReq struct {
 	Type         string   `json:"type" binding:"required,oneof=load unload customs transit"`
-	Address      string   `json:"address" binding:"required"`
+	CityCode     string   `json:"city_code" binding:"required"`   // код города (TAS, SAM, DXB) — из справочника
+	RegionCode   string   `json:"region_code"`                    // код региона/области (опционально)
+	Address      string   `json:"address" binding:"required"`      // адрес (улица, дом)
+	Orientir     string   `json:"orientir"`                      // ориентир для водителя
 	Lat          float64  `json:"lat" binding:"required"`
 	Lng          float64  `json:"lng" binding:"required"`
 	Comment      *string  `json:"comment"`
@@ -285,17 +290,24 @@ func (h *CargoHandler) ListOffers(c *gin.Context) {
 }
 
 func (h *CargoHandler) AcceptOffer(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+	offerID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		resp.Error(c, http.StatusBadRequest, "invalid offer id")
 		return
 	}
-	cargoID, err := h.repo.AcceptOffer(c.Request.Context(), id)
+	cargoID, err := h.repo.AcceptOffer(c.Request.Context(), offerID)
 	if err != nil {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	resp.OK(c, gin.H{"cargo_id": cargoID.String(), "offer_id": id.String(), "status": "accepted"})
+	if h.tripsRepo != nil {
+		tripID, _ := h.tripsRepo.Create(c.Request.Context(), cargoID, offerID)
+		if tripID != uuid.Nil {
+			resp.OK(c, gin.H{"cargo_id": cargoID.String(), "offer_id": offerID.String(), "trip_id": tripID.String(), "status": "accepted"})
+			return
+		}
+	}
+	resp.OK(c, gin.H{"cargo_id": cargoID.String(), "offer_id": offerID.String(), "status": "accepted"})
 }
 
 // UpdateCargoReq for PUT /api/cargo/:id (all optional).
@@ -395,7 +407,10 @@ func toCreateParams(req CreateCargoReq) cargo.CreateParams {
 	for _, rp := range req.RoutePoints {
 		p.RoutePoints = append(p.RoutePoints, cargo.RoutePointInput{
 			Type:         rp.Type,
+			CityCode:     rp.CityCode,
+			RegionCode:   rp.RegionCode,
 			Address:      rp.Address,
+			Orientir:     rp.Orientir,
 			Lat:          rp.Lat,
 			Lng:          rp.Lng,
 			Comment:      rp.Comment,
@@ -446,8 +461,8 @@ func toUpdateParams(req UpdateCargoReq) cargo.UpdateParams {
 	p.ContactPhone = req.ContactPhone
 	for _, rp := range req.RoutePoints {
 		p.RoutePoints = append(p.RoutePoints, cargo.RoutePointInput{
-			Type: rp.Type, Address: rp.Address, Lat: rp.Lat, Lng: rp.Lng,
-			Comment: rp.Comment, PointOrder: rp.PointOrder, IsMainLoad: rp.IsMainLoad, IsMainUnload: rp.IsMainUnload,
+			Type: rp.Type, CityCode: rp.CityCode, RegionCode: rp.RegionCode, Address: rp.Address, Orientir: rp.Orientir,
+			Lat: rp.Lat, Lng: rp.Lng, Comment: rp.Comment, PointOrder: rp.PointOrder, IsMainLoad: rp.IsMainLoad, IsMainUnload: rp.IsMainUnload,
 		})
 	}
 	if req.Payment != nil {
@@ -505,7 +520,8 @@ func toRoutePointsResp(p []cargo.RoutePoint) []gin.H {
 	for _, rp := range p {
 		out = append(out, gin.H{
 			"id": rp.ID.String(), "cargo_id": rp.CargoID.String(), "type": rp.Type,
-			"address": rp.Address, "lat": rp.Lat, "lng": rp.Lng, "comment": rp.Comment,
+			"city_code": rp.CityCode, "region_code": rp.RegionCode, "address": rp.Address, "orientir": rp.Orientir,
+			"lat": rp.Lat, "lng": rp.Lng, "comment": rp.Comment,
 			"point_order": rp.PointOrder, "is_main_load": rp.IsMainLoad, "is_main_unload": rp.IsMainUnload,
 		})
 	}

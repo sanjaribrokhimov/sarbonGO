@@ -131,6 +131,50 @@ WHERE id = $1`
 	return err
 }
 
+// SetCompanyID sets driver's company (e.g. after accepting company invitation).
+func (r *Repo) SetCompanyID(ctx context.Context, driverID, companyID uuid.UUID) error {
+	const q = `UPDATE drivers SET company_id = $2, updated_at = now() WHERE id = $1`
+	_, err := r.pg.Exec(ctx, q, driverID, companyID)
+	return err
+}
+
+// SetFreelancerID sets driver's freelancer (dispatcher) — e.g. after accepting freelance dispatcher invitation.
+func (r *Repo) SetFreelancerID(ctx context.Context, driverID, freelancerID uuid.UUID) error {
+	const q = `UPDATE drivers SET freelancer_id = $2, updated_at = now() WHERE id = $1`
+	_, err := r.pg.Exec(ctx, q, driverID, freelancerID)
+	return err
+}
+
+// ListByFreelancerID returns drivers linked to this freelance dispatcher (freelancer_id = dispatcherID).
+func (r *Repo) ListByFreelancerID(ctx context.Context, freelancerID uuid.UUID, limit int) ([]*Driver, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	const q = `
+SELECT id, phone, created_at, updated_at, last_online_at, latitude, longitude, push_token,
+  registration_step, registration_status, name, driver_type, rating, work_status,
+  freelancer_id, company_id, account_status,
+  driver_passport_series, driver_passport_number, driver_pinfl, driver_scan_status,
+  power_plate_type, power_plate_number, power_tech_series, power_tech_number, power_owner_id, power_owner_name, power_scan_status,
+  trailer_plate_type, trailer_plate_number, trailer_tech_series, trailer_tech_number, trailer_owner_id, trailer_owner_name, trailer_scan_status,
+  driver_owner, kyc_status
+FROM drivers WHERE freelancer_id = $1 ORDER BY updated_at DESC LIMIT $2`
+	rows, err := r.pg.Query(ctx, q, freelancerID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []*Driver
+	for rows.Next() {
+		d, err := scanDriver(rows)
+		if err != nil {
+			return nil, err
+		}
+		list = append(list, d)
+	}
+	return list, rows.Err()
+}
+
 func (r *Repo) UpdateHeartbeat(ctx context.Context, id uuid.UUID, lat, lon float64, lastOnlineAt time.Time) error {
 	const q = `
 UPDATE drivers

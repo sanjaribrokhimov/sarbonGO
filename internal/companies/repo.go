@@ -126,6 +126,48 @@ func (r *Repo) SetOwner(ctx context.Context, companyID, ownerID uuid.UUID) error
 	return err
 }
 
+// CreateWithOwnerDispatcher creates a company owned by a freelance dispatcher (Broker). Used for "create own company" flow.
+func (r *Repo) CreateWithOwnerDispatcher(ctx context.Context, name string, ownerDispatcherID uuid.UUID) (uuid.UUID, error) {
+	const q = `
+INSERT INTO companies (name, company_type, status, owner_dispatcher_id, created_at, updated_at)
+VALUES ($1, 'Broker', 'active', $2, now(), now())
+RETURNING id`
+	var id uuid.UUID
+	err := r.pg.QueryRow(ctx, q, name, ownerDispatcherID).Scan(&id)
+	return id, err
+}
+
+// ListForDispatcher returns companies where dispatcher is owner (owner_dispatcher_id) or has role in dispatcher_company_roles.
+func (r *Repo) ListForDispatcher(ctx context.Context, dispatcherID uuid.UUID) ([]CompanyWithRole, error) {
+	const q = `
+SELECT c.id, c.name, c.company_type, c.owner_id, COALESCE(dcr.role, 'owner') as role_name
+FROM companies c
+LEFT JOIN dispatcher_company_roles dcr ON dcr.company_id = c.id AND dcr.dispatcher_id = $1
+WHERE c.deleted_at IS NULL AND (c.owner_dispatcher_id = $1 OR dcr.dispatcher_id = $1)
+ORDER BY (c.owner_dispatcher_id = $1) DESC, c.name`
+	rows, err := r.pg.Query(ctx, q, dispatcherID, dispatcherID, dispatcherID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []CompanyWithRole
+	for rows.Next() {
+		var row CompanyWithRole
+		var roleName string
+		var ownerID *uuid.UUID
+		err := rows.Scan(&row.ID, &row.Name, &row.Type, &ownerID, &roleName)
+		if err != nil {
+			return nil, err
+		}
+		if ownerID != nil {
+			row.OwnerID = *ownerID
+		}
+		row.Role = roleName
+		list = append(list, row)
+	}
+	return list, rows.Err()
+}
+
 // ListForUser returns companies where user is owner or has a role (for GET /auth/companies).
 func (r *Repo) ListForUser(ctx context.Context, userID uuid.UUID) ([]CompanyWithRole, error) {
 	const q = `

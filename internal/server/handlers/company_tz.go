@@ -192,8 +192,13 @@ func (h *CompanyTZHandler) SwitchCompany(c *gin.Context) {
 		return
 	}
 	resp.OK(c, gin.H{
-		"token":   tokens.AccessToken,
-		"company": gin.H{"id": comp.ID, "name": comp.Name, "type": comp.Type, "role": roleName},
+		"token":               tokens.AccessToken,
+		"refresh_token":       tokens.RefreshToken,
+		"expires_in":          tokens.ExpiresIn,
+		"expires_at":          tokens.ExpiresAt,
+		"refresh_expires_in":  tokens.RefreshExpiresIn,
+		"refresh_expires_at":  tokens.RefreshExpiresAt,
+		"company":             gin.H{"id": comp.ID, "name": comp.Name, "type": comp.Type, "role": roleName},
 	})
 }
 

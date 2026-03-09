@@ -1,0 +1,5 @@
+ALTER TABLE route_points DROP COLUMN IF EXISTS city_code;
+ALTER TABLE route_points DROP COLUMN IF EXISTS region_code;
+ALTER TABLE route_points DROP COLUMN IF EXISTS orientir;
+DROP TABLE IF EXISTS regions;
+DROP TABLE IF EXISTS cities;
