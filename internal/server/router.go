@@ -148,11 +148,12 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 
 	v1.POST("/company-users/auth/phone", companyUserAuthH.SendOTP)
 	v1.POST("/company-users/auth/otp/verify", companyUserAuthH.VerifyOTP)
+	v1.POST("/company-users/auth/refresh", authH.Refresh)   // company user: обновить пару токенов по refresh_token
 	v1.POST("/company-users/registration/complete", companyUserRegH.Complete)
 
 	v1.POST("/auth/phone", authH.SendOTP)
 	v1.POST("/auth/otp/verify", authH.VerifyOTP)
-	v1.POST("/auth/refresh", authH.Refresh)
+	v1.POST("/auth/refresh", authH.Refresh)   // водитель: обновить пару токенов по refresh_token
 	v1.POST("/auth/logout", authH.Logout)
 
 	v1.POST("/registration/start", regH.Start)
@@ -185,13 +186,15 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	v1.POST("/dispatchers/auth/phone", dispAuthH.SendOTP)
 	v1.POST("/dispatchers/auth/otp/verify", dispAuthH.VerifyOTP)
 	v1.POST("/dispatchers/auth/login/password", dispAuthH.LoginPassword)
+	v1.POST("/dispatchers/auth/refresh", authH.Refresh)   // диспетчер: обновить пару токенов по refresh_token
 	v1.POST("/dispatchers/auth/reset-password/request", dispAuthH.ResetPasswordRequest)
 	v1.POST("/dispatchers/auth/reset-password/confirm", dispAuthH.ResetPasswordConfirm)
 	v1.POST("/dispatchers/auth/logout", dispAuthH.Logout)
 	v1.POST("/dispatchers/registration/complete", dispRegH.Complete)
 
-	// Admin auth (login by password) — только base headers; без admin token
+	// Admin auth (login by password, refresh) — только base headers; без admin token
 	v1.POST("/admin/auth/login/password", adminAuthH.LoginPassword)
+	v1.POST("/admin/auth/refresh", authH.Refresh)   // админ: обновить пару токенов по refresh_token
 
 	// Все маршруты под adminAuthed проверяют: base headers (X-Client-Token, X-Device-Type, X-Language) + X-User-Token с role=admin
 	adminAuthed := v1.Group("/admin")

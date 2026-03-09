@@ -71,6 +71,7 @@ tags:
       1. POST /v1/dispatchers/auth/reset-password/request (phone) → OTP отправлен, session_id.
       2. POST /v1/dispatchers/auth/reset-password/confirm (session_id, otp, new_password) → пароль обновлён.
 
+      **Refresh:** POST /v1/dispatchers/auth/refresh — тело { "refresh_token": "..." }; в ответе новая пара токенов (expires_at, refresh_expires_at — Unix).
       **Logout:** POST /v1/dispatchers/auth/logout (refresh_token) — инвалидация refresh_token; после вызова токен нельзя использовать для обновления.
 
       **Данные в запросах:** phone в формате +998XXXXXXXXX; otp — код из смс/Telegram; password — только при login/password и reset/confirm.
@@ -1642,11 +1643,11 @@ paths:
   /v1/auth/refresh:
     post:
       tags: ["Drivers / Auth"]
-      summary: "Обновить JWT токены"
+      summary: "Обновить JWT токены (водитель)"
       description: |
-        **Кто вызывает:** Водитель (мобильное приложение) или любой клиент с истёкшим access_token.
-        **Назначение:** Выдача новой пары токенов по refresh_token. В ответе — tokens (даты expires_at, refresh_expires_at в Unix).
-        **Данные:** refresh_token (обязательно).
+        **Кто вызывает:** Водитель (мобильное приложение) при истёкшем или скоро истекающем access_token.
+        **Назначение:** По refresh_token выдать новую пару access_token + refresh_token. В ответе tokens с expires_in, expires_at, refresh_expires_at (Unix).
+        **Тело:** { "refresh_token": "..." }. После вызова старый refresh_token недействителен (rotation).
       requestBody:
         required: true
         content:
@@ -1665,12 +1666,92 @@ paths:
                 type: object
                 properties:
                   tokens: { $ref: "#/components/schemas/Tokens" }
-                required: [tokens]
         "401":
-          description: Неверный refresh token
+          description: invalid refresh_token
+
+  /v1/dispatchers/auth/refresh:
+    post:
+      tags: ["Freelance Dispatchers / Auth"]
+      summary: "Обновить JWT токены (диспетчер)"
+      description: |
+        **Кто вызывает:** Диспетчер при истёкшем/скоро истекающем access_token.
+        **Тело:** { "refresh_token": "..." }. В ответе — tokens (access_token, refresh_token, expires_in, expires_at, refresh_expires_at).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token: { type: string }
+              required: [refresh_token]
+      responses:
+        "200":
+          description: OK
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Envelope" }
+              schema:
+                type: object
+                properties:
+                  tokens: { $ref: "#/components/schemas/Tokens" }
+        "401":
+          description: invalid refresh_token
+
+  /v1/admin/auth/refresh:
+    post:
+      tags: ["Admin / Auth"]
+      summary: "Обновить JWT токены (админ)"
+      description: |
+        **Кто вызывает:** Админ при истёкшем access_token.
+        **Тело:** { "refresh_token": "..." }. В ответе — tokens.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token: { type: string }
+              required: [refresh_token]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tokens: { $ref: "#/components/schemas/Tokens" }
+        "401":
+          description: invalid refresh_token
+
+  /v1/company-users/auth/refresh:
+    post:
+      tags: ["Company / App user auth"]
+      summary: "Обновить JWT токены (пользователь компании)"
+      description: |
+        **Кто вызывает:** Пользователь компании (app user) при истёкшем access_token.
+        **Тело:** { "refresh_token": "..." }. В ответе — tokens.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token: { type: string }
+              required: [refresh_token]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tokens: { $ref: "#/components/schemas/Tokens" }
+        "401":
+          description: invalid refresh_token
 
   /v1/auth/logout:
     post:
