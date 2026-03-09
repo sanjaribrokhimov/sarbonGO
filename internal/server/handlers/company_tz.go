@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -87,7 +88,7 @@ func (h *CompanyTZHandler) CreateCompany(c *gin.Context) {
 	}
 	var req struct {
 		Name    string   `json:"name" binding:"required"`
-		Type    string   `json:"type" binding:"required,oneof=Shipper Broker Fleet OwnerOperator"`
+		Type    string   `json:"type" binding:"required,oneof=SHIPPER CARRIER BROKER"`
 		Inn     *string  `json:"inn"`
 		Phone   *string  `json:"phone"`
 		Address *string  `json:"address"`
@@ -101,9 +102,14 @@ func (h *CompanyTZHandler) CreateCompany(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, "roles not configured")
 		return
 	}
+	// В БД храним Shipper, Carrier, Broker (PascalCase)
+	companyTypeDB := map[string]string{"SHIPPER": "Shipper", "CARRIER": "Carrier", "BROKER": "Broker"}[strings.ToUpper(req.Type)]
+	if companyTypeDB == "" {
+		companyTypeDB = req.Type
+	}
 	companyID, err := h.companies.CreateByOwner(c.Request.Context(), companies.CreateByOwnerParams{
 		Name:    req.Name,
-		Type:    req.Type,
+		Type:    companyTypeDB,
 		OwnerID: userID,
 		Inn:     req.Inn,
 		Phone:   req.Phone,

@@ -104,14 +104,16 @@ tags:
 
       **Роль:** Админ из таблицы admins (логин/пароль). Используется для доступа к операциям, доступным только админу (например создание компаний).
 
-      **Поток:** POST /v1/admin/auth/login/password — передать login и password. В ответе — tokens (access_token, refresh_token) и объект admin (id, login, name, status, type). Далее для запросов под /v1/admin/* передавать X-User-Token = access_token.
+      **Безопасность:** Для входа (login) сервер проверяет только X-Device-Type, X-Language, X-Client-Token. Все остальные запросы Admin (Companies и т.д.) требуют **обязательно** и X-Client-Token, и X-User-Token (JWT с role=admin); сервер отклоняет запрос при отсутствии или неверном токене.
+
+      **Поток:** POST /v1/admin/auth/login/password — передать login и password. В ответе — tokens (access_token, refresh_token) и объект admin. Далее для запросов под /v1/admin/companies и др. передавать X-User-Token = access_token (и X-Client-Token).
   - name: Admin / Companies
     description: |
       **Руководство: Управление компаниями (только админ)**
 
-      **Кто вызывает:** Только авторизованный админ (X-User-Token = JWT после /v1/admin/auth/login/password).
+      **Безопасность:** Все методы этого раздела доступны **только админам**. Сервер проверяет оба токена: **X-Client-Token** (обязателен для всех /v1) и **X-User-Token** (JWT после /v1/admin/auth/login/password с role=admin). При отсутствии или неверном X-User-Token или при JWT с другой ролью возвращается 401.
 
-      **Поток и данные:** POST /v1/admin/companies — создание компании. В теле: name (обязательно), опционально owner_id (UUID из company_users — владелец), company_type (CargoOwner / Carrier / Expeditor — грузовладелец, перевозчик, экспедитор), inn, address, phone, email, website, license_number, status, лимиты. Если передан **owner_id**, компания привязывается к владельцу и **status** автоматически устанавливается в **active**. PATCH /v1/admin/companies/:id/owner — привязать владельца к существующей компании (status станет active). В ответе — company_id.
+      **Поток (два шага):** 1) POST /v1/admin/companies — только создание компании (name обязательно, company_type, inn, address, phone, email, website, license_number, status, лимиты). Владелец не указывается. 2) GET /v1/admin/company-users/owners/search?q=... — поиск владельцев (только role=OWNER) по телефону, имени или фамилии; сортировка по релевантности. 3) PATCH /v1/admin/companies/:id/owner — привязать владельца (owner_id = UUID из company_users с **role=OWNER**). После назначения: у компании — owner_id и status=active, у пользователя в company_users — company_id (двусторонняя связь).
   - name: Reference
     description: |
       **Руководство: Справочники (общие)**
@@ -131,7 +133,7 @@ tags:
     description: |
       **Справочник для раздела Company.** Типы компании, статусы компании, роли (с id и описанием) для приглашений и назначений.
 
-      **GET /v1/reference/company** возвращает: company_type (Shipper, Broker, Fleet, OwnerOperator, CargoOwner, Carrier, Expeditor), company_status (active, inactive, blocked, pending), roles — массив {id, name, description} из БД (Owner, CEO, TopDispatcher, Dispatcher, TopManager, Manager, Carrier, Driver).
+      **GET /v1/reference/company** возвращает: company_type (только SHIPPER, CARRIER, BROKER), company_status (ACTIVE, INACTIVE, BLOCKED, PENDING), company_user_roles (OWNER, CEO, TOP_MANAGER, TOP_DISPATCHER, DISPATCHER, MANAGER), roles — массив {id, name, description} из БД. Все value в верхнем регистре.
   - name: "Reference / Admin"
     description: |
       **Справочник для раздела Admin.** Статусы и типы админа.
@@ -186,12 +188,12 @@ components:
       type: apiKey
       in: header
       name: X-Client-Token
-      description: Обязателен для всех API-запросов
+      description: Обязателен для всех API-запросов (включая Admin). Проверяется сервером на каждом запросе /v1/*.
     UserTokenHeader:
       type: apiKey
       in: header
       name: X-User-Token
-      description: Для авторизованных действий (JWT access token)
+      description: JWT access token. Для разделов Admin — обязательно JWT с role=admin (после /v1/admin/auth/login/password); сервер отклоняет запрос при другой роли или неверном токене.
     UserIDHeader:
       type: apiKey
       in: header
@@ -352,9 +354,10 @@ components:
     ReferenceCompanyResponse:
       type: object
       properties:
-        company_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
-        company_status: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
-        roles: { type: array, items: { $ref: "#/components/schemas/RoleRef" } }
+        company_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" }, description: "Только SHIPPER, CARRIER, BROKER (верхний регистр)" }
+        company_status: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" }, description: "ACTIVE, INACTIVE, BLOCKED, PENDING" }
+        company_user_roles: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" }, description: "Роли пользователей компании: OWNER, CEO, TOP_MANAGER, TOP_DISPATCHER, DISPATCHER, MANAGER" }
+        roles: { type: array, items: { $ref: "#/components/schemas/RoleRef" }, description: "Роли из БД (id, name) для приглашений" }
     ReferenceAdminResponse:
       type: object
       properties:
@@ -913,8 +916,8 @@ paths:
   /v1/reference/company:
     get:
       tags: ["Reference / Company"]
-      summary: "Справочник Company — типы компании, статусы, роли"
-      description: "Роли возвращаются из БД (id, name, description). Используйте role_id при приглашении и смене роли."
+      summary: "Справочник Company — типы компании, статусы, роли пользователей"
+      description: "company_type — только SHIPPER, CARRIER, BROKER. company_user_roles — только OWNER, CEO, TOP_MANAGER, TOP_DISPATCHER, DISPATCHER, MANAGER. company_status — ACTIVE, INACTIVE, BLOCKED, PENDING. roles — из БД (id, name, description) для приглашений. Все value в верхнем регистре."
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
       responses:
         "200":
@@ -1901,8 +1904,10 @@ paths:
       tags: ["Admin / Auth"]
       summary: "Вход админа (логин + пароль)"
       description: |
-        **Поток:** Передаёте login и password из таблицы admins. В ответе — tokens (access_token, refresh_token) и объект admin (id, login, name, status, type). Для вызова методов Admin / Companies передавайте заголовок X-User-Token = access_token.
+        **Безопасность:** Проверяются только X-Device-Type, X-Language, X-Client-Token (admin token не требуется — это вход). Остальные методы Admin требуют также X-User-Token (JWT админа).
+        **Поток:** Передаёте login и password из таблицы admins. В ответе — tokens (access_token, refresh_token) и объект admin. Для вызова методов Admin / Companies передавайте X-User-Token = access_token и X-Client-Token.
         **Данные:** login, password (обязательно).
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
       requestBody:
         required: true
         content:
@@ -1937,9 +1942,10 @@ paths:
   /v1/admin/companies:
     post:
       tags: ["Admin / Companies"]
-      summary: "Создать компанию (только админ)"
+      summary: "Создать компанию (шаг 1 — без владельца)"
       description: |
-        **Поток:** Вызывается только с JWT админа (X-User-Token). В теле передаёте name (обязательно), опционально **owner_id** (UUID из app_users — владелец), **company_type** (CargoOwner / Carrier / Expeditor — грузовладелец, перевозчик, экспедитор), inn, address, phone, email, website, license_number, status, лимиты. Если передан **owner_id**, компания привязывается к владельцу и **status** автоматически **active**; иначе по умолчанию **pending**. В ответе — status и company_id.
+        **Безопасность:** Только админ. Проверяются X-Client-Token и X-User-Token (JWT с role=admin); при неверном или отсутствующем токене — 401.
+        **Шаг 1 из 2.** Создаёт только компанию. Владелец не указывается. В теле: name (обязательно), company_type (только SHIPPER / CARRIER / BROKER), inn, address, phone, email, website, license_number, status, лимиты. В ответе — company_id. Назначить владельца — отдельно через **PATCH /v1/admin/companies/{id}/owner** (шаг 2).
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
@@ -1949,8 +1955,7 @@ paths:
               type: object
               properties:
                 name: { type: string, example: "My Logistics LLC" }
-                owner_id: { type: string, format: uuid, nullable: true, description: "UUID владельца (app_users.id); при указании status станет active" }
-                company_type: { type: string, enum: [CargoOwner, Carrier, Expeditor], nullable: true, description: "CargoOwner (грузовладелец), Carrier (перевозчик), Expeditor (экспедитор)" }
+                company_type: { type: string, enum: [SHIPPER, CARRIER, BROKER], nullable: true, description: "SHIPPER (грузоотправитель), CARRIER (перевозчик), BROKER (брокер)" }
                 inn: { type: string, nullable: true }
                 address: { type: string, nullable: true }
                 phone: { type: string, nullable: true }
@@ -1982,16 +1987,17 @@ paths:
   /v1/admin/companies/{id}/owner:
     patch:
       tags: ["Admin / Companies"]
-      summary: "Назначить владельца компании"
+      summary: "Назначить владельца компании (шаг 2)"
       description: |
-        Привязывает владельца (app_users.id) к компании и переводит **status** компании в **active**. Вызывается с JWT админа.
+        **Безопасность:** Только админ. Проверяются X-Client-Token и X-User-Token (JWT с role=admin); при неверном или отсутствующем токене — 401.
+        **Шаг 2 из 2.** Привязывает владельца к компании. owner_id — UUID из **company_users** с **role=owner**. После успешного вызова: у компании — owner_id и status=active, у пользователя в company_users — company_id (двусторонняя связь).
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       parameters:
         - name: id
           in: path
           required: true
           schema: { type: string, format: uuid }
-          description: "UUID компании"
+          description: "UUID компании (company_id из ответа POST /v1/admin/companies)"
       requestBody:
         required: true
         content:
@@ -2000,7 +2006,7 @@ paths:
               type: object
               required: [owner_id]
               properties:
-                owner_id: { type: string, format: uuid, description: "UUID владельца (app_users.id)" }
+                owner_id: { type: string, format: uuid, description: "UUID владельца (company_users.id); у пользователя role должен быть owner" }
       responses:
         "200":
           description: OK
@@ -2011,7 +2017,47 @@ paths:
                 properties:
                   status: { type: string, example: "ok" }
                   message: { type: string, example: "owner set, status set to active" }
-        "400": { description: invalid company id or owner_id }
+        "400": { description: "invalid company id, invalid owner_id, or owner_id is not a user with role 'owner'" }
+        "401": { description: unauthorized }
+
+  /v1/admin/company-users/owners/search:
+    get:
+      tags: ["Admin / Companies"]
+      summary: "Поиск владельцев (для назначения owner компании)"
+      description: |
+        **Безопасность:** Только админ. Проверяются X-Client-Token и X-User-Token (JWT с role=admin); при неверном или отсутствующем токене — 401.
+        Поиск в таблице **company_users** только пользователей с **role = owner**. Поиск по телефону, имени или фамилии (параметр q). Результаты по релевантности: точное совпадение → начинается с → содержит.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema: { type: string }
+          description: "Строка поиска (телефон, имя или фамилия); частичное совпадение, без учёта регистра"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "success" }
+                  code: { type: integer }
+                  description: { type: string }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        phone: { type: string }
+                        first_name: { type: string, nullable: true }
+                        last_name: { type: string, nullable: true }
+                        company_id: { type: string, format: uuid, nullable: true }
+                        role: { type: string, nullable: true }
+                        created_at: { type: string, format: date-time }
+                        updated_at: { type: string, format: date-time }
         "401": { description: unauthorized }
 
   /v1/chat/conversations:
@@ -2249,7 +2295,7 @@ paths:
     post:
       tags: [Company]
       summary: "Создать компанию"
-      description: "Создатель становится Owner. Тип: Shipper, Broker, Fleet, OwnerOperator."
+      description: "Создатель становится OWNER. type — только SHIPPER, CARRIER или BROKER (верхний регистр)."
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
@@ -2260,7 +2306,7 @@ paths:
               required: [name, type]
               properties:
                 name: { type: string }
-                type: { type: string, enum: [Shipper, Broker, Fleet, OwnerOperator] }
+                type: { type: string, enum: [SHIPPER, CARRIER, BROKER], description: "Тип компании из справочника" }
                 inn: { type: string }
                 phone: { type: string }
                 address: { type: string }

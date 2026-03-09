@@ -16,7 +16,7 @@ import (
 	"sarbonNew/internal/util"
 )
 
-const companyUserRoleOwner = "owner"
+const companyUserRoleOwner = "OWNER"
 
 type CompanyUserRegistrationHandler struct {
 	logger  *zap.Logger

@@ -15,6 +15,9 @@ import (
 	"sarbonNew/internal/server/resp"
 )
 
+// Поток: 1) POST /v1/admin/companies — только создание компании (без владельца).
+//        2) PATCH /v1/admin/companies/:id/owner — привязать владельца из company_users.
+
 type AdminCompaniesHandler struct {
 	logger   *zap.Logger
 	repo     *companies.Repo
@@ -35,9 +38,7 @@ type adminCreateCompanyReq struct {
 	LicenseNumber *string `json:"license_number"`
 	Status        *string `json:"status"`
 
-	// Owner (app_users id): при указании компания получает owner и status = active
-	OwnerID     *string `json:"owner_id"`     // UUID
-	CompanyType *string `json:"company_type"` // CargoOwner, Carrier, Expeditor (грузовладелец, перевозчик, экспедитор)
+	CompanyType *string `json:"company_type"` // CargoOwner, Carrier, Expeditor; владельца назначают отдельно через PATCH .../owner
 
 	MaxVehicles       int `json:"max_vehicles"`
 	MaxDrivers        int `json:"max_drivers"`
@@ -71,33 +72,13 @@ func (h *AdminCompaniesHandler) Create(c *gin.Context) {
 		return
 	}
 
-	var ownerID *uuid.UUID
-	if req.OwnerID != nil {
-		s := strings.TrimSpace(*req.OwnerID)
-		if s != "" {
-			parsed, err := uuid.Parse(s)
-			if err != nil {
-				resp.Error(c, http.StatusBadRequest, "invalid owner_id: must be UUID")
-				return
-			}
-			_, err = h.usersRepo.FindByID(c.Request.Context(), parsed)
-			if err != nil {
-				if errors.Is(err, appusers.ErrNotFound) {
-					resp.Error(c, http.StatusBadRequest, "owner_id must be an existing company user (register via POST /v1/company-users/auth/phone and registration/complete first)")
-					return
-				}
-				h.logger.Error("company user find by id failed", zap.Error(err))
-				resp.Error(c, http.StatusInternalServerError, "company create failed")
-				return
-			}
-			ownerID = &parsed
-		}
-	}
 	var companyType *string
 	if req.CompanyType != nil {
-		s := strings.TrimSpace(*req.CompanyType)
-		if s != "" {
-			companyType = &s
+		s := strings.TrimSpace(strings.ToUpper(*req.CompanyType))
+		if s != "" && (s == "SHIPPER" || s == "CARRIER" || s == "BROKER") {
+			// В БД храним PascalCase
+			dbVal := map[string]string{"SHIPPER": "Shipper", "CARRIER": "Carrier", "BROKER": "Broker"}[s]
+			companyType = &dbVal
 		}
 	}
 
@@ -110,7 +91,7 @@ func (h *AdminCompaniesHandler) Create(c *gin.Context) {
 		Website:           req.Website,
 		LicenseNumber:     req.LicenseNumber,
 		Status:            req.Status,
-		OwnerID:           ownerID,
+		OwnerID:           nil, // владелец назначается отдельно через PATCH /v1/admin/companies/:id/owner
 		CompanyType:       companyType,
 		MaxVehicles:       req.MaxVehicles,
 		MaxDrivers:        req.MaxDrivers,
@@ -161,7 +142,7 @@ func (h *AdminCompaniesHandler) SetOwner(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, "invalid owner_id: must be UUID")
 		return
 	}
-	_, err = h.usersRepo.FindByID(c.Request.Context(), ownerID)
+	user, err := h.usersRepo.FindByID(c.Request.Context(), ownerID)
 	if err != nil {
 		if errors.Is(err, appusers.ErrNotFound) {
 			resp.Error(c, http.StatusBadRequest, "owner_id must be an existing company user (register via POST /v1/company-users/auth/phone and registration/complete first)")
@@ -171,11 +152,52 @@ func (h *AdminCompaniesHandler) SetOwner(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, "set owner failed")
 		return
 	}
+	// Владельцем может быть только пользователь с ролью OWNER в company_users
+	if user.Role == nil || strings.TrimSpace(*user.Role) != "OWNER" {
+		resp.Error(c, http.StatusBadRequest, "owner_id must be a company user with role 'OWNER' (company_users.role)")
+		return
+	}
 	if err := h.repo.SetOwner(c.Request.Context(), companyID, ownerID); err != nil {
 		h.logger.Error("company set owner failed", zap.Error(err))
 		resp.Error(c, http.StatusInternalServerError, "set owner failed")
 		return
 	}
+	// Двусторонняя связь: у владельца в company_users тоже проставляем company_id
+	if err := h.usersRepo.UpdateCompanyID(c.Request.Context(), ownerID, &companyID); err != nil {
+		h.logger.Error("company user company_id update failed", zap.Error(err))
+		resp.Error(c, http.StatusInternalServerError, "set owner failed")
+		return
+	}
 	resp.OK(c, gin.H{"status": "ok", "message": "owner set, status set to active"})
+}
+
+// SearchOwners GET /admin/company-users/owners/search?q=... — поиск владельцев (company_users с role=owner) по телефону, имени или фамилии. Сортировка: точное совпадение → начинается с → содержит.
+func (h *AdminCompaniesHandler) SearchOwners(c *gin.Context) {
+	q := strings.TrimSpace(c.Query("q"))
+	if q == "" {
+		resp.Success(c, 200, "ok", []any{})
+		return
+	}
+	list, err := h.usersRepo.SearchOwners(c.Request.Context(), q, 50)
+	if err != nil {
+		h.logger.Error("search owners failed", zap.Error(err))
+		resp.Error(c, http.StatusInternalServerError, "search failed")
+		return
+	}
+	// Без password_hash в ответе
+	out := make([]gin.H, 0, len(list))
+	for _, u := range list {
+		out = append(out, gin.H{
+			"id":          u.ID,
+			"phone":       u.Phone,
+			"first_name": u.FirstName,
+			"last_name":   u.LastName,
+			"company_id":  u.CompanyID,
+			"role":        u.Role,
+			"created_at":  u.CreatedAt,
+			"updated_at":  u.UpdatedAt,
+		})
+	}
+	resp.Success(c, 200, "ok", out)
 }
 

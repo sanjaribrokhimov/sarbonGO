@@ -114,6 +114,17 @@ func runMigrationsUp(dbURL string) error {
 	}()
 
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		// Если миграция прервалась (Dirty database version N), сбрасываем на предыдущую и повторяем Up
+		if strings.Contains(err.Error(), "Dirty database") {
+			const prevVersion = 28 // версия до 000029
+			if forceErr := m.Force(prevVersion); forceErr != nil {
+				return fmt.Errorf("force version after dirty failed: %w", forceErr)
+			}
+			if retryErr := m.Up(); retryErr != nil && retryErr != migrate.ErrNoChange {
+				return retryErr
+			}
+			return nil
+		}
 		return err
 	}
 	return nil

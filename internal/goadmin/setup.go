@@ -158,6 +158,35 @@ a.admin-dash-card:hover .admin-dash-card-icon { background: #3498db; color: #fff
 // adminCustomJS — в колонке Operation одна кнопка; по клику модальное окно с Edit/delete/view.
 const adminCustomJS = "(function(){function ready(fn){if(document.readyState!=='loading')fn();else document.addEventListener('DOMContentLoaded',fn);}ready(function(){var brand=document.querySelector('.navbar-brand');if(brand)brand.innerHTML=brand.innerHTML.replace(/GoAdmin/g,'Sarbon Admin');var tables=document.querySelectorAll('.content-wrapper .table');if(!tables.length)return;var modal=document.createElement('div');modal.className='admin-actions-modal';modal.innerHTML='<div class=\"admin-actions-overlay\"></div><div class=\"admin-actions-box\"><div class=\"admin-actions-title\">Действия</div><div class=\"admin-actions-links\"></div><button type=\"button\" class=\"admin-actions-close\">Закрыть</button></div>';document.body.appendChild(modal);var linksContainer=modal.querySelector('.admin-actions-links');function closeModal(){modal.classList.remove('admin-actions-open');}modal.querySelector('.admin-actions-overlay').addEventListener('click',closeModal);modal.querySelector('.admin-actions-close').addEventListener('click',closeModal);tables.forEach(function(table){var cells=table.querySelectorAll('tbody tr td:last-child');cells.forEach(function(cell){if(cell.querySelector('.admin-actions-cell'))return;var as=cell.querySelectorAll('a');if(!as.length)return;var wrap=document.createElement('div');wrap.className='admin-actions-cell';var btn=document.createElement('button');btn.type='button';btn.className='admin-actions-trigger';btn.textContent='\u22EE';btn.title='Действия';var hidden=document.createElement('div');hidden.className='admin-actions-hidden';hidden.style.display='none';for(var i=0;i<as.length;i++)hidden.appendChild(as[i].cloneNode(true));wrap.appendChild(btn);wrap.appendChild(hidden);cell.innerHTML='';cell.appendChild(wrap);btn.addEventListener('click',function(){linksContainer.innerHTML='';var list=hidden.querySelectorAll('a');for(var j=0;j<list.length;j++){var link=list[j].cloneNode(true);link.className='admin-actions-btn';linksContainer.appendChild(link);}modal.classList.add('admin-actions-open');});});});});})();"
 
+// TrimAdminQueryMiddleware trims leading/trailing spaces from all query parameters
+// for requests under /admin. This avoids "invalid input syntax for type uuid" when
+// GoAdmin passes filter values (e.g. id) with trailing space to Postgres.
+func TrimAdminQueryMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !strings.HasPrefix(c.Request.URL.Path, "/admin") {
+			c.Next()
+			return
+		}
+		raw := c.Request.URL.RawQuery
+		if raw == "" {
+			c.Next()
+			return
+		}
+		vals, err := url.ParseQuery(raw)
+		if err != nil {
+			c.Next()
+			return
+		}
+		for k, v := range vals {
+			for i, s := range v {
+				vals[k][i] = strings.TrimSpace(s)
+			}
+		}
+		c.Request.URL.RawQuery = vals.Encode()
+		c.Next()
+	}
+}
+
 // Mount mounts the GoAdmin panel on the Gin router.
 // databaseURL must be a Postgres URL (e.g. postgres://user:pass@host:5432/dbname?sslmode=disable).
 // Panel will be at /admin (login: admin / admin by default).

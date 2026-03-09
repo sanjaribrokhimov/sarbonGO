@@ -37,7 +37,7 @@ func GetCompaniesTable(ctx *context.Context) (t table.Table) {
 	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
 		SetPrimaryKey("id", db.Varchar))
 	info := t.GetInfo()
-	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("ID", "id", db.Varchar).FieldSortable().FieldFilterable()
 	info.AddField("Name", "name", db.Varchar).FieldFilterable()
 	info.AddField("INN", "inn", db.Varchar).FieldFilterable()
 	info.AddField("Address", "address", db.Varchar)
@@ -64,7 +64,7 @@ func GetCompaniesTable(ctx *context.Context) (t table.Table) {
 	info.AddField("Created at", "created_at", db.Timestamp)
 	info.AddField("Updated at", "updated_at", db.Timestamp)
 	info.AddField("Deleted at", "deleted_at", db.Timestamp)
-	info.SetTable("companies").SetTitle("Companies").SetDescription("Companies (Owner, Status, Type: CargoOwner / Carrier / Expeditor)")
+	info.SetTable("companies").SetTitle("Companies").SetDescription("Companies. owner_id задаётся через API PATCH /v1/admin/companies/:id/owner; при назначении у владельца в company_users проставляется company_id.")
 
 	formList := t.GetForm()
 	formList.AddField("ID", "id", db.Varchar, form.Default).FieldDisplayButCanNotEditWhenUpdate().FieldDisableWhenCreate()
@@ -83,8 +83,8 @@ func GetCompaniesTable(ctx *context.Context) (t table.Table) {
 	formList.AddField("Max managers", "max_managers", db.Int, form.Number).FieldDefault("0")
 	formList.AddField("Max top dispatchers", "max_top_dispatchers", db.Int, form.Number).FieldDefault("0")
 	formList.AddField("Max top managers", "max_top_managers", db.Int, form.Number).FieldDefault("0")
-	// owner_id — задаётся через API POST/PATCH /admin/companies (owner_id в теле или PATCH :id/owner)
-	formList.AddField("Company type", "company_type", db.Varchar, form.Text).FieldDefault("CargoOwner")
+	// owner_id задаётся через API PATCH /v1/admin/companies/:id/owner (у владельца в company_users тогда проставляется company_id)
+	formList.AddField("Company type", "company_type", db.Varchar, form.Text).FieldDefault("Shipper")
 	formList.AddField("Auto approve limit", "auto_approve_limit", db.Decimal, form.Text)
 	formList.AddField("Rating", "rating", db.Decimal, form.Text).FieldDefault("0")
 	formList.AddField("Completed orders", "completed_orders", db.Int, form.Number).FieldDefault("0")
@@ -100,7 +100,7 @@ func GetOperatorAdminsTable(ctx *context.Context) (t table.Table) {
 	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
 		SetPrimaryKey("id", db.Varchar))
 	info := t.GetInfo()
-	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("ID", "id", db.Varchar).FieldSortable().FieldFilterable()
 	info.AddField("Login", "login", db.Varchar).FieldFilterable()
 	info.AddField("Password", "password", db.Varchar).FieldDisplay(func(model types.FieldModel) interface{} {
 		s := strings.TrimSpace(model.Value)
@@ -130,7 +130,7 @@ func GetDriversTable(ctx *context.Context) (t table.Table) {
 	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
 		SetPrimaryKey("id", db.Varchar))
 	info := t.GetInfo()
-	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("ID", "id", db.Varchar).FieldSortable().FieldFilterable()
 	info.AddField("Phone", "phone", db.Varchar).FieldFilterable()
 	info.AddField("Name", "name", db.Varchar).FieldFilterable()
 	info.AddField("Driver type", "driver_type", db.Varchar).FieldFilterable()
@@ -175,7 +175,7 @@ func GetFreelanceDispatchersTable(ctx *context.Context) (t table.Table) {
 	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
 		SetPrimaryKey("id", db.Varchar))
 	info := t.GetInfo()
-	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("ID", "id", db.Varchar).FieldSortable().FieldFilterable()
 	info.AddField("Name", "name", db.Varchar).FieldFilterable()
 	info.AddField("Phone", "phone", db.Varchar).FieldFilterable()
 	info.AddField("Work status", "work_status", db.Varchar)
@@ -214,7 +214,7 @@ func GetCargoTable(ctx *context.Context) (t table.Table) {
 	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
 		SetPrimaryKey("id", db.Varchar))
 	info := t.GetInfo()
-	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("ID", "id", db.Varchar).FieldSortable().FieldFilterable()
 	info.AddField("Title", "title", db.Varchar).FieldFilterable()
 	info.AddField("Weight", "weight", db.Decimal).FieldFilterable()
 	info.AddField("Volume", "volume", db.Decimal)
@@ -268,7 +268,7 @@ func GetRoutePointsTable(ctx *context.Context) (t table.Table) {
 	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
 		SetPrimaryKey("id", db.Varchar))
 	info := t.GetInfo()
-	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("ID", "id", db.Varchar).FieldSortable().FieldFilterable()
 	info.AddField("Cargo ID", "cargo_id", db.Varchar).FieldFilterable()
 	info.AddField("Type", "type", db.Varchar).FieldFilterable()
 	info.AddField("Address", "address", db.Varchar)
@@ -300,7 +300,7 @@ func GetPaymentsTable(ctx *context.Context) (t table.Table) {
 	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
 		SetPrimaryKey("id", db.Varchar))
 	info := t.GetInfo()
-	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("ID", "id", db.Varchar).FieldSortable().FieldFilterable()
 	info.AddField("Cargo ID", "cargo_id", db.Varchar).FieldFilterable()
 	info.AddField("Is negotiable", "is_negotiable", db.Boolean)
 	info.AddField("Price request", "price_request", db.Boolean)
@@ -336,7 +336,7 @@ func GetOffersTable(ctx *context.Context) (t table.Table) {
 	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
 		SetPrimaryKey("id", db.Varchar))
 	info := t.GetInfo()
-	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("ID", "id", db.Varchar).FieldSortable().FieldFilterable()
 	info.AddField("Cargo ID", "cargo_id", db.Varchar).FieldFilterable()
 	info.AddField("Carrier ID", "carrier_id", db.Varchar)
 	info.AddField("Price", "price", db.Decimal)
@@ -363,7 +363,7 @@ func GetCompanyUsersTable(ctx *context.Context) (t table.Table) {
 	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
 		SetPrimaryKey("id", db.Varchar))
 	info := t.GetInfo()
-	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("ID", "id", db.Varchar).FieldSortable().FieldFilterable()
 	info.AddField("Phone", "phone", db.Varchar).FieldFilterable()
 	info.AddField("First name", "first_name", db.Varchar).FieldFilterable()
 	info.AddField("Last name", "last_name", db.Varchar)
@@ -371,7 +371,7 @@ func GetCompanyUsersTable(ctx *context.Context) (t table.Table) {
 	info.AddField("Role", "role", db.Varchar).FieldFilterable()
 	info.AddField("Created at", "created_at", db.Timestamp)
 	info.AddField("Updated at", "updated_at", db.Timestamp)
-	info.SetTable("company_users").SetTitle("Company Users").SetDescription("Company users (OTP auth, owner role)")
+	info.SetTable("company_users").SetTitle("Company Users").SetDescription("Пользователи компаний (OTP auth). Роль owner — может быть назначен владельцем компании через PATCH /v1/admin/companies/:id/owner; при назначении у записи проставляется company_id.")
 
 	formList := t.GetForm()
 	formList.AddField("ID", "id", db.Varchar, form.Default).FieldDisplayButCanNotEditWhenUpdate().FieldDisableWhenCreate()
@@ -380,8 +380,8 @@ func GetCompanyUsersTable(ctx *context.Context) (t table.Table) {
 	formList.AddField("First name", "first_name", db.Varchar, form.Text)
 	formList.AddField("Last name", "last_name", db.Varchar, form.Text)
 	formList.AddField("Company ID", "company_id", db.Varchar, form.Text)
-	formList.AddField("Role", "role", db.Varchar, form.Text).FieldDefault("owner")
-	formList.SetTable("company_users").SetTitle("Company Users").SetDescription("Company Users")
+	formList.AddField("Role", "role", db.Varchar, form.Text).FieldDefault("OWNER")
+	formList.SetTable("company_users").SetTitle("Company Users").SetDescription("Company users. role=owner обязателен для назначения владельцем компании; company_id заполняется API при PATCH .../owner.")
 	return
 }
 
@@ -390,7 +390,7 @@ func GetAppRolesTable(ctx *context.Context) (t table.Table) {
 	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
 		SetPrimaryKey("id", db.Varchar))
 	info := t.GetInfo()
-	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("ID", "id", db.Varchar).FieldSortable().FieldFilterable()
 	info.AddField("Name", "name", db.Varchar).FieldFilterable()
 	info.AddField("Description", "description", db.Varchar)
 	info.SetTable("app_roles").SetTitle("App Roles").SetDescription("Company roles (Owner, CEO, Dispatcher...)")
@@ -430,7 +430,7 @@ func GetInvitationsTable(ctx *context.Context) (t table.Table) {
 	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
 		SetPrimaryKey("id", db.Varchar))
 	info := t.GetInfo()
-	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("ID", "id", db.Varchar).FieldSortable().FieldFilterable()
 	info.AddField("Token", "token", db.Varchar).FieldFilterable()
 	info.AddField("Company ID", "company_id", db.Varchar).FieldFilterable()
 	info.AddField("Role ID", "role_id", db.Varchar)
@@ -457,7 +457,7 @@ func GetAuditLogTable(ctx *context.Context) (t table.Table) {
 	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
 		SetPrimaryKey("id", db.Varchar))
 	info := t.GetInfo()
-	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("ID", "id", db.Varchar).FieldSortable().FieldFilterable()
 	info.AddField("User ID", "user_id", db.Varchar).FieldFilterable()
 	info.AddField("Company ID", "company_id", db.Varchar).FieldFilterable()
 	info.AddField("Action", "action", db.Varchar).FieldFilterable()
@@ -482,7 +482,7 @@ func GetChatConversationsTable(ctx *context.Context) (t table.Table) {
 	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
 		SetPrimaryKey("id", db.Varchar))
 	info := t.GetInfo()
-	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("ID", "id", db.Varchar).FieldSortable().FieldFilterable()
 	info.AddField("User A ID", "user_a_id", db.Varchar).FieldFilterable()
 	info.AddField("User B ID", "user_b_id", db.Varchar).FieldFilterable()
 	info.AddField("Created at", "created_at", db.Timestamp)
@@ -501,7 +501,7 @@ func GetChatMessagesTable(ctx *context.Context) (t table.Table) {
 	t = table.NewDefaultTable(ctx, table.DefaultConfigWithDriver(db.DriverPostgresql).
 		SetPrimaryKey("id", db.Varchar))
 	info := t.GetInfo()
-	info.AddField("ID", "id", db.Varchar).FieldSortable()
+	info.AddField("ID", "id", db.Varchar).FieldSortable().FieldFilterable()
 	info.AddField("Conversation ID", "conversation_id", db.Varchar).FieldFilterable()
 	info.AddField("Sender ID", "sender_id", db.Varchar).FieldFilterable()
 	info.AddField("Body", "body", db.Varchar)

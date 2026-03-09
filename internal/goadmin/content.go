@@ -9,7 +9,7 @@ import (
 )
 
 // DashboardContent returns the panel for the admin index page (GET /admin).
-// Cards for all entities from API/Swagger: Companies, Admins, Drivers, Dispatchers, Cargo, Route Points, Payments, Offers, App Users, App Roles, User Company Roles, Invitations, Audit Log, Chat.
+// Cards for all entities from API/Swagger: Companies, Admins, Drivers, Dispatchers, Cargo, Route Points, Payments, Offers, Company Users, App Roles, User Company Roles, Invitations, Audit Log, Chat.
 func DashboardContent(ctx *context.Context) (types.Panel, error) {
 	prefix := config.Prefix()
 	html := `
@@ -60,8 +60,8 @@ func DashboardContent(ctx *context.Context) (types.Panel, error) {
 		<div class="row">
 			<div class="col-md-6 col-lg-3"><a href="` + prefix + `/info/company_users" class="admin-dash-card">
 				<div class="admin-dash-card-icon"><i class="fa fa-user"></i></div>
-				<div class="admin-dash-card-title">App Users</div>
-				<div class="admin-dash-card-desc">Пользователи (Company TZ)</div>
+				<div class="admin-dash-card-title">Company Users</div>
+				<div class="admin-dash-card-desc">Пользователи компаний (Company TZ)</div>
 			</a></div>
 			<div class="col-md-6 col-lg-3"><a href="` + prefix + `/info/app_roles" class="admin-dash-card">
 				<div class="admin-dash-card-icon"><i class="fa fa-user-circle"></i></div>

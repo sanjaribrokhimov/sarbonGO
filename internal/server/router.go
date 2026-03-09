@@ -56,6 +56,8 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 
 	// Вставка ссылки на кастомный CSS в страницы админки (тема не выводит CustomHeadHtml)
 	r.Use(goadmin.InjectCSSMiddleware())
+	// Обрезка пробелов в query-параметрах для /admin — иначе UUID с пробелом даёт pq: invalid input syntax for type uuid
+	r.Use(goadmin.TrimAdminQueryMiddleware())
 
 	// GoAdmin panel at /admin (login: admin / admin)
 	if cfg.DatabaseURL != "" {
@@ -172,8 +174,15 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	v1.POST("/dispatchers/auth/logout", dispAuthH.Logout)
 	v1.POST("/dispatchers/registration/complete", dispRegH.Complete)
 
-	// Admin auth (login by password)
+	// Admin auth (login by password) — только base headers; без admin token
 	v1.POST("/admin/auth/login/password", adminAuthH.LoginPassword)
+
+	// Все маршруты под adminAuthed проверяют: base headers (X-Client-Token, X-Device-Type, X-Language) + X-User-Token с role=admin
+	adminAuthed := v1.Group("/admin")
+	adminAuthed.Use(mw.RequireAdmin(jwtm))
+	adminAuthed.POST("/companies", adminCompaniesH.Create)
+	adminAuthed.PATCH("/companies/:id/owner", adminCompaniesH.SetOwner)
+	adminAuthed.GET("/company-users/owners/search", adminCompaniesH.SearchOwners)
 
 	authed := v1.Group("")
 	authed.Use(mw.RequireDriver(jwtm))
@@ -201,11 +210,6 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	dispAuthed.POST("/profile/phone-change/request", dispProfileH.PhoneChangeRequest)
 	dispAuthed.POST("/profile/phone-change/verify", dispProfileH.PhoneChangeVerify)
 	dispAuthed.DELETE("/profile", dispProfileH.Delete)
-
-	adminAuthed := v1.Group("/admin")
-	adminAuthed.Use(mw.RequireAdmin(jwtm))
-	adminAuthed.POST("/companies", adminCompaniesH.Create)
-	adminAuthed.PATCH("/companies/:id/owner", adminCompaniesH.SetOwner)
 
 	// Company users (company_users): OTP auth, companies, invitations
 	appUserAuthed := v1.Group("")

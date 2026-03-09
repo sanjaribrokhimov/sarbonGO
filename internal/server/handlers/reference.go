@@ -26,11 +26,12 @@ type ReferenceCargoResponse struct {
 	TruckType      []ItemWithLabel `json:"truck_type"`
 }
 
-// ReferenceCompanyResponse — справочник для раздела Company.
+// ReferenceCompanyResponse — справочник для раздела Company. Все value в верхнем регистре.
 type ReferenceCompanyResponse struct {
-	CompanyType   []ItemWithLabel `json:"company_type"`
-	CompanyStatus []ItemWithLabel `json:"company_status"`
-	Roles         []RoleRef       `json:"roles"`
+	CompanyType      []ItemWithLabel `json:"company_type"`      // только SHIPPER, CARRIER, BROKER
+	CompanyStatus    []ItemWithLabel `json:"company_status"`
+	CompanyUserRoles []ItemWithLabel `json:"company_user_roles"` // роли пользователей компании: OWNER, CEO, TOP_MANAGER, TOP_DISPATCHER, DISPATCHER, MANAGER
+	Roles             []RoleRef       `json:"roles"`             // из БД (id, name, description) для приглашений
 }
 
 // ReferenceAdminResponse — справочник для раздела Admin.
@@ -57,25 +58,25 @@ type RoleRef struct {
 
 var refDrivers = ReferenceDriversResponse{
 	RegistrationStep: []ItemWithLabel{
-		{Value: "name-oferta", Label: "Имя и оферта"},
-		{Value: "geo-push", Label: "Геолокация и push"},
-		{Value: "transport-type", Label: "Тип транспорта"},
-		{Value: "completed", Label: "Регистрация завершена"},
+		{Value: "NAME-OFERTA", Label: "Имя и оферта"},
+		{Value: "GEO-PUSH", Label: "Геолокация и push"},
+		{Value: "TRANSPORT-TYPE", Label: "Тип транспорта"},
+		{Value: "COMPLETED", Label: "Регистрация завершена"},
 	},
 	RegistrationStatus: []ItemWithLabel{
-		{Value: "start", Label: "Начало"},
-		{Value: "basic", Label: "Базовые данные"},
-		{Value: "full", Label: "Полная регистрация"},
+		{Value: "START", Label: "Начало"},
+		{Value: "BASIC", Label: "Базовые данные"},
+		{Value: "FULL", Label: "Полная регистрация"},
 	},
 	DriverType: []ItemWithLabel{
-		{Value: "company", Label: "Компания"},
-		{Value: "freelancer", Label: "Фрилансер"},
-		{Value: "driver", Label: "Водитель"},
+		{Value: "COMPANY", Label: "Компания"},
+		{Value: "FREELANCER", Label: "Фрилансер"},
+		{Value: "DRIVER", Label: "Водитель"},
 	},
 	WorkStatus: []ItemWithLabel{
-		{Value: "available", Label: "Свободен"},
-		{Value: "loaded", Label: "Загружен"},
-		{Value: "busy", Label: "Занят"},
+		{Value: "AVAILABLE", Label: "Свободен"},
+		{Value: "LOADED", Label: "Загружен"},
+		{Value: "BUSY", Label: "Занят"},
 	},
 	PowerPlateTypes: []ItemWithLabel{
 		{Value: "TRUCK", Label: "Грузовик + прицеп"},
@@ -105,74 +106,84 @@ var refDrivers = ReferenceDriversResponse{
 
 var refCargo = ReferenceCargoResponse{
 	CargoStatus: []ItemWithLabel{
-		{Value: "created", Label: "Создан"},
-		{Value: "searching", Label: "В поиске перевозчика"},
-		{Value: "assigned", Label: "Назначен"},
-		{Value: "in_transit", Label: "В пути"},
-		{Value: "delivered", Label: "Доставлен"},
-		{Value: "cancelled", Label: "Отменён"},
+		{Value: "CREATED", Label: "Создан"},
+		{Value: "SEARCHING", Label: "В поиске перевозчика"},
+		{Value: "ASSIGNED", Label: "Назначен"},
+		{Value: "IN_TRANSIT", Label: "В пути"},
+		{Value: "DELIVERED", Label: "Доставлен"},
+		{Value: "CANCELLED", Label: "Отменён"},
 	},
 	RoutePointType: []ItemWithLabel{
-		{Value: "load", Label: "Погрузка"},
-		{Value: "unload", Label: "Выгрузка"},
-		{Value: "customs", Label: "Таможня"},
-		{Value: "transit", Label: "Транзит"},
+		{Value: "LOAD", Label: "Погрузка"},
+		{Value: "UNLOAD", Label: "Выгрузка"},
+		{Value: "CUSTOMS", Label: "Таможня"},
+		{Value: "TRANSIT", Label: "Транзит"},
 	},
 	OfferStatus: []ItemWithLabel{
-		{Value: "pending", Label: "На рассмотрении"},
-		{Value: "accepted", Label: "Принят"},
-		{Value: "rejected", Label: "Отклонён"},
+		{Value: "PENDING", Label: "На рассмотрении"},
+		{Value: "ACCEPTED", Label: "Принят"},
+		{Value: "REJECTED", Label: "Отклонён"},
 	},
 	CreatedByType: []ItemWithLabel{
-		{Value: "admin", Label: "Админ"},
-		{Value: "dispatcher", Label: "Диспетчер"},
-		{Value: "company", Label: "Компания"},
+		{Value: "ADMIN", Label: "Админ"},
+		{Value: "DISPATCHER", Label: "Диспетчер"},
+		{Value: "COMPANY", Label: "Компания"},
 	},
 	TruckType: []ItemWithLabel{
-		{Value: "refrigerator", Label: "Рефрижератор"},
-		{Value: "tent", Label: "Тент"},
-		{Value: "flatbed", Label: "Борт"},
-		{Value: "tanker", Label: "Цистерна"},
-		{Value: "other", Label: "Другое"},
+		{Value: "REFRIGERATOR", Label: "Рефрижератор"},
+		{Value: "TENT", Label: "Тент"},
+		{Value: "FLATBED", Label: "Борт"},
+		{Value: "TANKER", Label: "Цистерна"},
+		{Value: "OTHER", Label: "Другое"},
 	},
 }
 
+// Допустимые роли пользователей компании (company_users.role) — только эти 6, в верхнем регистре.
+var refCompanyUserRoles = []ItemWithLabel{
+	{Value: "OWNER", Label: "Владелец"},
+	{Value: "CEO", Label: "Директор"},
+	{Value: "TOP_MANAGER", Label: "Старший менеджер"},
+	{Value: "TOP_DISPATCHER", Label: "Старший диспетчер"},
+	{Value: "DISPATCHER", Label: "Диспетчер"},
+	{Value: "MANAGER", Label: "Менеджер"},
+}
+
+// Допустимые типы компании — только SHIPPER, CARRIER, BROKER (верхний регистр).
+var refCompanyType = []ItemWithLabel{
+	{Value: "SHIPPER", Label: "Грузоотправитель"},
+	{Value: "CARRIER", Label: "Перевозчик"},
+	{Value: "BROKER", Label: "Брокер"},
+}
+
 var refCompany = ReferenceCompanyResponse{
-	CompanyType: []ItemWithLabel{
-		{Value: "Shipper", Label: "Грузоотправитель"},
-		{Value: "Broker", Label: "Брокер"},
-		{Value: "Fleet", Label: "Автопарк"},
-		{Value: "OwnerOperator", Label: "Владелец-оператор"},
-		{Value: "CargoOwner", Label: "Грузовладелец"},
-		{Value: "Carrier", Label: "Перевозчик"},
-		{Value: "Expeditor", Label: "Экспедитор"},
-	},
+	CompanyType:      refCompanyType,
 	CompanyStatus: []ItemWithLabel{
-		{Value: "active", Label: "Активна"},
-		{Value: "inactive", Label: "Неактивна"},
-		{Value: "blocked", Label: "Заблокирована"},
-		{Value: "pending", Label: "На модерации"},
+		{Value: "ACTIVE", Label: "Активна"},
+		{Value: "INACTIVE", Label: "Неактивна"},
+		{Value: "BLOCKED", Label: "Заблокирована"},
+		{Value: "PENDING", Label: "На модерации"},
 	},
-	Roles: nil, // заполняется из БД
+	CompanyUserRoles: refCompanyUserRoles,
+	Roles:             nil, // заполняется из БД
 }
 
 var refAdmin = ReferenceAdminResponse{
 	AdminStatus: []ItemWithLabel{
-		{Value: "active", Label: "Активен"},
-		{Value: "inactive", Label: "Неактивен"},
-		{Value: "blocked", Label: "Заблокирован"},
+		{Value: "ACTIVE", Label: "Активен"},
+		{Value: "INACTIVE", Label: "Неактивен"},
+		{Value: "BLOCKED", Label: "Заблокирован"},
 	},
 	AdminType: []ItemWithLabel{
-		{Value: "creator", Label: "Создатель"},
-		{Value: "operator", Label: "Оператор"},
+		{Value: "CREATOR", Label: "Создатель"},
+		{Value: "OPERATOR", Label: "Оператор"},
 	},
 }
 
 var refDispatchers = ReferenceDispatchersResponse{
 	WorkStatus: []ItemWithLabel{
-		{Value: "available", Label: "Доступен"},
-		{Value: "busy", Label: "Занят"},
-		{Value: "offline", Label: "Не в сети"},
+		{Value: "AVAILABLE", Label: "Доступен"},
+		{Value: "BUSY", Label: "Занят"},
+		{Value: "OFFLINE", Label: "Не в сети"},
 	},
 }
 

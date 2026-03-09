@@ -13,6 +13,8 @@ import (
 
 const CtxAdminID = "admin_id"
 
+// RequireAdmin проверяет X-User-Token (JWT) и допускает только роль admin.
+// Для всех /v1/admin/* (кроме auth/login) также уже проверены X-Client-Token, X-Device-Type, X-Language через RequireBaseHeaders на v1.
 func RequireAdmin(jwtm *security.JWTManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		raw := strings.TrimSpace(c.GetHeader(HeaderUserToken))
