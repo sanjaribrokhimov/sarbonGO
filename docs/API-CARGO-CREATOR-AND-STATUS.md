@@ -29,7 +29,7 @@ POST /v1/api/cargo
 X-User-Token: <JWT с role=admin>
 Content-Type: application/json
 
-{ "title": "...", "weight": 10, "truck_type": "tent", "capacity": 20, "route_points": [...], "company_id": "uuid-компании-опционально" }
+{ "weight": 10, "volume": 30, "truck_type": "tent", "route_points": [...], "company_id": "uuid-компании-опционально" }
 ```
 → В БД: `created_by_type=admin`, `created_by_id=<id админа>`, `company_id` — если передан.
 
@@ -39,7 +39,7 @@ POST /v1/api/cargo
 X-User-Token: <JWT с role=dispatcher>
 Content-Type: application/json
 
-{ "title": "...", "weight": 10, "truck_type": "tent", "capacity": 20, "route_points": [...], "company_id": "uuid-компании-опционально" }
+{ "weight": 10, "volume": 30, "truck_type": "tent", "route_points": [...], "company_id": "uuid-компании-опционально" }
 ```
 → В БД: `created_by_type=dispatcher`, `created_by_id=<id диспетчера>`, `company_id` — если передан.
 
@@ -48,7 +48,7 @@ Content-Type: application/json
 POST /v1/api/cargo
 Content-Type: application/json
 
-{ "title": "...", "weight": 10, "truck_type": "tent", "capacity": 20, "route_points": [...], "company_id": "uuid-компании" }
+{ "weight": 10, "volume": 30, "truck_type": "tent", "route_points": [...], "company_id": "uuid-компании" }
 ```
 → В БД: `created_by_type=company`, `created_by_id=company_id`, `company_id=company_id`.
 

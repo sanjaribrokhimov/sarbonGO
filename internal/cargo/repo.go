@@ -27,7 +27,6 @@ type ListFilter struct {
 	TruckType   string
 	CreatedFrom string // YYYY-MM-DD
 	CreatedTo   string
-	Search      string // search by title
 	WithOffers  *bool   // only cargo that have at least one offer
 	Page        int
 	Limit       int
@@ -42,14 +41,12 @@ type ListResult struct {
 
 // CreateParams for creating cargo with route points and payment.
 type CreateParams struct {
-	Title         string
 	Weight        float64
-	Volume        *float64
+	Volume        float64
 	ReadyEnabled  bool
 	ReadyAt       *string
 	LoadComment   *string
 	TruckType     string
-	Capacity      float64
 	TempMin       *float64
 	TempMax       *float64
 	ADREnabled    bool
@@ -110,13 +107,13 @@ func (r *Repo) Create(ctx context.Context, p CreateParams) (uuid.UUID, error) {
 	docJSON, _ := DocumentsToJSON(p.Documents)
 	var id uuid.UUID
 	q := `
-INSERT INTO cargo (title, weight, volume, ready_enabled, ready_at, load_comment, truck_type, capacity,
+INSERT INTO cargo (weight, volume, ready_enabled, ready_at, load_comment, truck_type,
   temp_min, temp_max, adr_enabled, adr_class, loading_types, requirements, shipment_type, belts_count,
   documents, contact_name, contact_phone, status, created_at, updated_at, deleted_at, created_by_type, created_by_id, company_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, COALESCE(NULLIF($20,''), 'created'), now(), now(), NULL, $21, $22, $23)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, COALESCE(NULLIF($18,''), 'created'), now(), now(), NULL, $19, $20, $21)
 RETURNING id`
 	err = tx.QueryRow(ctx, q,
-		p.Title, p.Weight, p.Volume, p.ReadyEnabled, p.ReadyAt, p.LoadComment, p.TruckType, p.Capacity,
+		p.Weight, p.Volume, p.ReadyEnabled, p.ReadyAt, p.LoadComment, p.TruckType,
 		p.TempMin, p.TempMax, p.ADREnabled, p.ADRClass, p.LoadingTypes, p.Requirements, p.ShipmentType, p.BeltsCount,
 		docJSON, p.ContactName, p.ContactPhone, p.Status,
 		p.CreatedByType, p.CreatedByID, p.CompanyID,
@@ -153,7 +150,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 
 // GetByID returns cargo by id (excluding soft-deleted if needAll=false).
 func (r *Repo) GetByID(ctx context.Context, id uuid.UUID, includeDeleted bool) (*Cargo, error) {
-	q := `SELECT id, title, weight, volume, ready_enabled, ready_at, load_comment, truck_type, capacity,
+	q := `SELECT id, weight, volume, ready_enabled, ready_at, load_comment, truck_type,
   temp_min, temp_max, adr_enabled, adr_class, loading_types, requirements, shipment_type, belts_count,
   documents, contact_name, contact_phone, status, created_at, updated_at, deleted_at, created_by_type, created_by_id, company_id
 FROM cargo WHERE id = $1`
@@ -209,7 +206,7 @@ func scanCargo(row pgx.Row) (*Cargo, error) {
 	var docBytes []byte
 	var loadingTypes, requirements []string
 	err := row.Scan(
-		&c.ID, &c.Title, &c.Weight, &c.Volume, &c.ReadyEnabled, &c.ReadyAt, &c.LoadComment, &c.TruckType, &c.Capacity,
+		&c.ID, &c.Weight, &c.Volume, &c.ReadyEnabled, &c.ReadyAt, &c.LoadComment, &c.TruckType,
 		&c.TempMin, &c.TempMax, &c.ADREnabled, &c.ADRClass, &loadingTypes, &requirements, &c.ShipmentType, &c.BeltsCount,
 		&docBytes, &c.ContactName, &c.ContactPhone, &c.Status, &c.CreatedAt, &c.UpdatedAt, &c.DeletedAt,
 		&c.CreatedByType, &c.CreatedByID, &c.CompanyID,
@@ -262,11 +259,6 @@ func (r *Repo) List(ctx context.Context, f ListFilter) (ListResult, error) {
 		args = append(args, f.CreatedTo)
 		argNum++
 	}
-	if f.Search != "" {
-		conds = append(conds, "title ILIKE $"+strconv.Itoa(argNum))
-		args = append(args, "%"+f.Search+"%")
-		argNum++
-	}
 	if f.WithOffers != nil && *f.WithOffers {
 		conds = append(conds, "EXISTS (SELECT 1 FROM offers o WHERE o.cargo_id = cargo.id)")
 	}
@@ -286,7 +278,7 @@ func (r *Repo) List(ctx context.Context, f ListFilter) (ListResult, error) {
 		if len(parts) == 2 {
 			col := strings.TrimSpace(parts[0])
 			dir := strings.ToUpper(strings.TrimSpace(parts[1]))
-			if col == "created_at" || col == "weight" || col == "title" || col == "status" {
+			if col == "created_at" || col == "weight" || col == "status" {
 				if dir == "ASC" || dir == "DESC" {
 					order = col + " " + dir
 				}
@@ -306,7 +298,7 @@ func (r *Repo) List(ctx context.Context, f ListFilter) (ListResult, error) {
 		offset = 0
 	}
 	args = append(args, limit, offset)
-	q := `SELECT id, title, weight, volume, ready_enabled, ready_at, load_comment, truck_type, capacity,
+	q := `SELECT id, weight, volume, ready_enabled, ready_at, load_comment, truck_type,
   temp_min, temp_max, adr_enabled, adr_class, loading_types, requirements, shipment_type, belts_count,
   documents, contact_name, contact_phone, status, created_at, updated_at, deleted_at, created_by_type, created_by_id, company_id
 FROM cargo WHERE ` + where + ` ORDER BY ` + order + ` LIMIT $` + strconv.Itoa(argNum) + ` OFFSET $` + strconv.Itoa(argNum+1)
@@ -336,14 +328,12 @@ func nextArgNum(n *int) string {
 
 // UpdateParams for PUT /api/cargo/:id (partial; only non-nil fields updated where applicable).
 type UpdateParams struct {
-	Title         *string
 	Weight        *float64
 	Volume        *float64
 	ReadyEnabled  *bool
 	ReadyAt       *string
 	LoadComment   *string
 	TruckType     *string
-	Capacity      *float64
 	TempMin       *float64
 	TempMax       *float64
 	ADREnabled    *bool
@@ -387,9 +377,6 @@ func (r *Repo) Update(ctx context.Context, id uuid.UUID, p UpdateParams) error {
 		setCols = append(setCols, col+" = $"+nextArgNum(&argN))
 		args = append(args, v)
 	}
-	if p.Title != nil {
-		add("title", *p.Title)
-	}
 	if p.Weight != nil {
 		add("weight", *p.Weight)
 	}
@@ -407,9 +394,6 @@ func (r *Repo) Update(ctx context.Context, id uuid.UUID, p UpdateParams) error {
 	}
 	if p.TruckType != nil {
 		add("truck_type", *p.TruckType)
-	}
-	if p.Capacity != nil {
-		add("capacity", *p.Capacity)
 	}
 	if p.TempMin != nil {
 		add("temp_min", *p.TempMin)

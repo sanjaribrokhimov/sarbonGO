@@ -23,8 +23,8 @@
 
 | Метод | Путь | Описание |
 |-------|------|----------|
-| POST | /api/cargo | **Создать груз** — тело: title, weight, truck_type, capacity, route_points (минимум load + unload), опционально payment, status. С X-User-Token (dispatcher) в груз пишется created_by_type=dispatcher. |
-| GET | /api/cargo | Список грузов (фильтры: status, weight_min/max, truck_type, search, page, limit). |
+| POST | /api/cargo | **Создать груз** — тело: weight, volume (м³), truck_type, route_points (минимум load + unload), опционально payment, status. С X-User-Token (dispatcher) в груз пишется created_by_type=dispatcher. |
+| GET | /api/cargo | Список грузов (фильтры: status, weight_min/max, truck_type, page, limit). |
 | GET | /api/cargo/:id | Карточка груза (с route_points и payment). |
 | PUT | /api/cargo/:id | Обновить груз (до перехода в assigned и далее — ограничения). |
 | PATCH | /api/cargo/:id/status | Сменить статус (например created → searching). |
@@ -66,7 +66,7 @@
 ## 5. Краткий сценарий для фриланс-диспетчера
 
 1. **Вход:** POST /v1/dispatchers/auth/phone → POST /v1/dispatchers/auth/otp/verify (или login/password) → получить access_token.
-2. **Добавить груз:** POST /api/cargo с X-User-Token, телом (title, weight, route_points, payment и т.д.) → получить id груза.
+2. **Добавить груз:** POST /api/cargo с X-User-Token, телом (weight, volume, route_points, payment и т.д.) → получить id груза.
 3. **Опубликовать:** PATCH /api/cargo/:id/status, body: `{"status": "searching"}`.
 4. **Пригласить водителей:** POST /v1/dispatchers/driver-invitations, body: `{"phone": "+998..."}` → token отправить водителю.
 5. **Мои водители:** GET /v1/dispatchers/drivers.

@@ -4,8 +4,6 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"sarbonNew/internal/approles"
 	"sarbonNew/internal/reference"
@@ -254,15 +252,6 @@ type CityRef struct {
 	Lng         *float64 `json:"lng,omitempty"`
 }
 
-// RegionRef — элемент справочника регионов (области).
-type RegionRef struct {
-	ID          string  `json:"id"`
-	Code        string  `json:"code"`
-	NameRu      string  `json:"name_ru"`
-	NameEn      *string `json:"name_en,omitempty"`
-	CountryCode string  `json:"country_code"`
-}
-
 // GetReferenceCities возвращает справочник городов мира из встроенного датасета (in-memory, быстрый API).
 // Query: country_code — фильтр по стране (UZ, AE, RU и т.д.). Данные: ~150k городов (lutangar/cities.json).
 func GetReferenceCities() gin.HandlerFunc {
@@ -287,37 +276,5 @@ func GetReferenceCities() gin.HandlerFunc {
 			}
 		}
 		resp.OK(c, gin.H{"items": items})
-	}
-}
-
-// GetReferenceRegions возвращает справочник регионов (области по странам). Query: country_code — фильтр.
-func GetReferenceRegions(pg *pgxpool.Pool) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		ctx := c.Request.Context()
-		countryCode := strings.TrimSpace(c.Query("country_code"))
-		var rows pgx.Rows
-		var err error
-		if countryCode != "" {
-			rows, err = pg.Query(ctx, `SELECT id, code, name_ru, name_en, country_code FROM regions WHERE country_code = $1 ORDER BY name_ru`, countryCode)
-		} else {
-			rows, err = pg.Query(ctx, `SELECT id, code, name_ru, name_en, country_code FROM regions ORDER BY country_code, name_ru`)
-		}
-		if err != nil {
-			resp.Error(c, 500, "failed to load regions")
-			return
-		}
-		defer rows.Close()
-		var list []RegionRef
-		for rows.Next() {
-			var ref RegionRef
-			var nameEn *string
-			if err := rows.Scan(&ref.ID, &ref.Code, &ref.NameRu, &nameEn, &ref.CountryCode); err != nil {
-				resp.Error(c, 500, "failed to scan region")
-				return
-			}
-			ref.NameEn = nameEn
-			list = append(list, ref)
-		}
-		resp.OK(c, gin.H{"items": list})
 	}
 }

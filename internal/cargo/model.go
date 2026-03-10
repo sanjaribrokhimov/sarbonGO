@@ -31,14 +31,12 @@ type Documents struct {
 // Cargo model (table cargo).
 type Cargo struct {
 	ID            uuid.UUID
-	Title         string
 	Weight        float64
-	Volume        *float64
+	Volume        float64
 	ReadyEnabled  bool
 	ReadyAt       *time.Time
 	LoadComment   *string
 	TruckType     string
-	Capacity      float64
 	TempMin       *float64
 	TempMax       *float64
 	ADREnabled    bool

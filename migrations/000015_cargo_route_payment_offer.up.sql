@@ -4,14 +4,12 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 CREATE TABLE IF NOT EXISTS cargo (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  title VARCHAR NOT NULL,
   weight DOUBLE PRECISION NOT NULL CHECK (weight > 0),
-  volume DOUBLE PRECISION NULL,
+  volume DOUBLE PRECISION NOT NULL,
   ready_enabled BOOLEAN NOT NULL DEFAULT false,
   ready_at TIMESTAMP NULL,
   load_comment VARCHAR NULL,
   truck_type VARCHAR NOT NULL,
-  capacity DOUBLE PRECISION NOT NULL,
   temp_min DOUBLE PRECISION NULL,
   temp_max DOUBLE PRECISION NULL,
   adr_enabled BOOLEAN NOT NULL DEFAULT false,

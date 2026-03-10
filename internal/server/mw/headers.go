@@ -20,6 +20,11 @@ const (
 
 func RequireBaseHeaders(cfg config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Preflight OPTIONS не шлёт кастомные заголовки — пропускаем проверку, CORS ответит сам
+		if c.Request.Method == http.MethodOptions {
+			c.Next()
+			return
+		}
 		device := strings.ToLower(strings.TrimSpace(c.GetHeader(HeaderDeviceType)))
 		lang := strings.ToLower(strings.TrimSpace(c.GetHeader(HeaderLanguage)))
 		clientToken := strings.TrimSpace(c.GetHeader(HeaderClientToken))

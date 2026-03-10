@@ -1,0 +1,32 @@
+# Пример конфига Nginx для API (api.sarbon.me).
+# CORS полностью обрабатывает Go-приложение — Nginx только проксирует запросы.
+# Не добавляйте свои CORS-заголовки в Nginx, чтобы не конфликтовать с бэкендом.
+
+server {
+    listen 80;
+    server_name api.sarbon.me;
+
+    # Редирект на HTTPS (раскомментировать при наличии сертификата)
+    # return 301 https://$server_name$request_uri;
+    # }
+    # server {
+    # listen 443 ssl http2;
+    # server_name api.sarbon.me;
+    # ssl_certificate     /path/to/fullchain.pem;
+    # ssl_certificate_key /path/to/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# Что проверить:
+# 1. Порт в proxy_pass совпадает с тем, на котором слушает приложение (HTTP_ADDR).
+# 2. После правок: sudo nginx -t && sudo systemctl reload nginx
+# 3. API по HTTPS: фронт на https://sarbon-frontend.vercel.app должен вызывать https://api.sarbon.me
+#    (иначе mixed content). Получите сертификат (Let's Encrypt) и включите listen 443.

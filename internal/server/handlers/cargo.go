@@ -30,14 +30,12 @@ func NewCargoHandler(logger *zap.Logger, repo *cargo.Repo, tripsRepo *trips.Repo
 
 // CreateCargoReq body for POST /api/cargo.
 type CreateCargoReq struct {
-	Title        string                 `json:"title" binding:"required"`
 	Weight       float64                `json:"weight" binding:"required,gt=0"`
-	Volume       *float64               `json:"volume"`
+	Volume       float64                `json:"volume" binding:"required,gt=0"` // объём груза (м³)
 	ReadyEnabled bool                   `json:"ready_enabled"`
 	ReadyAt      *string                `json:"ready_at"`
 	LoadComment  *string                `json:"load_comment"`
 	TruckType    string                 `json:"truck_type" binding:"required"`
-	Capacity     float64                `json:"capacity" binding:"required"`
 	TempMin      *float64               `json:"temp_min"`
 	TempMax      *float64               `json:"temp_max"`
 	ADREnabled   bool                   `json:"adr_enabled"`
@@ -130,7 +128,6 @@ func (h *CargoHandler) List(c *gin.Context) {
 		Page:   getIntQuery(c, "page", 1),
 		Limit:  getIntQuery(c, "limit", 20),
 		Sort:   c.DefaultQuery("sort", "created_at:desc"),
-		Search: strings.TrimSpace(c.Query("search")),
 		TruckType: strings.TrimSpace(c.Query("truck_type")),
 		CreatedFrom: strings.TrimSpace(c.Query("created_from")),
 		CreatedTo:   strings.TrimSpace(c.Query("created_to")),
@@ -312,14 +309,12 @@ func (h *CargoHandler) AcceptOffer(c *gin.Context) {
 
 // UpdateCargoReq for PUT /api/cargo/:id (all optional).
 type UpdateCargoReq struct {
-	Title        *string          `json:"title"`
 	Weight       *float64         `json:"weight"`
 	Volume       *float64         `json:"volume"`
 	ReadyEnabled *bool            `json:"ready_enabled"`
 	ReadyAt      *string          `json:"ready_at"`
 	LoadComment  *string          `json:"load_comment"`
 	TruckType    *string          `json:"truck_type"`
-	Capacity     *float64         `json:"capacity"`
 	TempMin      *float64         `json:"temp_min"`
 	TempMax      *float64         `json:"temp_max"`
 	ADREnabled   *bool            `json:"adr_enabled"`
@@ -383,14 +378,12 @@ func validateCargoUpdate(req UpdateCargoReq) error {
 
 func toCreateParams(req CreateCargoReq) cargo.CreateParams {
 	p := cargo.CreateParams{
-		Title:         req.Title,
 		Weight:        req.Weight,
 		Volume:        req.Volume,
 		ReadyEnabled:  req.ReadyEnabled,
 		ReadyAt:       req.ReadyAt,
 		LoadComment:   req.LoadComment,
 		TruckType:     req.TruckType,
-		Capacity:      req.Capacity,
 		TempMin:       req.TempMin,
 		TempMax:       req.TempMax,
 		ADREnabled:    req.ADREnabled,
@@ -440,14 +433,12 @@ func toCreateParams(req CreateCargoReq) cargo.CreateParams {
 
 func toUpdateParams(req UpdateCargoReq) cargo.UpdateParams {
 	p := cargo.UpdateParams{}
-	p.Title = req.Title
 	p.Weight = req.Weight
 	p.Volume = req.Volume
 	p.ReadyEnabled = req.ReadyEnabled
 	p.ReadyAt = req.ReadyAt
 	p.LoadComment = req.LoadComment
 	p.TruckType = req.TruckType
-	p.Capacity = req.Capacity
 	p.TempMin = req.TempMin
 	p.TempMax = req.TempMax
 	p.ADREnabled = req.ADREnabled
@@ -488,9 +479,9 @@ func toCargoListItems(items []cargo.Cargo) []gin.H {
 
 func toCargoItem(c *cargo.Cargo) gin.H {
 	out := gin.H{
-		"id": c.ID.String(), "title": c.Title, "weight": c.Weight, "volume": c.Volume,
+		"id": c.ID.String(), "weight": c.Weight, "volume": c.Volume,
 		"ready_enabled": c.ReadyEnabled, "ready_at": c.ReadyAt, "load_comment": c.LoadComment,
-		"truck_type": c.TruckType, "capacity": c.Capacity, "temp_min": c.TempMin, "temp_max": c.TempMax,
+		"truck_type": c.TruckType, "temp_min": c.TempMin, "temp_max": c.TempMax,
 		"adr_enabled": c.ADREnabled, "adr_class": c.ADRClass, "loading_types": c.LoadingTypes, "requirements": c.Requirements,
 		"shipment_type": c.ShipmentType, "belts_count": c.BeltsCount, "documents": c.Documents,
 		"contact_name": c.ContactName, "contact_phone": c.ContactPhone, "status": c.Status,

@@ -175,7 +175,7 @@ tags:
 
       **GET /v1/reference/dispatchers** возвращает (все value в верхнем регистре): work_status (AVAILABLE, BUSY, OFFLINE).
 
-      **GET /v1/reference/cities** — справочник городов (tidwall/cities + UZ/AE/TM/KG/TJ); in-memory, быстрый API; коды TAS, SAM, DXB и т.д.; query country_code — фильтр. **GET /v1/reference/regions** — справочник регионов/областей из БД; query country_code — фильтр.
+      **GET /v1/reference/cities** — справочник всех городов мира (tidwall/cities + UZ/AE/TM/KG/TJ); in-memory, быстрый API; коды TAS, SAM, DXB и т.д.; query country_code — фильтр по стране.
   - name: "Cargo — Водитель"
     description: |
       **Запросы для водителя (мобильное приложение)**
@@ -410,14 +410,12 @@ components:
       description: "Запись груза (таблица cargo). Возвращается в списках и в карточке."
       properties:
         id: { type: string, format: uuid, description: "UUID груза" }
-        title: { type: string, description: "Название" }
         weight: { type: number, description: "Вес (т)" }
-        volume: { type: number, nullable: true, description: "Объём (м³)" }
+        volume: { type: number, description: "Объём груза (м³)" }
         ready_enabled: { type: boolean, description: "Указана ли дата готовности" }
         ready_at: { type: string, format: date-time, nullable: true, description: "Дата/время готовности" }
         load_comment: { type: string, nullable: true, description: "Комментарий к погрузке" }
         truck_type: { type: string, description: "Тип транспорта" }
-        capacity: { type: number, description: "Грузоподъёмность" }
         temp_min: { type: number, nullable: true, description: "Мин. температура (°C)" }
         temp_max: { type: number, nullable: true, description: "Макс. температура (°C)" }
         adr_enabled: { type: boolean, description: "Опасный груз (ADR)" }
@@ -437,13 +435,12 @@ components:
         company_id: { type: string, format: uuid, nullable: true, description: "UUID компании (companies), от имени которой создан груз; при created_by_type=company совпадает с created_by_id" }
     RoutePoint:
       type: object
-      description: "Точка маршрута (таблица route_points): погрузка, выгрузка, таможня, транзит. Город — по коду (TAS, SAM, DXB), регион — отдельно, адрес и ориентир."
+      description: "Точка маршрута (таблица route_points): погрузка, выгрузка, таможня, транзит. Город — по коду из справочника городов (TAS, SAM, DXB), адрес и ориентир."
       properties:
         id: { type: string, format: uuid }
         cargo_id: { type: string, format: uuid }
         type: { type: string, enum: [load, unload, customs, transit], description: "load — погрузка, unload — выгрузка, customs — таможня, transit — транзит" }
-        city_code: { type: string, description: "Код города из справочника (TAS — Ташкент, SAM — Самарканд, DXB — Дубай и т.д.)" }
-        region_code: { type: string, description: "Код региона/области из справочника (опционально)" }
+        city_code: { type: string, description: "Код города из справочника (GET /v1/reference/cities): TAS, SAM, DXB и т.д." }
         address: { type: string, description: "Адрес (улица, дом)" }
         orientir: { type: string, description: "Ориентир для водителя (что написать для поиска места)" }
         lat: { type: number, description: "Широта" }
@@ -493,18 +490,16 @@ components:
       type: object
       description: |
         Тело POST /api/cargo. Создание груза вместе с точками маршрута и оплатой.
-        Обязательно: title, weight > 0, truck_type, capacity; массив route_points с минимум одной точкой type=load и одной type=unload.
+        Обязательно: weight > 0, volume > 0 (м³), truck_type; массив route_points с минимум одной точкой type=load и одной type=unload.
         У каждой точки обязательны address, lat, lng, type, point_order.
         Создатель записывается автоматически: при заголовке X-User-Token (JWT) — admin или dispatcher; при отсутствии JWT но наличии company_id в теле — company. Поле company_id опционально (привязка груза к компании).
       properties:
-        title: { type: string, description: "Название груза" }
         weight: { type: number, description: "Вес (т), обязательно > 0" }
-        volume: { type: number, nullable: true, description: "Объём (м³), опционально" }
+        volume: { type: number, description: "Объём груза (м³), обязательно > 0" }
         ready_enabled: { type: boolean, default: false, description: "Указана ли дата готовности" }
         ready_at: { type: string, format: date-time, nullable: true, description: "Дата/время готовности; обязательна если ready_enabled=true" }
         load_comment: { type: string, nullable: true }
         truck_type: { type: string, description: "Тип транспорта (например refrigerator, tent)" }
-        capacity: { type: number, description: "Грузоподъёмность" }
         temp_min: { type: number, nullable: true, description: "Мин. температура; при указании truck_type должен быть refrigerator" }
         temp_max: { type: number, nullable: true }
         adr_enabled: { type: boolean, default: false }
@@ -524,18 +519,16 @@ components:
           items: { $ref: "#/components/schemas/RoutePointInput" }
           description: "Точки маршрута; минимум 1 load и 1 unload"
         payment: { $ref: "#/components/schemas/PaymentInput", nullable: true }
-      required: [title, weight, truck_type, capacity, route_points]
+      required: [weight, volume, truck_type, route_points]
     RoutePointInput:
       type: object
       description: |
         Одна точка маршрута при создании/обновлении груза.
         city_code — код города из справочника (GET /v1/reference/cities): TAS, SAM, DXB и т.д.
-        region_code — код региона/области (GET /v1/reference/regions), опционально.
         address — адрес (улица, дом). orientir — ориентир для водителя, опционально.
       properties:
         type: { type: string, enum: [load, unload, customs, transit], description: "Тип точки" }
         city_code: { type: string, description: "Код города (TAS, SAM, DXB)", example: "TAS" }
-        region_code: { type: string, description: "Код региона/области", example: "TK" }
         address: { type: string, description: "Адрес (улица, дом)" }
         orientir: { type: string, description: "Ориентир для водителя", example: "склад №5, въезд с ул. Мира" }
         lat: { type: number }
@@ -602,7 +595,7 @@ paths:
         **Фриланс-диспетчер:** передайте X-User-Token (JWT после входа) — в груз запишется created_by_type=dispatcher.
         **Назначение:** Создание нового груза с точками маршрута и блоком оплаты.
 
-        **Логика:** В одной транзакции создаются запись в `cargo`, записи в `route_points` (все переданные точки), одна запись в `payments` (если передан блок payment). Валидация: weight > 0; минимум одна точка с type=load и одна с type=unload; у каждой точки обязательны city_code (код города из справочника), address, lat, lng, point_order; опционально region_code, orientir; если указаны temp_min/temp_max — truck_type должен быть refrigerator; если adr_enabled=true — обязателен adr_class; если ready_enabled=true — обязателен ready_at. Справочники: GET /v1/reference/cities (все города, код TAS/SAM/DXB и т.д.), GET /v1/reference/regions (области по странам).
+        **Логика:** В одной транзакции создаются запись в `cargo`, записи в `route_points` (все переданные точки), одна запись в `payments` (если передан блок payment). Валидация: weight > 0; минимум одна точка с type=load и одна с type=unload; у каждой точки обязательны city_code (код города из справочника городов), address, lat, lng, point_order; опционально orientir. Справочник городов: GET /v1/reference/cities (все города мира, коды TAS/SAM/DXB и т.д.). Если указаны temp_min/temp_max — truck_type должен быть refrigerator; если adr_enabled=true — обязателен adr_class; если ready_enabled=true — обязателен ready_at.
 
         **Создатель (автоматически):** Если передан заголовок **X-User-Token** (JWT) с ролью admin или dispatcher — в груз записываются created_by_type и created_by_id. Если JWT не передан, но в теле есть company_id — создателем считается компания (created_by_type=company). Опционально в теле можно передать company_id для привязки груза к компании.
 
@@ -614,14 +607,12 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/CargoCreateRequest" }
             example:
-              title: "Ташкент — Самарканд, пшеница 20т"
               weight: 20
+              volume: 40
               truck_type: "tent"
-              capacity: 22
               route_points:
                 - type: "load"
                   city_code: "TAS"
-                  region_code: "TAS"
                   address: "ул. Амира Темура 1, склад №5"
                   orientir: "въезд со стороны метро Хамза"
                   lat: 41.311081
@@ -631,7 +622,6 @@ paths:
                   is_main_unload: false
                 - type: "unload"
                   city_code: "SAM"
-                  region_code: "SA"
                   address: "промзона, терминал А"
                   orientir: "за КПП 2"
                   lat: 39.654167
@@ -1124,41 +1114,6 @@ paths:
                             country_code: { type: string, example: "UZ" }
                             lat: { type: number, nullable: true }
                             lng: { type: number, nullable: true }
-
-  /v1/reference/regions:
-    get:
-      tags: ["Reference / Cargo", "Freelance Dispatchers / Добавление груза"]
-      summary: "Справочник регионов (области по странам)"
-      description: |
-        Возвращает список регионов/областей для выбора в точках маршрута (region_code).
-        **Query:** country_code (опционально) — фильтр по стране.
-      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
-      parameters:
-        - name: country_code
-          in: query
-          schema: { type: string, example: "UZ" }
-          description: "Фильтр по коду страны"
-      responses:
-        "200":
-          description: "data.items — массив { id, code, name_ru, name_en, country_code }"
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  data:
-                    type: object
-                    properties:
-                      items:
-                        type: array
-                        items:
-                          type: object
-                          properties:
-                            id: { type: string, format: uuid }
-                            code: { type: string, example: "TK" }
-                            name_ru: { type: string, example: "Ташкентская область" }
-                            name_en: { type: string, nullable: true }
-                            country_code: { type: string, example: "UZ" }
 
   /v1/auth/phone:
     post:
