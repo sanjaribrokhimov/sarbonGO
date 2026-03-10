@@ -44,19 +44,10 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	r.Use(gin.Recovery())
 	r.Use(mw.RequestLogger(logger, cfg.AppEnv == "local"))
 
-	// CORS: явно разрешаем фронт на Vercel и localhost для разработки
-	allowedOrigins := []string{
-		"https://sarbon-frontend.vercel.app",
-		"http://localhost:3000", "http://localhost:5173", "http://localhost:8080",
-		"http://127.0.0.1:3000", "http://127.0.0.1:5173", "http://127.0.0.1:8080",
-	}
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     allowedOrigins,
-		AllowMethods:     []string{"GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Device-Type", "X-Language", "X-Client-Token", "X-User-Token", "X-User-ID"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
-		MaxAge:           12 * time.Hour,
+		AllowOrigins: []string{"*"},
+		AllowMethods: []string{"GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders: []string{"*"},
 	}))
 
 	// Public endpoints that should still validate base headers.
