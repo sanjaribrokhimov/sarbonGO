@@ -244,14 +244,14 @@ components:
       type: object
       description: |
         Во всех auth API: 1) время жизни (expires_in, refresh_expires_in — секунды);
-        2) даты в Unix-формате (секунды с 01.01.1970): expires_at — когда истекает access (когда обновить), refresh_expires_at — когда истекает refresh.
+        2) expires_at и refresh_expires_at — Unix timestamp в миллисекундах (ms). Расчёт везде по времени Ташкента (Asia/Tashkent). Для JS: new Date(expires_at).
       properties:
         access_token: { type: string, example: "eyJhbGciOi..." }
         refresh_token: { type: string, example: "eyJhbGciOi..." }
         expires_in: { type: integer, example: 900, description: "Время жизни access токена (секунды)" }
-        expires_at: { type: integer, example: 1741600800, description: "Unix timestamp — когда истекает access токен (когда обновить)" }
+        expires_at: { type: integer, example: 1741600800000, description: "Unix ms — когда истекает access токен (когда обновить); JS: new Date(expires_at)" }
         refresh_expires_in: { type: integer, example: 604800, description: "Время жизни refresh токена (секунды)" }
-        refresh_expires_at: { type: integer, example: 1742205600, description: "Unix timestamp — когда истекает refresh токен" }
+        refresh_expires_at: { type: integer, example: 1742205600000, description: "Unix ms — когда истекает refresh токен; JS: new Date(refresh_expires_at)" }
       required: [access_token, refresh_token, expires_in, expires_at]
     Driver:
       type: object

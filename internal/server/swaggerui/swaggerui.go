@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 
 	"github.com/gin-gonic/gin"
+
+	"sarbonNew/internal/server/resp"
 )
 
 // Minimal swagger UI without codegen, using docs/openapi.yaml.
@@ -15,7 +17,7 @@ func Register(r *gin.Engine) {
 			c.File(p)
 			return
 		}
-		c.JSON(http.StatusNotFound, gin.H{"error": "openapi.yaml not found on disk"})
+		resp.Error(c, http.StatusNotFound, "openapi.yaml not found on disk")
 	})
 
 	r.GET("/docs", func(c *gin.Context) {

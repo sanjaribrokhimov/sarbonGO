@@ -6,15 +6,17 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+
+	"sarbonNew/internal/timeutil"
 )
 
 type Tokens struct {
 	AccessToken       string `json:"access_token"`
 	RefreshToken      string `json:"refresh_token"`
 	ExpiresIn         int64  `json:"expires_in"`          // время жизни access токена (секунды)
-	ExpiresAt         int64  `json:"expires_at"`           // Unix timestamp — когда истекает access токен (когда обновить)
+	ExpiresAt         int64  `json:"expires_at"`           // Unix timestamp в миллисекундах (ms) — когда истекает access токен; для JS: new Date(expires_at)
 	RefreshExpiresIn  int64  `json:"refresh_expires_in"`  // время жизни refresh токена (секунды)
-	RefreshExpiresAt  int64  `json:"refresh_expires_at"`   // Unix timestamp — когда истекает refresh токен
+	RefreshExpiresAt  int64  `json:"refresh_expires_at"`   // Unix timestamp в миллисекундах (ms) — когда истекает refresh токен; для JS: new Date(refresh_expires_at)
 }
 
 type JWTManager struct {
@@ -50,8 +52,9 @@ func (m *JWTManager) Issue(role string, userID uuid.UUID) (Tokens, RefreshClaims
 }
 
 // IssueWithCompany issues tokens with optional company_id in access claims (for app user switch-company).
+// Текущее время берётся по Ташкенту (Asia/Tashkent); по нему считаются expires_at и refresh_expires_at.
 func (m *JWTManager) IssueWithCompany(role string, userID uuid.UUID, companyID uuid.UUID) (Tokens, RefreshClaims, error) {
-	now := time.Now()
+	now := timeutil.NowTashkent()
 	accessClaims := AccessClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID.String(),
@@ -93,9 +96,9 @@ func (m *JWTManager) IssueWithCompany(role string, userID uuid.UUID, companyID u
 		AccessToken:      accessToken,
 		RefreshToken:     refreshToken,
 		ExpiresIn:        int64(m.accessTTL.Seconds()),
-		ExpiresAt:        accessExpiresAt.Unix(),
+		ExpiresAt:        accessExpiresAt.UnixMilli(),
 		RefreshExpiresIn: int64(m.refreshTTL.Seconds()),
-		RefreshExpiresAt: refreshExpiresAt.Unix(),
+		RefreshExpiresAt: refreshExpiresAt.UnixMilli(),
 	}, refreshClaims, nil
 }
 
