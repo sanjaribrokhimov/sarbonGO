@@ -484,6 +484,15 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 
 var ErrCannotEditAfterAssigned = errors.New("cargo: cannot edit route or payment after assigned")
 
+// CountByDispatcher возвращает число грузов, созданных диспетчером (created_by_type='dispatcher', без удалённых).
+func (r *Repo) CountByDispatcher(ctx context.Context, dispatcherID uuid.UUID) (int, error) {
+	var n int
+	err := r.pg.QueryRow(ctx,
+		"SELECT count(*) FROM cargo WHERE created_by_type = 'dispatcher' AND created_by_id = $1 AND deleted_at IS NULL",
+		dispatcherID).Scan(&n)
+	return n, err
+}
+
 // Delete soft-deletes cargo (sets deleted_at).
 func (r *Repo) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := r.pg.Exec(ctx, "UPDATE cargo SET deleted_at = now(), updated_at = now() WHERE id = $1 AND deleted_at IS NULL", id)

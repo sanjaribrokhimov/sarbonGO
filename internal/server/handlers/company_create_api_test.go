@@ -86,7 +86,7 @@ func TestCreateCompanyAPI(t *testing.T) {
 	v1 := r.Group("/v1")
 	v1.Use(mw.RequireBaseHeaders(cfg))
 	authed := v1.Group("")
-	authed.Use(mw.RequireAppUser(jwtm))
+	authed.Use(mw.RequireAppUser(jwtm, nil))
 	authed.POST("/companies", companyTZH.CreateCompany)
 
 	body := map[string]any{

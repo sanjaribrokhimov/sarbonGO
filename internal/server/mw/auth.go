@@ -1,7 +1,6 @@
 package mw
 
 import (
-	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -9,6 +8,7 @@ import (
 
 	"sarbonNew/internal/security"
 	"sarbonNew/internal/server/resp"
+	"sarbonNew/internal/store"
 )
 
 const CtxDriverID = "driver_id"
@@ -17,17 +17,23 @@ const CtxDispatcherCompanyID = "dispatcher_company_id" // optional, set when JWT
 const CtxUserID = "user_id"   // chat: any authenticated user UUID
 const CtxUserRole = "user_role" // chat: driver | dispatcher | admin
 
-func RequireDriver(jwtm *security.JWTManager) gin.HandlerFunc {
+func RequireDriver(jwtm *security.JWTManager, refreshStore *store.RefreshStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		raw := strings.TrimSpace(c.GetHeader(HeaderUserToken))
 		if raw == "" {
-			resp.Error(c, http.StatusUnauthorized, "missing X-User-Token")
+			resp.Error(c, 401, "missing X-User-Token")
 			c.Abort()
 			return
 		}
-		id, role, err := jwtm.ParseAccess(raw)
+		id, role, _, sid, err := jwtm.ParseAccessWithSID(raw)
 		if err != nil || id == uuid.Nil || role != "driver" {
-			resp.Error(c, http.StatusUnauthorized, "invalid X-User-Token")
+			resp.Error(c, 401, "invalid X-User-Token")
+			c.Abort()
+			return
+		}
+		// После refresh старый access недействителен (sid инвалидируется)
+		if sid != "" && refreshStore != nil && !refreshStore.SessionValid(c.Request.Context(), sid) {
+			resp.Error(c, 401, "invalid X-User-Token")
 			c.Abort()
 			return
 		}
@@ -36,17 +42,22 @@ func RequireDriver(jwtm *security.JWTManager) gin.HandlerFunc {
 	}
 }
 
-func RequireDispatcher(jwtm *security.JWTManager) gin.HandlerFunc {
+func RequireDispatcher(jwtm *security.JWTManager, refreshStore *store.RefreshStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		raw := strings.TrimSpace(c.GetHeader(HeaderUserToken))
 		if raw == "" {
-			resp.Error(c, http.StatusUnauthorized, "missing X-User-Token")
+			resp.Error(c, 401, "missing X-User-Token")
 			c.Abort()
 			return
 		}
-		id, role, companyID, err := jwtm.ParseAccessWithCompany(raw)
+		id, role, companyID, sid, err := jwtm.ParseAccessWithSID(raw)
 		if err != nil || id == uuid.Nil || role != "dispatcher" {
-			resp.Error(c, http.StatusUnauthorized, "invalid X-User-Token")
+			resp.Error(c, 401, "invalid X-User-Token")
+			c.Abort()
+			return
+		}
+		if sid != "" && refreshStore != nil && !refreshStore.SessionValid(c.Request.Context(), sid) {
+			resp.Error(c, 401, "invalid X-User-Token")
 			c.Abort()
 			return
 		}
@@ -60,8 +71,8 @@ func RequireDispatcher(jwtm *security.JWTManager) gin.HandlerFunc {
 
 // RequireChatUser sets CtxUserID and CtxUserRole. Accepts:
 // - X-User-Token (JWT) or header X-User-ID (Swagger)
-// - Query ?user_id=uuid or ?token=JWT (for WebSocket, where headers are not always sent)
-func RequireChatUser(jwtm *security.JWTManager) gin.HandlerFunc {
+// - Query ?user_id=uuid or ?token=JWT (for WebSocket)
+func RequireChatUser(jwtm *security.JWTManager, refreshStore *store.RefreshStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tryUserID := func(raw string) (uuid.UUID, bool) {
 			raw = strings.TrimSpace(raw)
@@ -76,8 +87,14 @@ func RequireChatUser(jwtm *security.JWTManager) gin.HandlerFunc {
 			if raw == "" {
 				return uuid.Nil, "", false
 			}
-			id, role, err := jwtm.ParseAccess(raw)
-			return id, role, err == nil && id != uuid.Nil
+			id, role, _, sid, err := jwtm.ParseAccessWithSID(raw)
+			if err != nil || id == uuid.Nil {
+				return uuid.Nil, "", false
+			}
+			if sid != "" && refreshStore != nil && !refreshStore.SessionValid(c.Request.Context(), sid) {
+				return uuid.Nil, "", false
+			}
+			return id, role, true
 		}
 		// 1) Query (for WS)
 		if id, ok := tryUserID(c.Query("user_id")); ok {
@@ -101,13 +118,18 @@ func RequireChatUser(jwtm *security.JWTManager) gin.HandlerFunc {
 		}
 		raw := strings.TrimSpace(c.GetHeader(HeaderUserToken))
 		if raw == "" {
-			resp.Error(c, http.StatusUnauthorized, "missing X-User-Token or X-User-ID (or query user_id/token)")
+			resp.Error(c, 401, "missing X-User-Token or X-User-ID (or query user_id/token)")
 			c.Abort()
 			return
 		}
-		id, role, err := jwtm.ParseAccess(raw)
+		id, role, _, sid, err := jwtm.ParseAccessWithSID(raw)
 		if err != nil || id == uuid.Nil {
-			resp.Error(c, http.StatusUnauthorized, "invalid X-User-Token")
+			resp.Error(c, 401, "invalid X-User-Token")
+			c.Abort()
+			return
+		}
+		if sid != "" && refreshStore != nil && !refreshStore.SessionValid(c.Request.Context(), sid) {
+			resp.Error(c, 401, "invalid X-User-Token")
 			c.Abort()
 			return
 		}

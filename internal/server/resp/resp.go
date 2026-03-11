@@ -36,3 +36,13 @@ func Error(c *gin.Context, httpCode int, description string) {
 	})
 }
 
+// ErrorWithData sends error response with optional data (e.g. limit, current count).
+func ErrorWithData(c *gin.Context, httpCode int, description string, data any) {
+	c.JSON(httpCode, Envelope{
+		Status:      "error",
+		Code:        httpCode,
+		Description: description,
+		Data:        data,
+	})
+}
+

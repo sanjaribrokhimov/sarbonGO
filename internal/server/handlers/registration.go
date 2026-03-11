@@ -79,6 +79,7 @@ func (h *RegistrationHandler) Start(c *gin.Context) {
 			return
 		}
 		_ = h.refresh.Put(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
+		_ = h.refresh.PutSession(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 
 		resp.OK(c, gin.H{
 			"status": "login",
@@ -106,6 +107,7 @@ func (h *RegistrationHandler) Start(c *gin.Context) {
 		return
 	}
 	_ = h.refresh.Put(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
+	_ = h.refresh.PutSession(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 
 	drv, _ := h.drivers.FindByID(c.Request.Context(), id)
 	resp.OK(c, gin.H{

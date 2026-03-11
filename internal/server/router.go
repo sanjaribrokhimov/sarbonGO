@@ -86,6 +86,7 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	driverInvRepo := driverinvitations.NewRepo(deps.PG)
 	jwtm := security.NewJWTManager(cfg.JWTSigningKey, cfg.JWTAccessTTL, cfg.JWTRefreshTTL)
 
+	otpVerifyWindow := time.Duration(cfg.OTPVerifyWindowSeconds) * time.Second
 	otpStore := store.NewOTPStore(
 		deps.Redis,
 		cfg.JWTSigningKey,
@@ -95,6 +96,8 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 		int64(cfg.OTPSendLimitPerPhonePerHour),
 		int64(cfg.OTPSendLimitPerIPPerHour),
 		cfg.OTPSendWindow,
+		int64(cfg.OTPVerifyAttemptsPerPhone),
+		otpVerifyWindow,
 	)
 	companyUserOTPStore := store.NewOTPStoreWithPrefix(
 		deps.Redis,
@@ -105,10 +108,12 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 		int64(cfg.OTPSendLimitPerPhonePerHour),
 		int64(cfg.OTPSendLimitPerIPPerHour),
 		cfg.OTPSendWindow,
+		int64(cfg.OTPVerifyAttemptsPerPhone),
+		otpVerifyWindow,
 		"company_",
 	)
 	sessionStore := store.NewSessionStore(deps.Redis, 15*time.Minute)
-	refreshStore := store.NewRefreshStore(deps.Redis, cfg.JWTRefreshTTL)
+	refreshStore := store.NewRefreshStore(deps.Redis, cfg.JWTRefreshTTL, cfg.JWTAccessTTL)
 	tgClient := telegram.NewGatewayClient(cfg.TelegramGatewayBaseURL, cfg.TelegramGatewayToken, cfg.TelegramGatewaySenderID, cfg.TelegramGatewayBypass)
 	phoneChangeStore := store.NewPhoneChangeStore(deps.Redis, cfg.JWTSigningKey, cfg.OTPTTL, cfg.OTPMaxAttempts)
 
@@ -127,7 +132,7 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	dispProfileH := handlers.NewDispatcherProfileHandler(logger, dispatchersRepo, dispPhoneActions, tgClient, cfg.OTPTTL, cfg.OTPLength)
 	adminAuthH := handlers.NewAdminAuthHandler(logger, adminsRepo, jwtm, refreshStore)
 	adminCompaniesH := handlers.NewAdminCompaniesHandler(logger, companiesRepo, appusersRepo)
-	cargoH := handlers.NewCargoHandler(logger, cargoRepo, tripsRepo, jwtm)
+	cargoH := handlers.NewCargoHandler(logger, cargoRepo, tripsRepo, jwtm, cfg)
 	dispCompaniesH := handlers.NewDispatcherCompaniesHandler(logger, companiesRepo, dcrRepo, jwtm)
 	dispInvH := handlers.NewDispatcherInvitationsHandler(logger, dispInvRepo, dcrRepo, dispatchersRepo)
 	driverInvH := handlers.NewDriverInvitationsHandler(logger, driverInvRepo, dcrRepo, driversRepo)
@@ -197,13 +202,13 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 
 	// Все маршруты под adminAuthed проверяют: base headers (X-Client-Token, X-Device-Type, X-Language) + X-User-Token с role=admin
 	adminAuthed := v1.Group("/admin")
-	adminAuthed.Use(mw.RequireAdmin(jwtm))
+	adminAuthed.Use(mw.RequireAdmin(jwtm, refreshStore))
 	adminAuthed.POST("/companies", adminCompaniesH.Create)
 	adminAuthed.PATCH("/companies/:id/owner", adminCompaniesH.SetOwner)
 	adminAuthed.GET("/company-users/owners/search", adminCompaniesH.SearchOwners)
 
 	authed := v1.Group("")
-	authed.Use(mw.RequireDriver(jwtm))
+	authed.Use(mw.RequireDriver(jwtm, refreshStore))
 	authed.Use(mw.UpdateDriverLastOnline(driversRepo))
 	authed.GET("/profile", profileH.Get)
 	authed.PATCH("/profile/driver", profileH.PatchDriver)
@@ -223,7 +228,7 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	authed.POST("/driver-invitations/accept", driverInvH.Accept)
 
 	dispAuthed := v1.Group("/dispatchers")
-	dispAuthed.Use(mw.RequireDispatcher(jwtm))
+	dispAuthed.Use(mw.RequireDispatcher(jwtm, refreshStore))
 	dispAuthed.Use(mw.UpdateDispatcherLastOnline(dispatchersRepo))
 	dispAuthed.GET("/profile", dispProfileH.Get)
 	dispAuthed.PATCH("/profile", dispProfileH.Patch)
@@ -246,7 +251,7 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 
 	// Company users (company_users): OTP auth, companies, invitations
 	appUserAuthed := v1.Group("")
-	appUserAuthed.Use(mw.RequireAppUser(jwtm))
+	appUserAuthed.Use(mw.RequireAppUser(jwtm, refreshStore))
 	appUserAuthed.GET("/auth/companies", companyTZH.ListMyCompanies)
 	appUserAuthed.POST("/auth/switch-company", companyTZH.SwitchCompany)
 	appUserAuthed.POST("/companies", companyTZH.CreateCompany)
@@ -258,7 +263,7 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 
 	// Chat (driver, dispatcher, admin): JWT or X-User-ID for Swagger testing; WS supports ?user_id= or ?token=
 	chatGroup := v1.Group("/chat")
-	chatGroup.Use(mw.RequireChatUser(jwtm))
+	chatGroup.Use(mw.RequireChatUser(jwtm, refreshStore))
 	chatGroup.GET("/conversations", chatH.ListConversations)
 	chatGroup.POST("/conversations", chatH.GetOrCreateConversation)
 	chatGroup.GET("/conversations/:id/messages", chatH.ListMessages)

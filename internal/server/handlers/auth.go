@@ -132,6 +132,8 @@ func (h *AuthHandler) VerifyOTP(c *gin.Context) {
 			resp.Error(c, http.StatusUnauthorized, "otp invalid")
 		case errors.Is(err, store.ErrOTPMaxAttempts):
 			resp.Error(c, http.StatusTooManyRequests, "otp max attempts exceeded")
+		case errors.Is(err, store.ErrOTPVerifyRateLimited):
+			resp.Error(c, http.StatusTooManyRequests, "otp verify attempts exceeded for this phone, try again later")
 		default:
 			h.logger.Error("otp verify error", zap.Error(err))
 			resp.Error(c, http.StatusInternalServerError, "internal error")
@@ -149,6 +151,7 @@ func (h *AuthHandler) VerifyOTP(c *gin.Context) {
 			return
 		}
 		_ = h.refresh.Put(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
+		_ = h.refresh.PutSession(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 
 		resp.OK(c, gin.H{
 			"status": "login",
@@ -176,7 +179,13 @@ func (h *AuthHandler) VerifyOTP(c *gin.Context) {
 }
 
 type refreshReq struct {
-	RefreshToken string `json:"refresh_token" binding:"required"`
+	RefreshToken string `json:"refresh_token"`
+}
+
+// logoutReq — для logout принимаем refresh_token или access_token (хотя бы один).
+type logoutReq struct {
+	RefreshToken string `json:"refresh_token"`
+	AccessToken  string `json:"access_token"`
 }
 
 func (h *AuthHandler) Refresh(c *gin.Context) {
@@ -185,7 +194,17 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	claims, err := h.jwtm.ParseRefresh(strings.TrimSpace(req.RefreshToken))
+	refreshToken := strings.TrimSpace(req.RefreshToken)
+	if refreshToken == "" {
+		resp.Error(c, http.StatusBadRequest, "refresh_token is required")
+		return
+	}
+	// Проверка формата JWT (три части, разделённые точками)
+	if !isJWTFormat(refreshToken) {
+		resp.Error(c, http.StatusUnauthorized, "invalid refresh_token")
+		return
+	}
+	claims, err := h.jwtm.ParseRefresh(refreshToken)
 	if err != nil {
 		resp.Error(c, http.StatusUnauthorized, "invalid refresh_token")
 		return
@@ -195,6 +214,8 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		resp.Error(c, http.StatusUnauthorized, "invalid refresh_token")
 		return
 	}
+	// Старый access-токен (с этим sid) больше не действителен
+	_ = h.refresh.InvalidateSession(c.Request.Context(), claims.JTI)
 
 	userUUID, err := uuid.Parse(claims.UserID)
 	if err != nil {
@@ -207,23 +228,67 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 	_ = h.refresh.Put(c.Request.Context(), newRefreshClaims.UserID, newRefreshClaims.JTI)
+	_ = h.refresh.PutSession(c.Request.Context(), newRefreshClaims.UserID, newRefreshClaims.JTI)
 
 	resp.OK(c, gin.H{"tokens": tokens})
 }
 
+// Logout инвалидирует сессию. Тело: { "refresh_token": "..." } — отзыв одной сессии; { "access_token": "..." } — отзыв всех сессий водителя.
+// Валидация: при невалидном/истёкшем токене возвращается 401.
 func (h *AuthHandler) Logout(c *gin.Context) {
-	var req refreshReq
+	var req logoutReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		resp.Error(c, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	claims, err := h.jwtm.ParseRefresh(strings.TrimSpace(req.RefreshToken))
-	if err != nil {
+	refreshToken := strings.TrimSpace(req.RefreshToken)
+	accessToken := strings.TrimSpace(req.AccessToken)
+	if refreshToken == "" && accessToken == "" {
+		resp.Error(c, http.StatusBadRequest, "refresh_token or access_token required")
+		return
+	}
+
+	if refreshToken != "" {
+		claims, err := h.jwtm.ParseRefresh(refreshToken)
+		if err != nil {
+			resp.Error(c, http.StatusUnauthorized, "invalid or expired refresh_token")
+			return
+		}
+		if claims.Role != "driver" {
+			resp.Error(c, http.StatusUnauthorized, "invalid refresh_token for driver")
+			return
+		}
+		if err := h.refresh.Consume(c.Request.Context(), claims.UserID, claims.JTI); err != nil {
+			resp.Error(c, http.StatusUnauthorized, "refresh_token already used or invalid")
+			return
+		}
 		resp.OK(c, gin.H{"status": "ok"})
 		return
 	}
-	_ = h.refresh.Consume(c.Request.Context(), claims.UserID, claims.JTI)
+
+	userID, role, err := h.jwtm.ParseAccess(accessToken)
+	if err != nil {
+		resp.Error(c, http.StatusUnauthorized, "invalid or expired access_token")
+		return
+	}
+	if role != "driver" {
+		resp.Error(c, http.StatusUnauthorized, "access_token is not for driver")
+		return
+	}
+	_ = h.refresh.RevokeAll(c.Request.Context(), userID.String())
 	resp.OK(c, gin.H{"status": "ok"})
+}
+
+// isJWTFormat проверяет, что строка похожа на JWT (три части через точку).
+func isJWTFormat(s string) bool {
+	const jwtParts = 3
+	n := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '.' {
+			n++
+		}
+	}
+	return n == jwtParts-1
 }
 
 

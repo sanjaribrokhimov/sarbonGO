@@ -69,6 +69,7 @@ func (h *AdminAuthHandler) LoginPassword(c *gin.Context) {
 		return
 	}
 	_ = h.refresh.Put(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
+	_ = h.refresh.PutSession(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 
 	resp.OK(c, gin.H{
 		"tokens": tokens,

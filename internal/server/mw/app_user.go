@@ -1,7 +1,6 @@
 package mw
 
 import (
-	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -9,24 +8,30 @@ import (
 
 	"sarbonNew/internal/security"
 	"sarbonNew/internal/server/resp"
+	"sarbonNew/internal/store"
 )
 
 const CtxAppUserID = "app_user_id"
 const CtxAppUserCompanyID = "app_user_company_id"
 const CtxAppUserRole = "app_user_role"
 
-// RequireAppUser requires JWT with role "user" (app users from auth/register). Sets CtxAppUserID, CtxAppUserCompanyID (optional), CtxAppUserRole.
-func RequireAppUser(jwtm *security.JWTManager) gin.HandlerFunc {
+// RequireAppUser requires JWT with role "user" (company app users). Проверяет сессию (после refresh старый access недействителен).
+func RequireAppUser(jwtm *security.JWTManager, refreshStore *store.RefreshStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		raw := strings.TrimSpace(c.GetHeader(HeaderUserToken))
 		if raw == "" {
-			resp.Error(c, http.StatusUnauthorized, "missing X-User-Token")
+			resp.Error(c, 401, "missing X-User-Token")
 			c.Abort()
 			return
 		}
-		userID, role, companyID, err := jwtm.ParseAccessWithCompany(raw)
+		userID, role, companyID, sid, err := jwtm.ParseAccessWithSID(raw)
 		if err != nil || userID == uuid.Nil || role != "user" {
-			resp.Error(c, http.StatusUnauthorized, "invalid X-User-Token")
+			resp.Error(c, 401, "invalid X-User-Token")
+			c.Abort()
+			return
+		}
+		if sid != "" && refreshStore != nil && !refreshStore.SessionValid(c.Request.Context(), sid) {
+			resp.Error(c, 401, "invalid X-User-Token")
 			c.Abort()
 			return
 		}

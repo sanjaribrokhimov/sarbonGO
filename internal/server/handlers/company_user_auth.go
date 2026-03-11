@@ -126,6 +126,8 @@ func (h *CompanyUserAuthHandler) VerifyOTP(c *gin.Context) {
 			resp.Error(c, http.StatusUnauthorized, "otp invalid")
 		case errors.Is(err, store.ErrOTPMaxAttempts):
 			resp.Error(c, http.StatusTooManyRequests, "otp max attempts exceeded")
+		case errors.Is(err, store.ErrOTPVerifyRateLimited):
+			resp.Error(c, http.StatusTooManyRequests, "otp verify attempts exceeded for this phone, try again later")
 		default:
 			h.logger.Error("company user otp verify failed", zap.Error(err))
 			resp.Error(c, http.StatusInternalServerError, "verification failed")
@@ -142,6 +144,7 @@ func (h *CompanyUserAuthHandler) VerifyOTP(c *gin.Context) {
 			return
 		}
 		_ = h.refresh.Put(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
+		_ = h.refresh.PutSession(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 		resp.OK(c, gin.H{"status": "login", "tokens": tokens, "user": userToMap(u)})
 		return
 	}

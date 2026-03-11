@@ -37,7 +37,8 @@ type AccessClaims struct {
 	jwt.RegisteredClaims
 	Role      string `json:"role"`       // driver | dispatcher | admin | user
 	UserID    string `json:"user_id"`    // UUID
-	CompanyID string `json:"company_id"`  // UUID, optional (for app user after switch-company)
+	CompanyID string `json:"company_id"` // UUID, optional (for app user after switch-company)
+	SID       string `json:"sid"`        // session id (= refresh JTI); для инвалидации после refresh
 }
 
 type RefreshClaims struct {
@@ -52,9 +53,10 @@ func (m *JWTManager) Issue(role string, userID uuid.UUID) (Tokens, RefreshClaims
 }
 
 // IssueWithCompany issues tokens with optional company_id in access claims (for app user switch-company).
-// Текущее время берётся по Ташкенту (Asia/Tashkent); по нему считаются expires_at и refresh_expires_at.
+// Текущее время берётся по Ташкенту (Asia/Tashkent). В access кладётся sid = JTI refresh — для инвалидации после refresh.
 func (m *JWTManager) IssueWithCompany(role string, userID uuid.UUID, companyID uuid.UUID) (Tokens, RefreshClaims, error) {
 	now := timeutil.NowTashkent()
+	jti := uuid.NewString()
 	accessClaims := AccessClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID.String(),
@@ -63,6 +65,7 @@ func (m *JWTManager) IssueWithCompany(role string, userID uuid.UUID, companyID u
 		},
 		Role:   role,
 		UserID: userID.String(),
+		SID:    jti,
 	}
 	if companyID != uuid.Nil {
 		accessClaims.CompanyID = companyID.String()
@@ -73,7 +76,6 @@ func (m *JWTManager) IssueWithCompany(role string, userID uuid.UUID, companyID u
 		return Tokens{}, RefreshClaims{}, err
 	}
 
-	jti := uuid.NewString()
 	refreshClaims := RefreshClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID.String(),
@@ -104,12 +106,18 @@ func (m *JWTManager) IssueWithCompany(role string, userID uuid.UUID, companyID u
 
 // ParseAccess returns userID, role (driver|dispatcher|admin|user).
 func (m *JWTManager) ParseAccess(tokenStr string) (userID uuid.UUID, role string, err error) {
-	uid, r, _, err := m.ParseAccessWithCompany(tokenStr)
+	uid, r, _, _, err := m.ParseAccessWithSID(tokenStr)
 	return uid, r, err
 }
 
 // ParseAccessWithCompany returns userID, role, companyID (may be Nil), error.
 func (m *JWTManager) ParseAccessWithCompany(tokenStr string) (userID uuid.UUID, role string, companyID uuid.UUID, err error) {
+	uid, r, cid, _, err := m.ParseAccessWithSID(tokenStr)
+	return uid, r, cid, err
+}
+
+// ParseAccessWithSID returns userID, role, companyID, sid (session id for revocation check), error.
+func (m *JWTManager) ParseAccessWithSID(tokenStr string) (userID uuid.UUID, role string, companyID uuid.UUID, sid string, err error) {
 	tok, err := jwt.ParseWithClaims(tokenStr, &AccessClaims{}, func(token *jwt.Token) (any, error) {
 		if token.Method != jwt.SigningMethodHS256 {
 			return nil, fmt.Errorf("unexpected signing method")
@@ -117,11 +125,11 @@ func (m *JWTManager) ParseAccessWithCompany(tokenStr string) (userID uuid.UUID, 
 		return m.signingKey, nil
 	})
 	if err != nil {
-		return uuid.Nil, "", uuid.Nil, err
+		return uuid.Nil, "", uuid.Nil, "", err
 	}
 	claims, ok := tok.Claims.(*AccessClaims)
 	if !ok || !tok.Valid {
-		return uuid.Nil, "", uuid.Nil, fmt.Errorf("invalid token")
+		return uuid.Nil, "", uuid.Nil, "", fmt.Errorf("invalid token")
 	}
 	idStr := claims.UserID
 	if idStr == "" {
@@ -129,7 +137,7 @@ func (m *JWTManager) ParseAccessWithCompany(tokenStr string) (userID uuid.UUID, 
 	}
 	uid, err := uuid.Parse(idStr)
 	if err != nil {
-		return uuid.Nil, "", uuid.Nil, err
+		return uuid.Nil, "", uuid.Nil, "", err
 	}
 	r := claims.Role
 	if r == "" {
@@ -139,8 +147,9 @@ func (m *JWTManager) ParseAccessWithCompany(tokenStr string) (userID uuid.UUID, 
 	if claims.CompanyID != "" {
 		cid, _ = uuid.Parse(claims.CompanyID)
 	}
-	return uid, r, cid, nil
+	return uid, r, cid, claims.SID, nil
 }
+
 
 func (m *JWTManager) ParseRefresh(tokenStr string) (RefreshClaims, error) {
 	tok, err := jwt.ParseWithClaims(tokenStr, &RefreshClaims{}, func(token *jwt.Token) (any, error) {

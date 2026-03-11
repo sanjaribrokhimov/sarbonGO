@@ -1,6 +1,8 @@
 # Sarbon (Gin + Postgres + Redis)
 
-Stylish insurance page: open `docs/insurance.html` in browser (see below).
+API для логистики и грузоперевозок (водители, диспетчеры, грузы, офферы, рейсы).
+
+**Документация API на русском:** [docs/DOCUMENTATION-RU.md](docs/DOCUMENTATION-RU.md) — полное руководство с описанием полей и примерами. Swagger UI: `http://localhost:8080/docs` (или ваш хост + `/docs`).
 
 go run ./cmd/admin -login admin -password "Secret123" -name "Main Admin"
 

@@ -30,11 +30,16 @@ type Config struct {
 	OTPSendLimitPerPhonePerHour int
 	OTPSendLimitPerIPPerHour    int
 	OTPSendWindow               time.Duration
+	OTPVerifyAttemptsPerPhone   int           // макс. попыток ввода OTP на один номер в окне (0 = только maxAttempts на один код)
+	OTPVerifyWindowSeconds     int           // окно в секундах для OTPVerifyAttemptsPerPhone
 
 	TelegramGatewayBaseURL  string
 	TelegramGatewayToken    string
 	TelegramGatewaySenderID string
 	TelegramGatewayBypass   bool // dev: do not call gateway, just log OTP
+
+	// FreelanceDispatcherCargoLimit — макс. число грузов на одного фриланс-диспетчера (0 = без лимита)
+	FreelanceDispatcherCargoLimit int
 }
 
 func LoadFromEnv() (Config, error) {
@@ -67,6 +72,8 @@ func LoadFromEnv() (Config, error) {
 	cfg.OTPSendLimitPerPhonePerHour = mustAtoi(getEnv("OTP_SEND_LIMIT_PER_PHONE_PER_HOUR", "10"))
 	cfg.OTPSendLimitPerIPPerHour = mustAtoi(getEnv("OTP_SEND_LIMIT_PER_IP_PER_HOUR", "30"))
 	cfg.OTPSendWindow = time.Duration(mustAtoi(getEnv("OTP_SEND_WINDOW_SECONDS", "3600"))) * time.Second
+	cfg.OTPVerifyAttemptsPerPhone = mustAtoi(getEnv("OTP_VERIFY_ATTEMPTS_PER_PHONE", "10"))
+	cfg.OTPVerifyWindowSeconds = mustAtoi(getEnv("OTP_VERIFY_WINDOW_SECONDS", "900"))
 
 	cfg.TelegramGatewayBaseURL = getEnv("TELEGRAM_GATEWAY_BASE_URL", "https://gatewayapi.telegram.org")
 	cfg.TelegramGatewayToken = os.Getenv("TELEGRAM_GATEWAY_TOKEN")
@@ -75,6 +82,8 @@ func LoadFromEnv() (Config, error) {
 
 	// Normalize base URL (no trailing slash)
 	cfg.TelegramGatewayBaseURL = strings.TrimRight(cfg.TelegramGatewayBaseURL, "/")
+
+	cfg.FreelanceDispatcherCargoLimit = mustAtoi(getEnv("FREELANCE_DISPATCHER_CARGO_LIMIT", "0"))
 
 	return cfg, nil
 }

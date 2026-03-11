@@ -13,63 +13,71 @@ import (
 )
 
 var (
-	ErrOTPCooldown    = errors.New("otp cooldown")
-	ErrOTPExpired     = errors.New("otp expired")
-	ErrOTPInvalid     = errors.New("otp invalid")
-	ErrOTPMaxAttempts = errors.New("otp max attempts exceeded")
-	ErrOTPRateLimited = errors.New("otp rate limited")
+	ErrOTPCooldown         = errors.New("otp cooldown")
+	ErrOTPExpired          = errors.New("otp expired")
+	ErrOTPInvalid          = errors.New("otp invalid")
+	ErrOTPMaxAttempts      = errors.New("otp max attempts exceeded")
+	ErrOTPRateLimited      = errors.New("otp rate limited")
+	ErrOTPVerifyRateLimited = errors.New("otp verify attempts per phone exceeded")
 )
 
 type OTPStore struct {
-	rdb               *redis.Client
-	secret            string
-	ttl               time.Duration
-	cooldown          time.Duration
-	maxAttempts       int
-	sendLimitPerPhone int64
-	sendLimitPerIP    int64
-	sendWindow        time.Duration
-	prefix            string // e.g. "" or "company_" for separate key namespace
+	rdb                      *redis.Client
+	secret                   string
+	ttl                      time.Duration
+	cooldown                 time.Duration
+	maxAttempts              int
+	sendLimitPerPhone        int64
+	sendLimitPerIP           int64
+	sendWindow               time.Duration
+	verifyAttemptsPerPhone   int64         // лимит попыток ввода OTP на номер в окне (0 = только maxAttempts на один код)
+	verifyAttemptsWindow     time.Duration // окно для verifyAttemptsPerPhone
+	prefix                   string
 }
 
-func NewOTPStore(rdb *redis.Client, secret string, ttl, cooldown time.Duration, maxAttempts int, sendLimitPerPhone, sendLimitPerIP int64, sendWindow time.Duration) *OTPStore {
+func NewOTPStore(rdb *redis.Client, secret string, ttl, cooldown time.Duration, maxAttempts int, sendLimitPerPhone, sendLimitPerIP int64, sendWindow time.Duration, verifyAttemptsPerPhone int64, verifyAttemptsWindow time.Duration) *OTPStore {
 	if sendWindow <= 0 {
 		sendWindow = time.Hour
 	}
 	return &OTPStore{
-		rdb:               rdb,
-		secret:            secret,
-		ttl:               ttl,
-		cooldown:          cooldown,
-		maxAttempts:       maxAttempts,
-		sendLimitPerPhone: sendLimitPerPhone,
-		sendLimitPerIP:    sendLimitPerIP,
-		sendWindow:        sendWindow,
-		prefix:            "",
+		rdb:                    rdb,
+		secret:                 secret,
+		ttl:                    ttl,
+		cooldown:               cooldown,
+		maxAttempts:            maxAttempts,
+		sendLimitPerPhone:      sendLimitPerPhone,
+		sendLimitPerIP:         sendLimitPerIP,
+		sendWindow:             sendWindow,
+		verifyAttemptsPerPhone: verifyAttemptsPerPhone,
+		verifyAttemptsWindow:   verifyAttemptsWindow,
+		prefix:                 "",
 	}
 }
 
-func NewOTPStoreWithPrefix(rdb *redis.Client, secret string, ttl, cooldown time.Duration, maxAttempts int, sendLimitPerPhone, sendLimitPerIP int64, sendWindow time.Duration, prefix string) *OTPStore {
+func NewOTPStoreWithPrefix(rdb *redis.Client, secret string, ttl, cooldown time.Duration, maxAttempts int, sendLimitPerPhone, sendLimitPerIP int64, sendWindow time.Duration, verifyAttemptsPerPhone int64, verifyAttemptsWindow time.Duration, prefix string) *OTPStore {
 	if sendWindow <= 0 {
 		sendWindow = time.Hour
 	}
 	return &OTPStore{
-		rdb:               rdb,
-		secret:            secret,
-		ttl:               ttl,
-		cooldown:          cooldown,
-		maxAttempts:       maxAttempts,
-		sendLimitPerPhone: sendLimitPerPhone,
-		sendLimitPerIP:    sendLimitPerIP,
-		sendWindow:        sendWindow,
-		prefix:            prefix,
+		rdb:                    rdb,
+		secret:                 secret,
+		ttl:                    ttl,
+		cooldown:               cooldown,
+		maxAttempts:            maxAttempts,
+		sendLimitPerPhone:      sendLimitPerPhone,
+		sendLimitPerIP:         sendLimitPerIP,
+		sendWindow:             sendWindow,
+		verifyAttemptsPerPhone: verifyAttemptsPerPhone,
+		verifyAttemptsWindow:   verifyAttemptsWindow,
+		prefix:                 prefix,
 	}
 }
 
-func (s *OTPStore) otpKey(phone string) string       { return s.prefix + "otp:" + phone }
-func (s *OTPStore) cooldownKey(phone string) string  { return s.prefix + "otp:cooldown:" + phone }
-func (s *OTPStore) sendCountKey(phone string) string { return s.prefix + "otp:send_count:" + phone }
-func (s *OTPStore) sendCountIPKey(ip string) string  { return s.prefix + "otp:send_count_ip:" + ip }
+func (s *OTPStore) otpKey(phone string) string           { return s.prefix + "otp:" + phone }
+func (s *OTPStore) cooldownKey(phone string) string      { return s.prefix + "otp:cooldown:" + phone }
+func (s *OTPStore) sendCountKey(phone string) string     { return s.prefix + "otp:send_count:" + phone }
+func (s *OTPStore) sendCountIPKey(ip string) string     { return s.prefix + "otp:send_count_ip:" + ip }
+func (s *OTPStore) verifyAttemptsKey(phone string) string { return s.prefix + "otp:verify_attempts:" + phone }
 
 func (s *OTPStore) hash(phone, code string) string {
 	sum := sha256.Sum256([]byte(phone + ":" + code + ":" + s.secret))
@@ -135,6 +143,20 @@ func (s *OTPStore) Verify(ctx context.Context, phone, code string) (OTPRecord, e
 	want := vals["hash"]
 	got := s.hash(phone, code)
 	if want == "" || got != want {
+		// Неверный код: учитываем в лимите попыток на номер (защита от подбора)
+		if s.verifyAttemptsPerPhone > 0 && s.verifyAttemptsWindow > 0 {
+			vkey := s.verifyAttemptsKey(phone)
+			n, err := s.rdb.Incr(ctx, vkey).Result()
+			if err != nil {
+				return OTPRecord{}, err
+			}
+			if n == 1 {
+				_ = s.rdb.Expire(ctx, vkey, s.verifyAttemptsWindow).Err()
+			}
+			if n > s.verifyAttemptsPerPhone {
+				return OTPRecord{}, ErrOTPVerifyRateLimited
+			}
+		}
 		attempts++
 		_ = s.rdb.HSet(ctx, key, "attempts", fmt.Sprintf("%d", attempts)).Err()
 		if attempts >= s.maxAttempts {

@@ -68,6 +68,7 @@ func (h *DispatcherRegistrationHandler) Complete(c *gin.Context) {
 			return
 		}
 		_ = h.refresh.Put(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
+		_ = h.refresh.PutSession(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 		resp.OK(c, gin.H{"status": "login", "tokens": tokens, "dispatcher": existing})
 		return
 	}
@@ -119,6 +120,7 @@ func (h *DispatcherRegistrationHandler) Complete(c *gin.Context) {
 		return
 	}
 	_ = h.refresh.Put(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
+	_ = h.refresh.PutSession(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 
 	disp, _ := h.repo.FindByID(c.Request.Context(), id)
 	resp.OK(c, gin.H{"status": "registered", "tokens": tokens, "dispatcher": disp})

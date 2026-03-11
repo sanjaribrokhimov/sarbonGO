@@ -11,6 +11,8 @@ import (
 	"go.uber.org/zap"
 
 	"sarbonNew/internal/cargo"
+	"sarbonNew/internal/config"
+	"sarbonNew/internal/reference"
 	"sarbonNew/internal/security"
 	"sarbonNew/internal/server/mw"
 	"sarbonNew/internal/server/resp"
@@ -22,10 +24,11 @@ type CargoHandler struct {
 	repo      *cargo.Repo
 	tripsRepo *trips.Repo
 	jwtm      *security.JWTManager
+	cfg       config.Config
 }
 
-func NewCargoHandler(logger *zap.Logger, repo *cargo.Repo, tripsRepo *trips.Repo, jwtm *security.JWTManager) *CargoHandler {
-	return &CargoHandler{logger: logger, repo: repo, tripsRepo: tripsRepo, jwtm: jwtm}
+func NewCargoHandler(logger *zap.Logger, repo *cargo.Repo, tripsRepo *trips.Repo, jwtm *security.JWTManager, cfg config.Config) *CargoHandler {
+	return &CargoHandler{logger: logger, repo: repo, tripsRepo: tripsRepo, jwtm: jwtm, cfg: cfg}
 }
 
 // CreateCargoReq body for POST /api/cargo.
@@ -47,7 +50,6 @@ type CreateCargoReq struct {
 	Documents    *cargo.Documents        `json:"documents"`
 	ContactName  *string                `json:"contact_name"`
 	ContactPhone *string                `json:"contact_phone"`
-	Status       string                 `json:"status"`
 	RoutePoints  []RoutePointReq        `json:"route_points" binding:"required,dive"`
 	Payment      *PaymentReq            `json:"payment"`
 	CompanyID    *uuid.UUID             `json:"company_id"`
@@ -105,6 +107,22 @@ func (h *CargoHandler) Create(c *gin.Context) {
 			case "dispatcher":
 				params.CreatedByType = strPtr("dispatcher")
 				params.CreatedByID = &userID
+				// Лимит грузов для фриланс-диспетчера (из env)
+				if h.cfg.FreelanceDispatcherCargoLimit > 0 {
+					count, err := h.repo.CountByDispatcher(c.Request.Context(), userID)
+					if err != nil {
+						h.logger.Error("cargo count by dispatcher", zap.Error(err))
+						resp.Error(c, http.StatusInternalServerError, "failed to check cargo limit")
+						return
+					}
+					if count >= h.cfg.FreelanceDispatcherCargoLimit {
+						resp.ErrorWithData(c, http.StatusForbidden, "cargo limit reached for freelance dispatcher", gin.H{
+							"limit":  h.cfg.FreelanceDispatcherCargoLimit,
+							"current": count,
+						})
+						return
+					}
+				}
 			}
 		}
 	}
@@ -120,7 +138,15 @@ func (h *CargoHandler) Create(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, "failed to create cargo")
 		return
 	}
-	resp.Success(c, http.StatusCreated, "created", gin.H{"id": id.String()})
+	// Возвращаем полный объект груза (как GET /api/cargo/:id), чтобы клиент видел все сохранённые данные
+	obj, err := h.repo.GetByID(c.Request.Context(), id, false)
+	if err != nil || obj == nil {
+		resp.Success(c, http.StatusCreated, "created", gin.H{"id": id.String()})
+		return
+	}
+	points, _ := h.repo.GetRoutePoints(c.Request.Context(), id)
+	pay, _ := h.repo.GetPayment(c.Request.Context(), id)
+	resp.Success(c, http.StatusCreated, "created", toCargoDetail(obj, points, pay))
 }
 
 func (h *CargoHandler) List(c *gin.Context) {
@@ -331,8 +357,14 @@ type UpdateCargoReq struct {
 }
 
 func validateCargoCreate(req CreateCargoReq) error {
+	if !reference.IsAllowed(req.TruckType, reference.AllowedTruckTypes()) {
+		return errors.New("truck_type must be from reference: " + strings.Join(reference.AllowedTruckTypes(), ", "))
+	}
 	hasLoad, hasUnload := false, false
 	for _, rp := range req.RoutePoints {
+		if !reference.IsAllowed(rp.Type, reference.AllowedRoutePointTypes()) {
+			return errors.New("route_points[].type must be one of: load, unload, customs, transit")
+		}
 		if rp.Type == "load" {
 			hasLoad = true
 		}
@@ -352,8 +384,33 @@ func validateCargoCreate(req CreateCargoReq) error {
 	if req.ReadyEnabled && (req.ReadyAt == nil || *req.ReadyAt == "") {
 		return errors.New("ready_at required when ready_enabled is true")
 	}
-	if req.Payment != nil && !req.Payment.PriceRequest && req.Payment.TotalAmount == nil {
-		return errors.New("total_amount or price_request required in payment")
+	if req.ShipmentType != nil && *req.ShipmentType != "" && !reference.IsAllowed(*req.ShipmentType, reference.AllowedShipmentTypes()) {
+		return errors.New("shipment_type must be from reference GET /v1/reference/cargo → shipment_type")
+	}
+	for i, v := range req.LoadingTypes {
+		if v != "" && !reference.IsAllowed(v, reference.AllowedLoadingTypes()) {
+			return errors.New("loading_types[" + strconv.Itoa(i) + "] must be from reference GET /v1/reference/cargo → loading_type")
+		}
+	}
+	if req.Payment != nil {
+		if !req.Payment.PriceRequest && req.Payment.TotalAmount == nil {
+			return errors.New("total_amount or price_request required in payment")
+		}
+		if req.Payment.TotalCurrency != nil && *req.Payment.TotalCurrency != "" && !reference.IsAllowed(*req.Payment.TotalCurrency, reference.AllowedCurrencies()) {
+			return errors.New("payment.total_currency must be from reference GET /v1/reference/cargo → currency")
+		}
+		if req.Payment.PrepaymentCurrency != nil && *req.Payment.PrepaymentCurrency != "" && !reference.IsAllowed(*req.Payment.PrepaymentCurrency, reference.AllowedCurrencies()) {
+			return errors.New("payment.prepayment_currency must be from reference GET /v1/reference/cargo → currency")
+		}
+		if req.Payment.RemainingCurrency != nil && *req.Payment.RemainingCurrency != "" && !reference.IsAllowed(*req.Payment.RemainingCurrency, reference.AllowedCurrencies()) {
+			return errors.New("payment.remaining_currency must be from reference GET /v1/reference/cargo → currency")
+		}
+		if req.Payment.PrepaymentType != nil && *req.Payment.PrepaymentType != "" && !reference.IsAllowed(*req.Payment.PrepaymentType, reference.AllowedPrepaymentTypes()) {
+			return errors.New("payment.prepayment_type must be from reference GET /v1/reference/cargo → prepayment_type")
+		}
+		if req.Payment.RemainingType != nil && *req.Payment.RemainingType != "" && !reference.IsAllowed(*req.Payment.RemainingType, reference.AllowedRemainingTypes()) {
+			return errors.New("payment.remaining_type must be from reference GET /v1/reference/cargo → remaining_type")
+		}
 	}
 	return nil
 }
@@ -361,6 +418,9 @@ func validateCargoCreate(req CreateCargoReq) error {
 func validateCargoUpdate(req UpdateCargoReq) error {
 	if req.Weight != nil && *req.Weight <= 0 {
 		return errors.New("weight must be > 0")
+	}
+	if req.TruckType != nil && *req.TruckType != "" && !reference.IsAllowed(*req.TruckType, reference.AllowedTruckTypes()) {
+		return errors.New("truck_type must be from reference GET /v1/reference/cargo → truck_type")
 	}
 	if req.TempMin != nil || req.TempMax != nil {
 		if req.TruckType == nil || *req.TruckType != "refrigerator" {
@@ -372,6 +432,36 @@ func validateCargoUpdate(req UpdateCargoReq) error {
 	}
 	if req.ReadyEnabled != nil && *req.ReadyEnabled && (req.ReadyAt == nil || *req.ReadyAt == "") {
 		return errors.New("ready_at required when ready_enabled is true")
+	}
+	if req.ShipmentType != nil && *req.ShipmentType != "" && !reference.IsAllowed(*req.ShipmentType, reference.AllowedShipmentTypes()) {
+		return errors.New("shipment_type must be from reference GET /v1/reference/cargo → shipment_type")
+	}
+	for i, v := range req.LoadingTypes {
+		if v != "" && !reference.IsAllowed(v, reference.AllowedLoadingTypes()) {
+			return errors.New("loading_types[" + strconv.Itoa(i) + "] must be from reference GET /v1/reference/cargo → loading_type")
+		}
+	}
+	for i, rp := range req.RoutePoints {
+		if rp.Type != "" && !reference.IsAllowed(rp.Type, reference.AllowedRoutePointTypes()) {
+			return errors.New("route_points[" + strconv.Itoa(i) + "].type must be one of: load, unload, customs, transit")
+		}
+	}
+	if req.Payment != nil {
+		if req.Payment.TotalCurrency != nil && *req.Payment.TotalCurrency != "" && !reference.IsAllowed(*req.Payment.TotalCurrency, reference.AllowedCurrencies()) {
+			return errors.New("payment.total_currency must be from reference GET /v1/reference/cargo → currency")
+		}
+		if req.Payment.PrepaymentCurrency != nil && *req.Payment.PrepaymentCurrency != "" && !reference.IsAllowed(*req.Payment.PrepaymentCurrency, reference.AllowedCurrencies()) {
+			return errors.New("payment.prepayment_currency must be from reference GET /v1/reference/cargo → currency")
+		}
+		if req.Payment.RemainingCurrency != nil && *req.Payment.RemainingCurrency != "" && !reference.IsAllowed(*req.Payment.RemainingCurrency, reference.AllowedCurrencies()) {
+			return errors.New("payment.remaining_currency must be from reference GET /v1/reference/cargo → currency")
+		}
+		if req.Payment.PrepaymentType != nil && *req.Payment.PrepaymentType != "" && !reference.IsAllowed(*req.Payment.PrepaymentType, reference.AllowedPrepaymentTypes()) {
+			return errors.New("payment.prepayment_type must be from reference GET /v1/reference/cargo → prepayment_type")
+		}
+		if req.Payment.RemainingType != nil && *req.Payment.RemainingType != "" && !reference.IsAllowed(*req.Payment.RemainingType, reference.AllowedRemainingTypes()) {
+			return errors.New("payment.remaining_type must be from reference GET /v1/reference/cargo → remaining_type")
+		}
 	}
 	return nil
 }
@@ -395,7 +485,7 @@ func toCreateParams(req CreateCargoReq) cargo.CreateParams {
 		Documents:     req.Documents,
 		ContactName:   req.ContactName,
 		ContactPhone:  req.ContactPhone,
-		Status:        req.Status,
+		Status:        cargo.StatusCreated, // при создании всегда created; смена на searching — через PATCH .../status
 	}
 	for _, rp := range req.RoutePoints {
 		p.RoutePoints = append(p.RoutePoints, cargo.RoutePointInput{

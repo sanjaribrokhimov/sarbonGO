@@ -1,7 +1,6 @@
 package mw
 
 import (
-	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -9,23 +8,28 @@ import (
 
 	"sarbonNew/internal/security"
 	"sarbonNew/internal/server/resp"
+	"sarbonNew/internal/store"
 )
 
 const CtxAdminID = "admin_id"
 
 // RequireAdmin проверяет X-User-Token (JWT) и допускает только роль admin.
-// Для всех /v1/admin/* (кроме auth/login) также уже проверены X-Client-Token, X-Device-Type, X-Language через RequireBaseHeaders на v1.
-func RequireAdmin(jwtm *security.JWTManager) gin.HandlerFunc {
+func RequireAdmin(jwtm *security.JWTManager, refreshStore *store.RefreshStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		raw := strings.TrimSpace(c.GetHeader(HeaderUserToken))
 		if raw == "" {
-			resp.Error(c, http.StatusUnauthorized, "missing X-User-Token")
+			resp.Error(c, 401, "missing X-User-Token")
 			c.Abort()
 			return
 		}
-		id, role, err := jwtm.ParseAccess(raw)
+		id, role, _, sid, err := jwtm.ParseAccessWithSID(raw)
 		if err != nil || id == uuid.Nil || role != "admin" {
-			resp.Error(c, http.StatusUnauthorized, "invalid X-User-Token")
+			resp.Error(c, 401, "invalid X-User-Token")
+			c.Abort()
+			return
+		}
+		if sid != "" && refreshStore != nil && !refreshStore.SessionValid(c.Request.Context(), sid) {
+			resp.Error(c, 401, "invalid X-User-Token")
 			c.Abort()
 			return
 		}

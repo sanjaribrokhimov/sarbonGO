@@ -23,7 +23,7 @@
 
 | Метод | Путь | Описание |
 |-------|------|----------|
-| POST | /api/cargo | **Создать груз** — тело: weight, volume (м³), truck_type, route_points (минимум load + unload), опционально payment, status. С X-User-Token (dispatcher) в груз пишется created_by_type=dispatcher. |
+| POST | /api/cargo | **Создать груз** — тело: weight, volume (м³), truck_type, route_points (минимум load + unload), опционально payment. Статус при создании автоматически `created`; смена через PATCH …/status. С X-User-Token (dispatcher) в груз пишется created_by_type=dispatcher. |
 | GET | /api/cargo | Список грузов (фильтры: status, weight_min/max, truck_type, page, limit). |
 | GET | /api/cargo/:id | Карточка груза (с route_points и payment). |
 | PUT | /api/cargo/:id | Обновить груз (до перехода в assigned и далее — ограничения). |

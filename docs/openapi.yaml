@@ -3,15 +3,17 @@ info:
   title: Sarbon API — документация и руководство
   version: 0.1.0
   description: |
-    Полное руководство по API: потоки (flow), логика, данные для каждой категории.
+    **Sarbon** — API для логистики и грузоперевозок: водители, диспетчеры, компании, грузы, офферы, рейсы. Полное руководство по API на русском языке: потоки (flow), логика, описание полей и примеры.
 
-    **Использование (Swagger):**
-    1. Нажмите **Authorize** и задайте заголовки: **X-Device-Type** (web / ios / android), **X-Language** (ru / uz / en / tr / zh), **X-Client-Token**. Эти значения действуют для всех разделов — можно выбрать любой язык и любой тип устройства.
-    2. Для защищённых методов дополнительно укажите **X-User-Token** (JWT после входа).
-    3. Вкладки сверху (Drivers Mobile, Freelance Dispatchers, Admin, Cargo API, Chat, Company) фильтруют методы по категориям.
+    **Как пользоваться Swagger:**
+    1. Нажмите **Authorize** и укажите заголовки: **X-Device-Type** (web / ios / android), **X-Language** (ru / uz / en / tr / zh), **X-Client-Token**. Они обязательны для всех запросов к /v1 и /api.
+    2. Для методов, требующих авторизации, дополнительно укажите **X-User-Token** (JWT access_token после входа водителя, диспетчера или админа).
+    3. Вкладки (теги) сверху группируют методы по ролям: водители, диспетчеры, админ, грузы (Cargo), чат, компании, справочники (Reference).
 
-    **Категории:** Drivers (водители), Freelance Dispatchers (диспетчеры), Admin (админ), Cargo API (грузы и офферы), Chat, Company, Reference (справочники).
-    В каждом теге вверху — описание потока и ролей; у каждого метода — назначение, логика и что передавать/получать.
+    **Категории API:** Водители (Drivers) — регистрация, профиль, KYC, рейсы; Фриланс-диспетчеры — вход, профиль, создание грузов, приглашения водителей, назначение на рейсы; Админ — компании и владельцы; Грузы (Cargo) — создание, список, офферы, принятие оффера; Справочники (Reference) — города, типы кузова, статусы.
+    В каждом разделе вверху дано краткое описание потока; у схем и методов — подробные русские пояснения к полям.
+
+    **Полная документация на русском:** см. файл docs/DOCUMENTATION-RU.md в репозитории.
 
 servers:
   - url: /
@@ -32,7 +34,7 @@ tags:
 
       **Поток для нового номера:** 1) auth/phone → 2) auth/otp/verify → status=register и session_id (JWT пока нет). Дальше POST /v1/registration/start с session_id, name, oferta_accepted → создаётся профиль и выдаются tokens.
 
-      **Данные:** phone в формате +998XXXXXXXXX; otp — код из Telegram/смс. Refresh: POST /v1/auth/refresh (refresh_token). Logout: POST /v1/auth/logout (refresh_token).
+      **Данные:** phone в формате +998XXXXXXXXX; otp — код из Telegram/смс. Refresh: POST /v1/auth/refresh (refresh_token). Logout: POST /v1/auth/logout (refresh_token или access_token).
   - name: Drivers / Registration
     description: |
       **Руководство: Регистрация и шаги водителя**
@@ -72,7 +74,7 @@ tags:
       2. POST /v1/dispatchers/auth/reset-password/confirm (session_id, otp, new_password) → пароль обновлён.
 
       **Refresh:** POST /v1/dispatchers/auth/refresh — тело { "refresh_token": "..." }; в ответе новая пара токенов (expires_at, refresh_expires_at — Unix).
-      **Logout:** POST /v1/dispatchers/auth/logout (refresh_token) — инвалидация refresh_token; после вызова токен нельзя использовать для обновления.
+      **Logout:** POST /v1/dispatchers/auth/logout (refresh_token или access_token) — инвалидация сессии; при невалидном токене 401.
 
       **Данные в запросах:** phone в формате +998XXXXXXXXX; otp — код из смс/Telegram; password — только при login/password и reset/confirm.
   - name: Freelance Dispatchers / Registration
@@ -158,7 +160,7 @@ tags:
     description: |
       **Справочник для раздела Cargo (грузы).** Все статусы груза, точки маршрута, офферы, типы создателя, типы ТС.
 
-      **GET /v1/reference/cargo** возвращает (все value в верхнем регистре): cargo_status (CREATED, SEARCHING, ASSIGNED, IN_TRANSIT, DELIVERED, CANCELLED), route_point_type (LOAD, UNLOAD, CUSTOMS, TRANSIT), offer_status (PENDING, ACCEPTED, REJECTED), created_by_type (ADMIN, DISPATCHER, COMPANY), truck_type (REFRIGERATOR, TENT, FLATBED, TANKER, OTHER), trip_status (PENDING_DRIVER, ASSIGNED, LOADING, EN_ROUTE, UNLOADING, COMPLETED, CANCELLED).
+      **GET /v1/reference/cargo** — полный справочник для грузов. cargo_status (с description), route_point_type (load, unload, customs, transit), truck_type, shipment_type (FTL, LTL…), currency (USD, UZS…), prepayment_type (bank_transfer…), remaining_type (on_delivery…), loading_type (top, side…), offer_status, created_by_type, trip_status. Все переданные в API значения валидируются по этим справочникам.
   - name: "Reference / Company"
     description: |
       **Справочник для раздела Company.** Типы компании, статусы компании, роли (с id и описанием) для приглашений и назначений.
@@ -365,6 +367,13 @@ components:
       properties:
         value: { type: string }
         label: { type: string }
+    ItemWithLabelAndDescription:
+      type: object
+      description: Элемент справочника с пояснением (используется для cargo_status — описание, что означает каждый статус).
+      properties:
+        value: { type: string, description: "Код для API (например CREATED, SEARCHING)" }
+        label: { type: string, description: "Краткая подпись для UI" }
+        description: { type: string, description: "Подробное описание значения" }
     RoleRef:
       type: object
       description: Роль в компании (из app_roles).
@@ -383,12 +392,22 @@ components:
         trailer_plate_types_by_power: { type: object, additionalProperties: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } } }
     ReferenceCargoResponse:
       type: object
+      description: |
+        Справочник для раздела Cargo. Все значения из справочника обязательны при валидации (POST/PUT /api/cargo).
+        cargo_status — первый CREATED; route_point_type (load, unload, customs, transit); truck_type; shipment_type (FTL, LTL…);
+        currency — для total_currency, prepayment_currency, remaining_currency; prepayment_type, remaining_type; loading_type — способы погрузки.
       properties:
-        cargo_status: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
+        cargo_status: { type: array, items: { $ref: "#/components/schemas/ItemWithLabelAndDescription" } }
         route_point_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
         offer_status: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
         created_by_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
         truck_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
+        trip_status: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
+        shipment_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" }, description: "Тип отправки: FTL, LTL, PACKAGE, OTHER" }
+        currency: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" }, description: "Валюты для total_currency, prepayment_currency, remaining_currency: USD, UZS, EUR, RUB, KZT, AED, OTHER" }
+        prepayment_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" }, description: "Способ предоплаты: bank_transfer, cash, card, invoice, other" }
+        remaining_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" }, description: "Условия оплаты остатка: on_delivery, after_invoice, cash, deferred, other" }
+        loading_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" }, description: "Способы погрузки: top, side, rear, crane, forklift, other" }
     ReferenceCompanyResponse:
       type: object
       properties:
@@ -407,78 +426,98 @@ components:
         work_status: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
     Cargo:
       type: object
-      description: "Запись груза (таблица cargo). Возвращается в списках и в карточке."
+      description: |
+        **Груз (запись в таблице cargo).** Возвращается в списке грузов (GET /api/cargo) и в карточке груза (GET /api/cargo/:id).
+
+        **Основные поля:** id — уникальный идентификатор; weight — вес в тоннах; volume — объём в м³; truck_type — тип кузова (tent, refrigerator, flatbed, tanker, other); status — жизненный цикл груза (created → searching → assigned → in_transit → delivered или cancelled).
+
+        **Контакт:** contact_name, contact_phone — для связи с грузоотправителем/получателем.
+
+        **Кто создал:** created_by_type (admin / dispatcher / company) и created_by_id заполняются автоматически при создании по JWT или company_id.
       properties:
-        id: { type: string, format: uuid, description: "UUID груза" }
-        weight: { type: number, description: "Вес (т)" }
-        volume: { type: number, description: "Объём груза (м³)" }
-        ready_enabled: { type: boolean, description: "Указана ли дата готовности" }
-        ready_at: { type: string, format: date-time, nullable: true, description: "Дата/время готовности" }
-        load_comment: { type: string, nullable: true, description: "Комментарий к погрузке" }
-        truck_type: { type: string, description: "Тип транспорта" }
-        temp_min: { type: number, nullable: true, description: "Мин. температура (°C)" }
-        temp_max: { type: number, nullable: true, description: "Макс. температура (°C)" }
-        adr_enabled: { type: boolean, description: "Опасный груз (ADR)" }
-        adr_class: { type: string, nullable: true, description: "Класс ADR" }
-        loading_types: { type: array, items: { type: string }, description: "Типы погрузки" }
-        requirements: { type: array, items: { type: string }, description: "Требования" }
-        shipment_type: { type: string, nullable: true, description: "FTL/LTL" }
-        belts_count: { type: integer, nullable: true, description: "Количество ремней" }
-        documents: { type: object, nullable: true, description: "Флаги документов: TIR, T1, CMR, Medbook, GLONASS, Seal, Permit" }
-        contact_name: { type: string, nullable: true, description: "Имя контактного лица" }
-        contact_phone: { type: string, nullable: true, description: "Телефон контактного лица" }
-        status: { type: string, enum: [created, searching, assigned, in_transit, delivered, cancelled], description: "Текущий статус груза" }
+        id: { type: string, format: uuid, description: "Уникальный идентификатор груза (UUID)" }
+        weight: { type: number, description: "Вес груза в тоннах (обязательно > 0)" }
+        volume: { type: number, description: "Объём груза в кубических метрах (м³)" }
+        ready_enabled: { type: boolean, description: "Указана ли дата готовности груза к перевозке" }
+        ready_at: { type: string, format: date-time, nullable: true, description: "Дата и время, когда груз будет готов к погрузке (обязательно при ready_enabled=true)" }
+        load_comment: { type: string, nullable: true, description: "Комментарий к погрузке (особенности, условия)" }
+        truck_type: { type: string, description: "Тип кузова: tent (тент), refrigerator (рефрижератор), flatbed (борт), tanker (цистерна), other (другое). Справочник: GET /v1/reference/cargo → truck_type" }
+        temp_min: { type: number, nullable: true, description: "Минимальная температура (°C) для рефрижератора; допустимо только при truck_type=refrigerator" }
+        temp_max: { type: number, nullable: true, description: "Максимальная температура (°C) для рефрижератора; допустимо только при truck_type=refrigerator" }
+        adr_enabled: { type: boolean, description: "Является ли груз опасным (ADR); при true обязательно указать adr_class" }
+        adr_class: { type: string, nullable: true, description: "Класс опасного груза (ADR); обязателен при adr_enabled=true" }
+        loading_types: { type: array, items: { type: string }, description: "Способы погрузки (например верхняя, боковая)" }
+        requirements: { type: array, items: { type: string }, description: "Дополнительные требования к перевозке" }
+        shipment_type: { type: string, nullable: true, description: "Тип отправки: FTL (полная загрузка), LTL (частичная) и т.д." }
+        belts_count: { type: integer, nullable: true, description: "Количество ремней крепления" }
+        documents: { type: object, nullable: true, description: "Требуемые документы: TIR, T1, CMR, Medbook, GLONASS, Seal, Permit (булевы флаги)" }
+        contact_name: { type: string, nullable: true, description: "Имя контактного лица (грузоотправитель/получатель)" }
+        contact_phone: { type: string, nullable: true, description: "Телефон контактного лица в формате +998XXXXXXXXX" }
+        status: { type: string, enum: [created, searching, assigned, in_transit, delivered, cancelled], description: "Статус: created — создан; searching — в поиске перевозчика; assigned — назначен; in_transit — в пути; delivered — доставлен; cancelled — отменён" }
         created_at: { type: string, format: date-time, description: "Дата и время создания записи" }
         updated_at: { type: string, format: date-time, description: "Дата и время последнего обновления" }
-        created_by_type: { type: string, enum: [admin, dispatcher, company], nullable: true, description: "Кто создал: admin, dispatcher или company. Заполняется автоматически при POST: по X-User-Token (admin/dispatcher) или по company_id в теле (company)." }
-        created_by_id: { type: string, format: uuid, nullable: true, description: "UUID создателя: admins.id, freelance_dispatchers.id или companies.id в зависимости от created_by_type" }
-        company_id: { type: string, format: uuid, nullable: true, description: "UUID компании (companies), от имени которой создан груз; при created_by_type=company совпадает с created_by_id" }
+        created_by_type: { type: string, enum: [admin, dispatcher, company], nullable: true, description: "Кто создал груз: admin, dispatcher или company (подставляется автоматически по JWT или company_id)" }
+        created_by_id: { type: string, format: uuid, nullable: true, description: "UUID создателя (админ, диспетчер или компания)" }
+        company_id: { type: string, format: uuid, nullable: true, description: "UUID компании, от которой груз (если создан от имени компании)" }
     RoutePoint:
       type: object
-      description: "Точка маршрута (таблица route_points): погрузка, выгрузка, таможня, транзит. Город — по коду из справочника городов (TAS, SAM, DXB), адрес и ориентир."
+      description: |
+        **Точка маршрута** (погрузка, выгрузка, таможня, транзит). В каждой точке указывается город (код из справочника городов), точный адрес и координаты.
+
+        **Типы:** load — погрузка; unload — выгрузка; customs — таможня; transit — транзитная точка. В маршруте обязательно минимум одна погрузка (load) и одна выгрузка (unload).
+
+        **Город:** city_code берётся из GET /v1/reference/cities (например TAS — Ташкент, SAM — Самарканд, DXB — Дубай).
       properties:
-        id: { type: string, format: uuid }
-        cargo_id: { type: string, format: uuid }
-        type: { type: string, enum: [load, unload, customs, transit], description: "load — погрузка, unload — выгрузка, customs — таможня, transit — транзит" }
-        city_code: { type: string, description: "Код города из справочника (GET /v1/reference/cities): TAS, SAM, DXB и т.д." }
-        address: { type: string, description: "Адрес (улица, дом)" }
-        orientir: { type: string, description: "Ориентир для водителя (что написать для поиска места)" }
-        lat: { type: number, description: "Широта" }
-        lng: { type: number, description: "Долгота" }
-        comment: { type: string, nullable: true }
-        point_order: { type: integer, description: "Порядок следования по маршруту" }
-        is_main_load: { type: boolean, description: "Основная точка погрузки" }
-        is_main_unload: { type: boolean, description: "Основная точка выгрузки" }
+        id: { type: string, format: uuid, description: "Уникальный идентификатор точки маршрута" }
+        cargo_id: { type: string, format: uuid, description: "UUID груза, к которому относится точка" }
+        type: { type: string, enum: [load, unload, customs, transit], description: "Тип точки: load — погрузка, unload — выгрузка, customs — таможня, transit — транзит" }
+        city_code: { type: string, description: "Код города из справочника GET /v1/reference/cities (TAS, SAM, DXB и т.д.)" }
+        address: { type: string, description: "Полный адрес: улица, дом, склад, промзона" }
+        orientir: { type: string, description: "Ориентир для водителя: как найти место (въезд, КПП, рядом с чем)" }
+        lat: { type: number, description: "Широта в градусах (для карты и навигации)" }
+        lng: { type: number, description: "Долгота в градусах (для карты и навигации)" }
+        comment: { type: string, nullable: true, description: "Произвольный комментарий к точке" }
+        point_order: { type: integer, description: "Порядок точки в маршруте (1, 2, 3…)" }
+        is_main_load: { type: boolean, description: "Является ли эта точка основной погрузкой" }
+        is_main_unload: { type: boolean, description: "Является ли эта точка основной выгрузкой" }
     Payment:
       type: object
-      description: "Оплата по грузу (таблица payments, связь 1:1 с cargo)."
+      description: |
+        **Условия оплаты по грузу** (одна запись на груз). Указывается при создании/редактировании груза в блоке payment.
+
+        **Сумма:** total_amount и total_currency — итоговая цена перевозки; если price_request=true, фиксированной суммы нет (запрос цены). is_negotiable — цена договорная.
+
+        **Предоплата:** with_prepayment, prepayment_amount, prepayment_currency; остаток — remaining_amount, remaining_currency.
       properties:
-        id: { type: string, format: uuid }
-        cargo_id: { type: string, format: uuid }
-        is_negotiable: { type: boolean, description: "Цена договорная" }
-        price_request: { type: boolean, description: "Запрос цены (без фиксированной суммы)" }
-        total_amount: { type: number, nullable: true, description: "Общая сумма" }
-        total_currency: { type: string, nullable: true, description: "Валюта (UZS, USD)" }
-        with_prepayment: { type: boolean }
-        without_prepayment: { type: boolean }
-        prepayment_amount: { type: number, nullable: true }
-        prepayment_currency: { type: string, nullable: true }
-        prepayment_type: { type: string, nullable: true }
-        remaining_amount: { type: number, nullable: true }
-        remaining_currency: { type: string, nullable: true }
-        remaining_type: { type: string, nullable: true }
+        id: { type: string, format: uuid, description: "UUID записи об оплате" }
+        cargo_id: { type: string, format: uuid, description: "UUID груза" }
+        is_negotiable: { type: boolean, description: "Цена договорная (обсуждается с перевозчиком)" }
+        price_request: { type: boolean, description: "Запрос цены: true — без фиксированной суммы, перевозчик предлагает сам" }
+        total_amount: { type: number, nullable: true, description: "Общая сумма оплаты за перевозку" }
+        total_currency: { type: string, nullable: true, description: "Валюта суммы: USD, UZS и т.д." }
+        with_prepayment: { type: boolean, description: "Есть ли предоплата" }
+        without_prepayment: { type: boolean, description: "Оплата без предоплаты (полный расчёт по факту)" }
+        prepayment_amount: { type: number, nullable: true, description: "Сумма предоплаты" }
+        prepayment_currency: { type: string, nullable: true, description: "Валюта предоплаты" }
+        prepayment_type: { type: string, nullable: true, description: "Тип предоплаты (по договорённости)" }
+        remaining_amount: { type: number, nullable: true, description: "Сумма остатка к оплате" }
+        remaining_currency: { type: string, nullable: true, description: "Валюта остатка" }
+        remaining_type: { type: string, nullable: true, description: "Условия оплаты остатка" }
     Offer:
       type: object
-      description: "Оффер перевозчика по грузу (таблица offers). carrier_id — ID водителя."
+      description: |
+        **Оффер (предложение перевозчика)** по грузу. Водитель отправляет цену и комментарий; диспетчер/админ принимает или отклоняет оффер.
+
+        **Статусы:** pending — на рассмотрении; accepted — принят (груз переходит в assigned, создаётся рейс); rejected — отклонён. carrier_id — ID водителя из таблицы drivers.
       properties:
-        id: { type: string, format: uuid }
-        cargo_id: { type: string, format: uuid }
+        id: { type: string, format: uuid, description: "UUID оффера" }
+        cargo_id: { type: string, format: uuid, description: "UUID груза" }
         carrier_id: { type: string, format: uuid, description: "ID перевозчика (водителя из drivers)" }
-        price: { type: number }
-        currency: { type: string }
-        comment: { type: string, nullable: true }
+        price: { type: number, description: "Предложенная цена" }
+        currency: { type: string, description: "Валюта (USD, UZS и т.д.)" }
+        comment: { type: string, nullable: true, description: "Комментарий перевозчика" }
         status: { type: string, enum: [pending, accepted, rejected], description: "pending — на рассмотрении, accepted — принят, rejected — отклонён" }
-        created_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time, description: "Дата и время создания оффера" }
     CargoListResponse:
       type: object
       description: Ответ GET /api/cargo — список грузов и общее количество для пагинации.
@@ -489,71 +528,107 @@ components:
     CargoCreateRequest:
       type: object
       description: |
-        Тело POST /api/cargo. Создание груза вместе с точками маршрута и оплатой.
-        Обязательно: weight > 0, volume > 0 (м³), truck_type; массив route_points с минимум одной точкой type=load и одной type=unload.
-        У каждой точки обязательны address, lat, lng, type, point_order.
-        Создатель записывается автоматически: при заголовке X-User-Token (JWT) — admin или dispatcher; при отсутствии JWT но наличии company_id в теле — company. Поле company_id опционально (привязка груза к компании).
+        **Тело запроса POST /api/cargo** — создание груза с точками маршрута и условиями оплаты.
+
+        **Обязательные поля:** weight (вес в тоннах, > 0), volume (объём в м³, > 0), truck_type (тип кузова из справочника GET /v1/reference/cargo), route_points — массив точек маршрута. В route_points обязательно минимум одна точка с type=load (погрузка) и одна с type=unload (выгрузка). У каждой точки обязательны: type, city_code, address, lat, lng, point_order.
+
+        **Справочники:** города — GET /v1/reference/cities (коды TAS, SAM, DXB…); типы кузова — GET /v1/reference/cargo → truck_type.
+
+        **Создатель:** при заголовке X-User-Token (JWT админа или диспетчера) создатель подставляется автоматически; при отсутствии JWT можно передать company_id — тогда создателем будет компания.
+
+        **Статус при создании:** всегда устанавливается автоматически в `created`. Чтобы перевести груз в поиск перевозчика, после создания вызовите PATCH /api/cargo/:id/status с телом { "status": "searching" }.
       properties:
-        weight: { type: number, description: "Вес (т), обязательно > 0" }
-        volume: { type: number, description: "Объём груза (м³), обязательно > 0" }
-        ready_enabled: { type: boolean, default: false, description: "Указана ли дата готовности" }
-        ready_at: { type: string, format: date-time, nullable: true, description: "Дата/время готовности; обязательна если ready_enabled=true" }
-        load_comment: { type: string, nullable: true }
-        truck_type: { type: string, description: "Тип транспорта (например refrigerator, tent)" }
-        temp_min: { type: number, nullable: true, description: "Мин. температура; при указании truck_type должен быть refrigerator" }
-        temp_max: { type: number, nullable: true }
-        adr_enabled: { type: boolean, default: false }
-        adr_class: { type: string, nullable: true, description: "Обязателен если adr_enabled=true" }
-        loading_types: { type: array, items: { type: string }, nullable: true }
-        requirements: { type: array, items: { type: string }, nullable: true }
-        shipment_type: { type: string, nullable: true, example: FTL }
-        belts_count: { type: integer, nullable: true }
-        documents: { type: object, nullable: true, description: "Флаги TIR, T1, CMR, Medbook, GLONASS, Seal, Permit (boolean)" }
-        contact_name: { type: string, nullable: true }
-        contact_phone: { type: string, nullable: true }
-        status: { type: string, enum: [created, searching], nullable: true }
-        company_id: { type: string, format: uuid, nullable: true, description: "Опционально: UUID компании (companies), от которой груз" }
+        weight: { type: number, description: "Вес груза в тоннах; обязательно, число больше 0" }
+        volume: { type: number, description: "Объём груза в кубических метрах (м³); обязательно, число больше 0" }
+        ready_enabled: { type: boolean, default: false, description: "Указана ли дата готовности груза к погрузке" }
+        ready_at: { type: string, format: date-time, nullable: true, description: "Дата и время готовности; обязательна, если ready_enabled=true" }
+        load_comment: { type: string, nullable: true, description: "Комментарий к погрузке (условия, особенности)" }
+        truck_type: { type: string, description: "Тип кузова: tent, refrigerator, flatbed, tanker, other (значения из GET /v1/reference/cargo → truck_type)" }
+        temp_min: { type: number, nullable: true, description: "Минимальная температура (°C); допустимо только при truck_type=refrigerator" }
+        temp_max: { type: number, nullable: true, description: "Максимальная температура (°C); допустимо только при truck_type=refrigerator" }
+        adr_enabled: { type: boolean, default: false, description: "Опасный груз (ADR); при true обязательно указать adr_class" }
+        adr_class: { type: string, nullable: true, description: "Класс опасного груза; обязателен при adr_enabled=true" }
+        loading_types: { type: array, items: { type: string }, nullable: true, description: "Способы погрузки (массив строк)" }
+        requirements: { type: array, items: { type: string }, nullable: true, description: "Дополнительные требования к перевозке" }
+        shipment_type: { type: string, nullable: true, example: FTL, description: "Тип отправки: FTL (полная загрузка), LTL и т.д." }
+        belts_count: { type: integer, nullable: true, description: "Количество ремней крепления" }
+        documents: { type: object, nullable: true, description: "Требуемые документы: объект с полями TIR, T1, CMR, Medbook, GLONASS, Seal, Permit (boolean)" }
+        contact_name: { type: string, nullable: true, description: "Имя контактного лица для связи" }
+        contact_phone: { type: string, nullable: true, description: "Телефон контакта, например +998901234567" }
+        company_id: { type: string, format: uuid, nullable: true, description: "UUID компании, от имени которой создаётся груз (опционально)" }
         route_points:
           type: array
           minItems: 1
           items: { $ref: "#/components/schemas/RoutePointInput" }
-          description: "Точки маршрута; минимум 1 load и 1 unload"
-        payment: { $ref: "#/components/schemas/PaymentInput", nullable: true }
+          description: "Точки маршрута: минимум одна погрузка (load) и одна выгрузка (unload); порядок задаётся point_order"
+        payment: { $ref: "#/components/schemas/PaymentInput", nullable: true, description: "Условия оплаты (опционально); при указании либо total_amount, либо price_request=true" }
       required: [weight, volume, truck_type, route_points]
+    CargoUpdateRequest:
+      type: object
+      description: |
+        **Тело PUT /api/cargo/:id** — частичное обновление груза. Все поля опциональны; передаются только те, что нужно изменить.
+        Статус груза не передаётся в PUT — смена статуса через PATCH /api/cargo/:id/status.
+      properties:
+        weight: { type: number, description: "Вес (т); > 0" }
+        volume: { type: number, description: "Объём (м³); > 0" }
+        ready_enabled: { type: boolean }
+        ready_at: { type: string, format: date-time, nullable: true }
+        load_comment: { type: string, nullable: true }
+        truck_type: { type: string }
+        temp_min: { type: number, nullable: true }
+        temp_max: { type: number, nullable: true }
+        adr_enabled: { type: boolean }
+        adr_class: { type: string, nullable: true }
+        loading_types: { type: array, items: { type: string } }
+        requirements: { type: array, items: { type: string } }
+        shipment_type: { type: string, nullable: true }
+        belts_count: { type: integer, nullable: true }
+        documents: { type: object, nullable: true }
+        contact_name: { type: string, nullable: true }
+        contact_phone: { type: string, nullable: true }
+        route_points: { type: array, items: { $ref: "#/components/schemas/RoutePointInput" } }
+        payment: { $ref: "#/components/schemas/PaymentInput", nullable: true }
     RoutePointInput:
       type: object
       description: |
-        Одна точка маршрута при создании/обновлении груза.
-        city_code — код города из справочника (GET /v1/reference/cities): TAS, SAM, DXB и т.д.
-        address — адрес (улица, дом). orientir — ориентир для водителя, опционально.
+        **Одна точка маршрута** при создании или редактировании груза (POST /api/cargo, PUT /api/cargo/:id).
+
+        **Обязательно:** type (load/unload/customs/transit), city_code (код города из GET /v1/reference/cities), address (улица, дом, склад), lat, lng (координаты), point_order (порядок 1, 2, 3…).
+
+        **Опционально:** orientir — подсказка для водителя, как найти место; comment; is_main_load / is_main_unload — отметить основную погрузку/выгрузку.
       properties:
-        type: { type: string, enum: [load, unload, customs, transit], description: "Тип точки" }
-        city_code: { type: string, description: "Код города (TAS, SAM, DXB)", example: "TAS" }
-        address: { type: string, description: "Адрес (улица, дом)" }
-        orientir: { type: string, description: "Ориентир для водителя", example: "склад №5, въезд с ул. Мира" }
-        lat: { type: number }
-        lng: { type: number }
-        comment: { type: string, nullable: true }
-        point_order: { type: integer, description: "Порядок следования" }
-        is_main_load: { type: boolean, default: false }
-        is_main_unload: { type: boolean, default: false }
+        type: { type: string, enum: [load, unload, customs, transit], description: "Тип точки: load — погрузка, unload — выгрузка, customs — таможня, transit — транзит" }
+        city_code: { type: string, description: "Код города из справочника GET /v1/reference/cities (TAS — Ташкент, SAM — Самарканд, DXB — Дубай и т.д.)", example: "TAS" }
+        address: { type: string, description: "Полный адрес: улица, дом, номер склада, промзона" }
+        orientir: { type: string, description: "Ориентир для водителя: с какой стороны въезд, рядом с чем, КПП", example: "склад №5, въезд с ул. Мира" }
+        lat: { type: number, description: "Широта в градусах (для карты)" }
+        lng: { type: number, description: "Долгота в градусах (для карты)" }
+        comment: { type: string, nullable: true, description: "Произвольный комментарий к точке" }
+        point_order: { type: integer, description: "Порядок точки в маршруте (1 — первая, 2 — вторая и т.д.)" }
+        is_main_load: { type: boolean, default: false, description: "Отметить как основную точку погрузки" }
+        is_main_unload: { type: boolean, default: false, description: "Отметить как основную точку выгрузки" }
       required: [type, city_code, address, lat, lng, point_order]
     PaymentInput:
       type: object
-      description: Блок оплаты при создании/обновлении груза (1:1 с грузом).
+      description: |
+        **Условия оплаты** при создании или обновлении груза (блок payment в теле POST/PUT /api/cargo). Один блок на груз.
+
+        **Правило:** если передан блок payment и price_request=false, нужно указать total_amount (фиксированная сумма). Если price_request=true — сумма не обязательна (запрос цены от перевозчика).
+
+        **Предоплата:** with_prepayment, prepayment_amount, prepayment_currency; остаток к оплате — remaining_amount, remaining_currency.
       properties:
-        is_negotiable: { type: boolean, default: false }
-        price_request: { type: boolean, default: false, description: "Если true — сумма не обязательна (запрос цены)" }
-        total_amount: { type: number, nullable: true }
-        total_currency: { type: string, nullable: true, example: USD }
-        with_prepayment: { type: boolean, default: false }
-        without_prepayment: { type: boolean, default: true }
-        prepayment_amount: { type: number, nullable: true }
-        prepayment_currency: { type: string, nullable: true }
-        prepayment_type: { type: string, nullable: true }
-        remaining_amount: { type: number, nullable: true }
-        remaining_currency: { type: string, nullable: true }
-        remaining_type: { type: string, nullable: true }
+        is_negotiable: { type: boolean, default: false, description: "Цена договорная (обсуждается с перевозчиком)" }
+        price_request: { type: boolean, default: false, description: "Запрос цены: true — без фиксированной суммы, перевозчик предлагает цену сам" }
+        total_amount: { type: number, nullable: true, description: "Общая сумма оплаты за перевозку (обязательна при price_request=false)" }
+        total_currency: { type: string, nullable: true, example: USD, description: "Валюта: USD, UZS и т.д." }
+        with_prepayment: { type: boolean, default: false, description: "Есть предоплата" }
+        without_prepayment: { type: boolean, default: true, description: "Оплата без предоплаты (расчёт по факту)" }
+        prepayment_amount: { type: number, nullable: true, description: "Сумма предоплаты" }
+        prepayment_currency: { type: string, nullable: true, description: "Валюта предоплаты" }
+        prepayment_type: { type: string, nullable: true, description: "Тип/условия предоплаты" }
+        remaining_amount: { type: number, nullable: true, description: "Сумма остатка к оплате после доставки" }
+        remaining_currency: { type: string, nullable: true, description: "Валюта остатка" }
+        remaining_type: { type: string, nullable: true, description: "Условия оплаты остатка" }
     CargoStatusRequest:
       type: object
       description: Тело PATCH /api/cargo/:id/status — смена статуса с проверкой допустимых переходов.
@@ -599,33 +674,50 @@ paths:
 
         **Создатель (автоматически):** Если передан заголовок **X-User-Token** (JWT) с ролью admin или dispatcher — в груз записываются created_by_type и created_by_id. Если JWT не передан, но в теле есть company_id — создателем считается компания (created_by_type=company). Опционально в теле можно передать company_id для привязки груза к компании.
 
-        **Что передаём:** Схема CargoCreateRequest — поля груза + массив route_points (RoutePointInput[]) + опционально payment (PaymentInput), company_id. Ответ: data.id — UUID созданного груза.
+        **Что передаём:** Схема CargoCreateRequest — все поля груза (обязательные: weight, volume, truck_type, route_points) + опционально payment, contact_name, contact_phone, ready_enabled, ready_at, load_comment, temp_min/temp_max, adr_enabled, adr_class, loading_types, requirements, shipment_type, belts_count, documents, company_id. В ответе возвращается **полный объект груза** (как в GET /api/cargo/:id): data содержит созданный груз с id, route_points, payment и всеми полями.
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
       requestBody:
         required: true
         content:
           application/json:
             schema: { $ref: "#/components/schemas/CargoCreateRequest" }
+            description: "Реальный пример груза — пшеница, Ташкент → Самарканд, тент 20т/82м³, с оплатой и документами."
             example:
               weight: 20
-              volume: 40
+              volume: 82
               truck_type: "tent"
+              ready_enabled: true
+              ready_at: "2026-03-15T08:00:00Z"
+              load_comment: "Погрузка сверху, склад сухой. Груз пшеница, мешки 50 кг."
+              adr_enabled: false
+              loading_types: ["top", "side"]
+              requirements: ["Тент в хорошем состоянии", "Крепление ремнями"]
+              shipment_type: "FTL"
+              belts_count: 6
+              documents:
+                TIR: true
+                CMR: true
+                Seal: true
+              contact_name: "Иван Петров"
+              contact_phone: "+998901234567"
               route_points:
                 - type: "load"
                   city_code: "TAS"
                   address: "ул. Амира Темура 1, склад №5"
-                  orientir: "въезд со стороны метро Хамза"
+                  orientir: "Въезд со стороны метро Хамза, ворота А"
                   lat: 41.311081
                   lng: 69.240562
+                  comment: "Склад зерна, разгрузка с 08:00 до 18:00"
                   point_order: 1
                   is_main_load: true
                   is_main_unload: false
                 - type: "unload"
                   city_code: "SAM"
-                  address: "промзона, терминал А"
-                  orientir: "за КПП 2"
+                  address: "промзона Южная, терминал А"
+                  orientir: "За КПП 2, склад напротив"
                   lat: 39.654167
                   lng: 66.959722
+                  comment: "Выгрузка в течение 2 часов по прибытии"
                   point_order: 2
                   is_main_load: false
                   is_main_unload: true
@@ -638,12 +730,13 @@ paths:
                 without_prepayment: false
                 prepayment_amount: 500
                 prepayment_currency: "USD"
-              contact_name: "Иван Петров"
-              contact_phone: "+998901234567"
-              status: "created"
+                prepayment_type: "bank_transfer"
+                remaining_amount: 1000
+                remaining_currency: "USD"
+                remaining_type: "on_delivery"
       responses:
         "201":
-          description: "Груз создан. В data возвращается id (UUID)."
+          description: "Груз создан. В data — полный объект груза (id, route_points, payment и все поля)."
           content:
             application/json:
               schema:
@@ -651,7 +744,7 @@ paths:
                   - $ref: "#/components/schemas/Envelope"
                   - type: object
                     properties:
-                      data: { type: object, properties: { id: { type: string, format: uuid } }, description: "UUID созданного груза" }
+                      data: { $ref: "#/components/schemas/CargoDetailResponse", description: "Полный объект созданного груза (как в GET /api/cargo/:id) — id, weight, volume, route_points, payment и все остальные поля" }
         "400":
           description: "Ошибка валидации (неверные поля, нет load/unload точек и т.д.)"
           content:
@@ -666,7 +759,7 @@ paths:
 
         **Логика:** Удалённые (soft delete) не возвращаются. Применяются фильтры по query-параметрам. Сортировка по sort (например created_at:desc). Пагинация: page (с 1), limit (по умолчанию 20, макс. 100). В ответе data.items — массив грузов, data.total — общее количество записей.
 
-        **Параметры:** status (несколько через запятую), weight_min, weight_max, truck_type, created_from (YYYY-MM-DD), created_to, search (по title), with_offers (true — только грузы с офферами), page, limit, sort.
+        **Параметры:** status (несколько через запятую), weight_min, weight_max, truck_type, created_from (YYYY-MM-DD), created_to, with_offers (true — только грузы с офферами), page, limit, sort.
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
       parameters:
         - name: status
@@ -693,10 +786,6 @@ paths:
           in: query
           schema: { type: string, format: date }
           description: "Дата создания до (YYYY-MM-DD)"
-        - name: search
-          in: query
-          schema: { type: string, example: "пшеница" }
-          description: "Поиск по названию (title)"
         - name: with_offers
           in: query
           schema: { type: boolean }
@@ -777,9 +866,7 @@ paths:
       requestBody:
         content:
           application/json:
-            schema:
-              $ref: "#/components/schemas/CargoCreateRequest"
-              description: "Любые поля груза + route_points + payment (все опциональны для частичного обновления)"
+            schema: { $ref: "#/components/schemas/CargoUpdateRequest" }
       responses:
         "200":
           description: "Обновление применено. data.id = id груза."
@@ -1711,11 +1798,11 @@ paths:
   /v1/auth/logout:
     post:
       tags: ["Drivers / Auth"]
-      summary: "Выход (отзыв refresh token)"
+      summary: "Выход (отзыв сессии)"
       description: |
         **Кто вызывает:** Водитель (мобильное приложение).
-        **Назначение:** Инвалидация refresh_token. После вызова этот refresh_token больше нельзя использовать для /v1/auth/refresh.
-        **Данные:** refresh_token (обязательно).
+        **Назначение:** Инвалидация сессии. Передайте **refresh_token** — отзывается одна сессия (этот refresh больше нельзя использовать). Передайте **access_token** — отзываются все сессии водителя. Нужен хотя бы один из токенов.
+        **Валидация:** при невалидном или истёкшем токене возвращается 401.
       requestBody:
         required: true
         content:
@@ -1723,11 +1810,11 @@ paths:
             schema:
               type: object
               properties:
-                refresh_token: { type: string }
-              required: [refresh_token]
+                refresh_token: { type: string, description: "JWT refresh — отзыв одной сессии" }
+                access_token: { type: string, description: "JWT access — отзыв всех сессий водителя" }
       responses:
         "200":
-          description: OK
+          description: OK (сессия/сессии инвалидированы)
           content:
             application/json:
               schema:
@@ -1735,6 +1822,8 @@ paths:
                 properties:
                   status: { type: string, example: "ok" }
                 required: [status]
+        "400": { description: Нет ни refresh_token, ни access_token }
+        "401": { description: Невалидный или истёкший токен; refresh уже использован }
 
   /v1/dispatchers/auth/phone:
     post:
@@ -1902,11 +1991,11 @@ paths:
   /v1/dispatchers/auth/logout:
     post:
       tags: ["Freelance Dispatchers / Auth"]
-      summary: "Выход (отзыв refresh token)"
+      summary: "Выход (отзыв сессии)"
       description: |
         **Кто вызывает:** Freelance-диспетчер (клиент после входа по OTP или по паролю).
-        **Назначение:** Инвалидация refresh_token. После вызова этот refresh_token больше нельзя использовать для обновления пары токенов.
-        **Данные:** refresh_token (обязательно) — тот, что был выдан при login или registration/complete.
+        **Назначение:** Инвалидация сессии. Передайте **refresh_token** — отзывается одна сессия. Передайте **access_token** — отзываются все сессии диспетчера. Нужен хотя бы один из токенов.
+        **Валидация:** при невалидном или истёкшем токене возвращается 401.
       requestBody:
         required: true
         content:
@@ -1914,17 +2003,18 @@ paths:
             schema:
               type: object
               properties:
-                refresh_token: { type: string, description: "JWT refresh token, выданный при входе" }
-              required: [refresh_token]
+                refresh_token: { type: string, description: "JWT refresh — отзыв одной сессии" }
+                access_token: { type: string, description: "JWT access — отзыв всех сессий диспетчера" }
             example:
-              refresh_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhYmMxMjMiLCJ0eXBlIjoicmVmcmVzaCJ9.xxx"
+              access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
       responses:
         "200":
-          description: OK (refresh token инвалидирован)
+          description: OK (сессия/сессии инвалидированы)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
-        "400": { description: Неверное тело (нет refresh_token) }
+        "400": { description: Нет ни refresh_token, ни access_token }
+        "401": { description: Невалидный или истёкший токен; refresh уже использован; роль не dispatcher }
 
   /v1/dispatchers/registration/complete:
     post:

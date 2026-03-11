@@ -20,14 +20,20 @@ type ReferenceDriversResponse struct {
 	TrailerPlateTypes  map[string][]ItemWithLabel `json:"trailer_plate_types_by_power"`
 }
 
-// ReferenceCargoResponse — справочник для раздела Cargo (грузы). Все value в верхнем регистре.
+// ReferenceCargoResponse — справочник для раздела Cargo (грузы). Все value в верхнем регистре (кроме payment/loading — там как в API).
+// cargo_status: первый статус — created (при создании груза); остальные с описанием.
 type ReferenceCargoResponse struct {
-	CargoStatus    []ItemWithLabel `json:"cargo_status"`
-	RoutePointType []ItemWithLabel `json:"route_point_type"`
-	OfferStatus    []ItemWithLabel `json:"offer_status"`
-	CreatedByType  []ItemWithLabel `json:"created_by_type"`
-	TruckType      []ItemWithLabel `json:"truck_type"`
-	TripStatus     []ItemWithLabel `json:"trip_status"` // статусы рейса
+	CargoStatus     []ItemWithLabelAndDescription `json:"cargo_status"`
+	RoutePointType  []ItemWithLabel               `json:"route_point_type"`
+	OfferStatus     []ItemWithLabel               `json:"offer_status"`
+	CreatedByType   []ItemWithLabel               `json:"created_by_type"`
+	TruckType       []ItemWithLabel               `json:"truck_type"`
+	TripStatus      []ItemWithLabel               `json:"trip_status"`
+	ShipmentType    []ItemWithLabel               `json:"shipment_type"`
+	Currency        []ItemWithLabel               `json:"currency"`
+	PrepaymentType  []ItemWithLabel               `json:"prepayment_type"`
+	RemainingType   []ItemWithLabel               `json:"remaining_type"`
+	LoadingType     []ItemWithLabel               `json:"loading_type"`
 }
 
 // ReferenceCompanyResponse — справочник для раздела Company. Все value в верхнем регистре.
@@ -52,6 +58,13 @@ type ReferenceDispatchersResponse struct {
 type ItemWithLabel struct {
 	Value string `json:"value"`
 	Label string `json:"label"`
+}
+
+// ItemWithLabelAndDescription — элемент справочника с пояснением (например статусы груза).
+type ItemWithLabelAndDescription struct {
+	Value       string `json:"value"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
 }
 
 type RoleRef struct {
@@ -109,13 +122,13 @@ var refDrivers = ReferenceDriversResponse{
 }
 
 var refCargo = ReferenceCargoResponse{
-	CargoStatus: []ItemWithLabel{
-		{Value: "CREATED", Label: "Создан"},
-		{Value: "SEARCHING", Label: "В поиске перевозчика"},
-		{Value: "ASSIGNED", Label: "Назначен"},
-		{Value: "IN_TRANSIT", Label: "В пути"},
-		{Value: "DELIVERED", Label: "Доставлен"},
-		{Value: "CANCELLED", Label: "Отменён"},
+	CargoStatus: []ItemWithLabelAndDescription{
+		{Value: "CREATED", Label: "Создан", Description: "Груз только создан в системе; ещё не выставлен в поиск перевозчика. Переведите в searching через PATCH /api/cargo/:id/status, чтобы водители могли видеть груз и отправлять офферы."},
+		{Value: "SEARCHING", Label: "В поиске перевозчика", Description: "Груз виден водителям; принимаются офферы от перевозчиков."},
+		{Value: "ASSIGNED", Label: "Назначен", Description: "Перевозчик выбран (оффер принят); создаётся рейс, ожидается погрузка."},
+		{Value: "IN_TRANSIT", Label: "В пути", Description: "Груз в перевозке; транспорт следует по маршруту."},
+		{Value: "DELIVERED", Label: "Доставлен", Description: "Груз доставлен получателю; перевозка завершена."},
+		{Value: "CANCELLED", Label: "Отменён", Description: "Груз отменён (из created, searching или assigned)."},
 	},
 	RoutePointType: []ItemWithLabel{
 		{Value: "LOAD", Label: "Погрузка"},
@@ -149,6 +162,19 @@ var refCargo = ReferenceCargoResponse{
 		{Value: "COMPLETED", Label: "Завершён"},
 		{Value: "CANCELLED", Label: "Отменён"},
 	},
+	ShipmentType:   refItemsToItemWithLabel(reference.ShipmentTypeRefs),
+	Currency:       refItemsToItemWithLabel(reference.CurrencyRefs),
+	PrepaymentType: refItemsToItemWithLabel(reference.PrepaymentTypeRefs),
+	RemainingType:  refItemsToItemWithLabel(reference.RemainingTypeRefs),
+	LoadingType:    refItemsToItemWithLabel(reference.LoadingTypeRefs),
+}
+
+func refItemsToItemWithLabel(items []reference.RefItem) []ItemWithLabel {
+	out := make([]ItemWithLabel, 0, len(items))
+	for _, i := range items {
+		out = append(out, ItemWithLabel{Value: i.Value, Label: i.Label})
+	}
+	return out
 }
 
 // Допустимые роли пользователей компании (company_users.role) — только эти 6, в верхнем регистре.
