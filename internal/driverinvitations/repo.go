@@ -111,3 +111,28 @@ func (r *Repo) ListByPhone(ctx context.Context, phone string) ([]Invitation, err
 	}
 	return list, rows.Err()
 }
+
+// ListByInvitedBy returns non-expired invitations sent by the given dispatcher (company or freelance).
+func (r *Repo) ListByInvitedBy(ctx context.Context, dispatcherID uuid.UUID) ([]Invitation, error) {
+	rows, err := r.pg.Query(ctx,
+		`SELECT id, token, company_id, phone, invited_by, invited_by_dispatcher_id, expires_at, created_at
+		 FROM driver_invitations WHERE expires_at > now() AND invited_by = $1
+		 ORDER BY created_at DESC`,
+		dispatcherID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []Invitation
+	for rows.Next() {
+		var i Invitation
+		var companyID, invDispID *uuid.UUID
+		if err := rows.Scan(&i.ID, &i.Token, &companyID, &i.Phone, &i.InvitedBy, &invDispID, &i.ExpiresAt, &i.CreatedAt); err != nil {
+			return nil, err
+		}
+		i.CompanyID = companyID
+		i.InvitedByDispatcherID = invDispID
+		list = append(list, i)
+	}
+	return list, rows.Err()
+}

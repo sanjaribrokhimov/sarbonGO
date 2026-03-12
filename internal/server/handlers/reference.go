@@ -72,103 +72,8 @@ type ItemWithLabelAndDescription struct {
 type RoleRef struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
+	Label       string `json:"label"` // localized by X-Language
 	Description string `json:"description,omitempty"`
-}
-
-var refDrivers = ReferenceDriversResponse{
-	RegistrationStep: []ItemWithLabel{
-		{Value: "NAME-OFERTA", Label: "Имя и оферта"},
-		{Value: "GEO-PUSH", Label: "Геолокация и push"},
-		{Value: "TRANSPORT-TYPE", Label: "Тип транспорта"},
-		{Value: "COMPLETED", Label: "Регистрация завершена"},
-	},
-	RegistrationStatus: []ItemWithLabel{
-		{Value: "START", Label: "Начало"},
-		{Value: "BASIC", Label: "Базовые данные"},
-		{Value: "FULL", Label: "Полная регистрация"},
-	},
-	DriverType: []ItemWithLabel{
-		{Value: "COMPANY", Label: "Компания"},
-		{Value: "FREELANCER", Label: "Фрилансер"},
-		{Value: "DRIVER", Label: "Водитель"},
-	},
-	WorkStatus: []ItemWithLabel{
-		{Value: "AVAILABLE", Label: "Свободен"},
-		{Value: "LOADED", Label: "Загружен"},
-		{Value: "BUSY", Label: "Занят"},
-	},
-	PowerPlateTypes: []ItemWithLabel{
-		{Value: "TRUCK", Label: "Грузовик + прицеп"},
-		{Value: "TRACTOR", Label: "Тягач + полуприцеп"},
-	},
-	TrailerPlateTypes: map[string][]ItemWithLabel{
-		"TRUCK": {
-			{Value: "FLATBED", Label: "Бортовой прицеп"},
-			{Value: "TENTED", Label: "Тентованный прицеп"},
-			{Value: "BOX", Label: "Фургонный прицеп"},
-			{Value: "REEFER", Label: "Рефрижераторный прицеп"},
-			{Value: "TANKER", Label: "Прицеп-цистерна"},
-			{Value: "TIPPER", Label: "Самосвальный прицеп"},
-			{Value: "CAR_CARRIER", Label: "Прицеп-автовоз"},
-		},
-		"TRACTOR": {
-			{Value: "FLATBED", Label: "Бортовой полуприцеп"},
-			{Value: "TENTED", Label: "Тентованный полуприцеп"},
-			{Value: "BOX", Label: "Фургонный полуприцеп"},
-			{Value: "REEFER", Label: "Рефрижераторный полуприцеп"},
-			{Value: "TANKER", Label: "Полуприцеп-цистерна"},
-			{Value: "LOWBED", Label: "Низкорамный полуприцеп"},
-			{Value: "CONTAINER", Label: "Полуприцеп-контейнеровоз"},
-		},
-	},
-}
-
-var refCargo = ReferenceCargoResponse{
-	CargoStatus: []ItemWithLabelAndDescription{
-		{Value: "CREATED", Label: "Создан", Description: "Груз только создан в системе; ещё не выставлен в поиск перевозчика. Переведите в searching через PATCH /api/cargo/:id/status, чтобы водители могли видеть груз и отправлять офферы."},
-		{Value: "SEARCHING", Label: "В поиске перевозчика", Description: "Груз виден водителям; принимаются офферы от перевозчиков."},
-		{Value: "ASSIGNED", Label: "Назначен", Description: "Перевозчик выбран (оффер принят); создаётся рейс, ожидается погрузка."},
-		{Value: "IN_TRANSIT", Label: "В пути", Description: "Груз в перевозке; транспорт следует по маршруту."},
-		{Value: "DELIVERED", Label: "Доставлен", Description: "Груз доставлен получателю; перевозка завершена."},
-		{Value: "CANCELLED", Label: "Отменён", Description: "Груз отменён (из created, searching или assigned)."},
-	},
-	RoutePointType: []ItemWithLabel{
-		{Value: "LOAD", Label: "Погрузка"},
-		{Value: "UNLOAD", Label: "Выгрузка"},
-		{Value: "CUSTOMS", Label: "Таможня"},
-		{Value: "TRANSIT", Label: "Транзит"},
-	},
-	OfferStatus: []ItemWithLabel{
-		{Value: "PENDING", Label: "На рассмотрении"},
-		{Value: "ACCEPTED", Label: "Принят"},
-		{Value: "REJECTED", Label: "Отклонён"},
-	},
-	CreatedByType: []ItemWithLabel{
-		{Value: "ADMIN", Label: "Админ"},
-		{Value: "DISPATCHER", Label: "Диспетчер"},
-		{Value: "COMPANY", Label: "Компания"},
-	},
-	TruckType: []ItemWithLabel{
-		{Value: "REFRIGERATOR", Label: "Рефрижератор"},
-		{Value: "TENT", Label: "Тент"},
-		{Value: "FLATBED", Label: "Борт"},
-		{Value: "TANKER", Label: "Цистерна"},
-		{Value: "OTHER", Label: "Другое"},
-	},
-	TripStatus: []ItemWithLabel{
-		{Value: "PENDING_DRIVER", Label: "Ожидание водителя"},
-		{Value: "ASSIGNED", Label: "Назначен"},
-		{Value: "LOADING", Label: "Погрузка"},
-		{Value: "EN_ROUTE", Label: "В пути"},
-		{Value: "UNLOADING", Label: "Выгрузка"},
-		{Value: "COMPLETED", Label: "Завершён"},
-		{Value: "CANCELLED", Label: "Отменён"},
-	},
-	ShipmentType:   refItemsToItemWithLabel(reference.ShipmentTypeRefs),
-	Currency:       refItemsToItemWithLabel(reference.CurrencyRefs),
-	PrepaymentType: refItemsToItemWithLabel(reference.PrepaymentTypeRefs),
-	RemainingType:  refItemsToItemWithLabel(reference.RemainingTypeRefs),
-	LoadingType:    refItemsToItemWithLabel(reference.LoadingTypeRefs),
 }
 
 func refItemsToItemWithLabel(items []reference.RefItem) []ItemWithLabel {
@@ -179,91 +84,207 @@ func refItemsToItemWithLabel(items []reference.RefItem) []ItemWithLabel {
 	return out
 }
 
-// Допустимые роли пользователей компании (company_users.role) — только эти 6, в верхнем регистре.
-var refCompanyUserRoles = []ItemWithLabel{
-	{Value: "OWNER", Label: "Владелец"},
-	{Value: "CEO", Label: "Директор"},
-	{Value: "TOP_MANAGER", Label: "Старший менеджер"},
-	{Value: "TOP_DISPATCHER", Label: "Старший диспетчер"},
-	{Value: "DISPATCHER", Label: "Диспетчер"},
-	{Value: "MANAGER", Label: "Менеджер"},
+// refItemsToItemWithLabelLocalized: value in response = uppercase, label = RefLabel(section, value, lang).
+func refItemsToItemWithLabelLocalized(items []reference.RefItem, section, lang string) []ItemWithLabel {
+	out := make([]ItemWithLabel, 0, len(items))
+	for _, i := range items {
+		val := strings.TrimSpace(i.Value)
+		valueUpper := strings.ToUpper(val)
+		label := reference.RefLabel(section, val, lang)
+		out = append(out, ItemWithLabel{Value: valueUpper, Label: label})
+	}
+	return out
 }
 
-// Допустимые типы компании — только SHIPPER, CARRIER, BROKER (верхний регистр).
-var refCompanyType = []ItemWithLabel{
-	{Value: "SHIPPER", Label: "Грузоотправитель"},
-	{Value: "CARRIER", Label: "Перевозчик"},
-	{Value: "BROKER", Label: "Брокер"},
+// refLang reads X-Language (ru, uz, en, tr, zh). Returns "en" if invalid or missing.
+func refLang(c *gin.Context) string {
+	lang := strings.ToLower(strings.TrimSpace(c.GetHeader("X-Language")))
+	switch lang {
+	case "ru", "uz", "en", "tr", "zh":
+		return lang
+	}
+	return "en"
 }
 
-var refCompany = ReferenceCompanyResponse{
-	CompanyType:      refCompanyType,
-	CompanyStatus: []ItemWithLabel{
-		{Value: "ACTIVE", Label: "Активна"},
-		{Value: "INACTIVE", Label: "Неактивна"},
-		{Value: "BLOCKED", Label: "Заблокирована"},
-		{Value: "PENDING", Label: "На модерации"},
-	},
-	CompanyUserRoles: refCompanyUserRoles,
-	Roles:             nil, // заполняется из БД
-}
-
-var refAdmin = ReferenceAdminResponse{
-	AdminStatus: []ItemWithLabel{
-		{Value: "ACTIVE", Label: "Активен"},
-		{Value: "INACTIVE", Label: "Неактивен"},
-		{Value: "BLOCKED", Label: "Заблокирован"},
-	},
-	AdminType: []ItemWithLabel{
-		{Value: "CREATOR", Label: "Создатель"},
-		{Value: "OPERATOR", Label: "Оператор"},
-	},
-}
-
-var refDispatchers = ReferenceDispatchersResponse{
-	WorkStatus: []ItemWithLabel{
-		{Value: "AVAILABLE", Label: "Доступен"},
-		{Value: "BUSY", Label: "Занят"},
-		{Value: "OFFLINE", Label: "Не в сети"},
-	},
-}
-
-// GetReferenceDrivers возвращает справочник для раздела Drivers.
+// GetReferenceDrivers возвращает справочник для раздела Drivers. value — верхний регистр, label — по X-Language.
 func GetReferenceDrivers(c *gin.Context) {
-	resp.OK(c, refDrivers)
+	lang := refLang(c)
+	out := ReferenceDriversResponse{
+		RegistrationStep: []ItemWithLabel{
+			{Value: "NAME-OFERTA", Label: reference.RefLabel("drivers.registration_step", "NAME-OFERTA", lang)},
+			{Value: "GEO-PUSH", Label: reference.RefLabel("drivers.registration_step", "GEO-PUSH", lang)},
+			{Value: "TRANSPORT-TYPE", Label: reference.RefLabel("drivers.registration_step", "TRANSPORT-TYPE", lang)},
+			{Value: "COMPLETED", Label: reference.RefLabel("drivers.registration_step", "COMPLETED", lang)},
+		},
+		RegistrationStatus: []ItemWithLabel{
+			{Value: "START", Label: reference.RefLabel("drivers.registration_status", "START", lang)},
+			{Value: "BASIC", Label: reference.RefLabel("drivers.registration_status", "BASIC", lang)},
+			{Value: "FULL", Label: reference.RefLabel("drivers.registration_status", "FULL", lang)},
+		},
+		DriverType: []ItemWithLabel{
+			{Value: "COMPANY", Label: reference.RefLabel("drivers.driver_type", "COMPANY", lang)},
+			{Value: "FREELANCER", Label: reference.RefLabel("drivers.driver_type", "FREELANCER", lang)},
+			{Value: "DRIVER", Label: reference.RefLabel("drivers.driver_type", "DRIVER", lang)},
+		},
+		WorkStatus: []ItemWithLabel{
+			{Value: "AVAILABLE", Label: reference.RefLabel("drivers.work_status", "AVAILABLE", lang)},
+			{Value: "LOADED", Label: reference.RefLabel("drivers.work_status", "LOADED", lang)},
+			{Value: "BUSY", Label: reference.RefLabel("drivers.work_status", "BUSY", lang)},
+		},
+		PowerPlateTypes: []ItemWithLabel{
+			{Value: "TRUCK", Label: reference.RefLabel("drivers.power_plate", "TRUCK", lang)},
+			{Value: "TRACTOR", Label: reference.RefLabel("drivers.power_plate", "TRACTOR", lang)},
+		},
+		TrailerPlateTypes: map[string][]ItemWithLabel{
+			"TRUCK": {
+				{Value: "FLATBED", Label: reference.RefLabel("drivers.trailer_truck", "FLATBED", lang)},
+				{Value: "TENTED", Label: reference.RefLabel("drivers.trailer_truck", "TENTED", lang)},
+				{Value: "BOX", Label: reference.RefLabel("drivers.trailer_truck", "BOX", lang)},
+				{Value: "REEFER", Label: reference.RefLabel("drivers.trailer_truck", "REEFER", lang)},
+				{Value: "TANKER", Label: reference.RefLabel("drivers.trailer_truck", "TANKER", lang)},
+				{Value: "TIPPER", Label: reference.RefLabel("drivers.trailer_truck", "TIPPER", lang)},
+				{Value: "CAR_CARRIER", Label: reference.RefLabel("drivers.trailer_truck", "CAR_CARRIER", lang)},
+			},
+			"TRACTOR": {
+				{Value: "FLATBED", Label: reference.RefLabel("drivers.trailer_tractor", "FLATBED", lang)},
+				{Value: "TENTED", Label: reference.RefLabel("drivers.trailer_tractor", "TENTED", lang)},
+				{Value: "BOX", Label: reference.RefLabel("drivers.trailer_tractor", "BOX", lang)},
+				{Value: "REEFER", Label: reference.RefLabel("drivers.trailer_tractor", "REEFER", lang)},
+				{Value: "TANKER", Label: reference.RefLabel("drivers.trailer_tractor", "TANKER", lang)},
+				{Value: "LOWBED", Label: reference.RefLabel("drivers.trailer_tractor", "LOWBED", lang)},
+				{Value: "CONTAINER", Label: reference.RefLabel("drivers.trailer_tractor", "CONTAINER", lang)},
+			},
+		},
+	}
+	resp.OK(c, out)
 }
 
-// GetReferenceCargo возвращает справочник для раздела Cargo.
+// GetReferenceCargo возвращает справочник для раздела Cargo. value — верхний регистр, label и description — по X-Language.
 func GetReferenceCargo(c *gin.Context) {
-	resp.OK(c, refCargo)
+	lang := refLang(c)
+	out := ReferenceCargoResponse{
+		CargoStatus: []ItemWithLabelAndDescription{
+			{Value: "CREATED", Label: reference.RefLabel("cargo.cargo_status", "CREATED", lang), Description: reference.CargoStatusDescription("CREATED", lang)},
+			{Value: "SEARCHING", Label: reference.RefLabel("cargo.cargo_status", "SEARCHING", lang), Description: reference.CargoStatusDescription("SEARCHING", lang)},
+			{Value: "ASSIGNED", Label: reference.RefLabel("cargo.cargo_status", "ASSIGNED", lang), Description: reference.CargoStatusDescription("ASSIGNED", lang)},
+			{Value: "IN_TRANSIT", Label: reference.RefLabel("cargo.cargo_status", "IN_TRANSIT", lang), Description: reference.CargoStatusDescription("IN_TRANSIT", lang)},
+			{Value: "DELIVERED", Label: reference.RefLabel("cargo.cargo_status", "DELIVERED", lang), Description: reference.CargoStatusDescription("DELIVERED", lang)},
+			{Value: "CANCELLED", Label: reference.RefLabel("cargo.cargo_status", "CANCELLED", lang), Description: reference.CargoStatusDescription("CANCELLED", lang)},
+		},
+		RoutePointType: []ItemWithLabel{
+			{Value: "LOAD", Label: reference.RefLabel("cargo.route_point_type", "LOAD", lang)},
+			{Value: "UNLOAD", Label: reference.RefLabel("cargo.route_point_type", "UNLOAD", lang)},
+			{Value: "CUSTOMS", Label: reference.RefLabel("cargo.route_point_type", "CUSTOMS", lang)},
+			{Value: "TRANSIT", Label: reference.RefLabel("cargo.route_point_type", "TRANSIT", lang)},
+		},
+		OfferStatus: []ItemWithLabel{
+			{Value: "PENDING", Label: reference.RefLabel("cargo.offer_status", "PENDING", lang)},
+			{Value: "ACCEPTED", Label: reference.RefLabel("cargo.offer_status", "ACCEPTED", lang)},
+			{Value: "REJECTED", Label: reference.RefLabel("cargo.offer_status", "REJECTED", lang)},
+		},
+		CreatedByType: []ItemWithLabel{
+			{Value: "ADMIN", Label: reference.RefLabel("cargo.created_by_type", "ADMIN", lang)},
+			{Value: "DISPATCHER", Label: reference.RefLabel("cargo.created_by_type", "DISPATCHER", lang)},
+			{Value: "COMPANY", Label: reference.RefLabel("cargo.created_by_type", "COMPANY", lang)},
+		},
+		TruckType: []ItemWithLabel{
+			{Value: "REFRIGERATOR", Label: reference.RefLabel("cargo.truck_type", "REFRIGERATOR", lang)},
+			{Value: "TENT", Label: reference.RefLabel("cargo.truck_type", "TENT", lang)},
+			{Value: "FLATBED", Label: reference.RefLabel("cargo.truck_type", "FLATBED", lang)},
+			{Value: "TANKER", Label: reference.RefLabel("cargo.truck_type", "TANKER", lang)},
+			{Value: "OTHER", Label: reference.RefLabel("cargo.truck_type", "OTHER", lang)},
+		},
+		TripStatus: []ItemWithLabel{
+			{Value: "PENDING_DRIVER", Label: reference.RefLabel("cargo.trip_status", "PENDING_DRIVER", lang)},
+			{Value: "ASSIGNED", Label: reference.RefLabel("cargo.trip_status", "ASSIGNED", lang)},
+			{Value: "LOADING", Label: reference.RefLabel("cargo.trip_status", "LOADING", lang)},
+			{Value: "EN_ROUTE", Label: reference.RefLabel("cargo.trip_status", "EN_ROUTE", lang)},
+			{Value: "UNLOADING", Label: reference.RefLabel("cargo.trip_status", "UNLOADING", lang)},
+			{Value: "COMPLETED", Label: reference.RefLabel("cargo.trip_status", "COMPLETED", lang)},
+			{Value: "CANCELLED", Label: reference.RefLabel("cargo.trip_status", "CANCELLED", lang)},
+		},
+		ShipmentType:   refItemsToItemWithLabelLocalized(reference.ShipmentTypeRefs, "cargo.shipment_type", lang),
+		Currency:       refItemsToItemWithLabelLocalized(reference.CurrencyRefs, "cargo.currency", lang),
+		PrepaymentType: refItemsToItemWithLabelLocalized(reference.PrepaymentTypeRefs, "cargo.prepayment_type", lang),
+		RemainingType:  refItemsToItemWithLabelLocalized(reference.RemainingTypeRefs, "cargo.remaining_type", lang),
+		LoadingType:    refItemsToItemWithLabelLocalized(reference.LoadingTypeRefs, "cargo.loading_type", lang),
+	}
+	resp.OK(c, out)
 }
 
-// GetReferenceAdmin возвращает справочник для раздела Admin.
+// GetReferenceAdmin возвращает справочник для раздела Admin. value — верхний регистр, label — по X-Language.
 func GetReferenceAdmin(c *gin.Context) {
-	resp.OK(c, refAdmin)
+	lang := refLang(c)
+	out := ReferenceAdminResponse{
+		AdminStatus: []ItemWithLabel{
+			{Value: "ACTIVE", Label: reference.RefLabel("admin.admin_status", "ACTIVE", lang)},
+			{Value: "INACTIVE", Label: reference.RefLabel("admin.admin_status", "INACTIVE", lang)},
+			{Value: "BLOCKED", Label: reference.RefLabel("admin.admin_status", "BLOCKED", lang)},
+		},
+		AdminType: []ItemWithLabel{
+			{Value: "CREATOR", Label: reference.RefLabel("admin.admin_type", "CREATOR", lang)},
+			{Value: "OPERATOR", Label: reference.RefLabel("admin.admin_type", "OPERATOR", lang)},
+		},
+	}
+	resp.OK(c, out)
 }
 
-// GetReferenceDispatchers возвращает справочник для раздела Freelance Dispatchers.
+// GetReferenceDispatchers возвращает справочник для раздела Freelance Dispatchers. value — верхний регистр, label — по X-Language.
 func GetReferenceDispatchers(c *gin.Context) {
-	resp.OK(c, refDispatchers)
+	lang := refLang(c)
+	out := ReferenceDispatchersResponse{
+		WorkStatus: []ItemWithLabel{
+			{Value: "AVAILABLE", Label: reference.RefLabel("dispatchers.work_status", "AVAILABLE", lang)},
+			{Value: "BUSY", Label: reference.RefLabel("dispatchers.work_status", "BUSY", lang)},
+			{Value: "OFFLINE", Label: reference.RefLabel("dispatchers.work_status", "OFFLINE", lang)},
+		},
+	}
+	resp.OK(c, out)
 }
 
-// GetReferenceCompany возвращает справочник для раздела Company (роли из БД).
+// GetReferenceCompany возвращает справочник для раздела Company (роли из БД). value — верхний регистр, label — по X-Language.
 func GetReferenceCompany(rolesRepo *approles.Repo) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		lang := refLang(c)
 		roles, err := rolesRepo.ListAll(c.Request.Context())
 		if err != nil {
 			resp.Error(c, 500, "failed to load roles")
 			return
 		}
-		out := refCompany
+		out := ReferenceCompanyResponse{
+			CompanyType: []ItemWithLabel{
+				{Value: "SHIPPER", Label: reference.RefLabel("company.company_type", "SHIPPER", lang)},
+				{Value: "CARRIER", Label: reference.RefLabel("company.company_type", "CARRIER", lang)},
+				{Value: "BROKER", Label: reference.RefLabel("company.company_type", "BROKER", lang)},
+			},
+			CompanyStatus: []ItemWithLabel{
+				{Value: "ACTIVE", Label: reference.RefLabel("company.company_status", "ACTIVE", lang)},
+				{Value: "INACTIVE", Label: reference.RefLabel("company.company_status", "INACTIVE", lang)},
+				{Value: "BLOCKED", Label: reference.RefLabel("company.company_status", "BLOCKED", lang)},
+				{Value: "PENDING", Label: reference.RefLabel("company.company_status", "PENDING", lang)},
+			},
+			CompanyUserRoles: []ItemWithLabel{
+				{Value: "OWNER", Label: reference.RefLabel("company.role", "OWNER", lang)},
+				{Value: "CEO", Label: reference.RefLabel("company.role", "CEO", lang)},
+				{Value: "TOP_MANAGER", Label: reference.RefLabel("company.role", "TOP_MANAGER", lang)},
+				{Value: "TOP_DISPATCHER", Label: reference.RefLabel("company.role", "TOP_DISPATCHER", lang)},
+				{Value: "DISPATCHER", Label: reference.RefLabel("company.role", "DISPATCHER", lang)},
+				{Value: "MANAGER", Label: reference.RefLabel("company.role", "MANAGER", lang)},
+			},
+			Roles: nil,
+		}
 		out.Roles = make([]RoleRef, 0, len(roles))
 		for _, r := range roles {
 			desc := ""
 			if r.Description != nil {
 				desc = *r.Description
 			}
-			out.Roles = append(out.Roles, RoleRef{ID: r.ID, Name: strings.ToUpper(r.Name), Description: desc})
+			nameUpper := strings.ToUpper(r.Name)
+			label := reference.RefLabel("company.role", nameUpper, lang)
+			if label == nameUpper {
+				label = r.Name
+			}
+			out.Roles = append(out.Roles, RoleRef{ID: r.ID, Name: nameUpper, Label: label, Description: desc})
 		}
 		resp.OK(c, out)
 	}
@@ -291,13 +312,29 @@ type CityItem struct {
 
 func cityNameByLang(c CityRef, lang string) string {
 	lang = strings.ToLower(strings.TrimSpace(lang))
-	if lang == "en" {
-		if c.NameEn != nil && strings.TrimSpace(*c.NameEn) != "" {
-			return strings.TrimSpace(*c.NameEn)
-		}
+	nameRu := strings.TrimSpace(c.NameRu)
+	nameEn := ""
+	if c.NameEn != nil {
+		nameEn = strings.TrimSpace(*c.NameEn)
 	}
-	// Dataset is primarily ru/en; for uz/tr/zh we fallback to ru.
-	return strings.TrimSpace(c.NameRu)
+
+	// Dataset is effectively ru/en.
+	// Rule: if requested language is ru -> ru (fallback to en if ru empty).
+	// Otherwise -> en (fallback to ru if en empty). This way uz/tr/zh won't unexpectedly return Russian.
+	if lang == "ru" {
+		if nameRu != "" {
+			return nameRu
+		}
+		if nameEn != "" {
+			return nameEn
+		}
+		return ""
+	}
+
+	if nameEn != "" {
+		return nameEn
+	}
+	return nameRu
 }
 
 // GetReferenceCities возвращает справочник городов мира из встроенного датасета (in-memory, быстрый API).

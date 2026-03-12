@@ -10,6 +10,7 @@ import (
 // - if table `drivers` doesn't exist -> creates it
 // - if table exists but misses some columns -> adds them (non-destructive)
 // - ensures `deleted_drivers` exists for hard-delete archiving
+// After running migrations, driver data is split: drivers + driver_powers + driver_trailers (see 000035).
 func EnsureDriversTable(ctx context.Context, pg *pgxpool.Pool) error {
 	// extension for uuid default
 	if _, err := pg.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS "uuid-ossp";`); err != nil {

@@ -23,20 +23,22 @@ func NewRepo(pg *pgxpool.Pool) *Repo {
 	return &Repo{pg: pg}
 }
 
-func (r *Repo) FindByPhone(ctx context.Context, phone string) (*Driver, error) {
-	const q = `
-SELECT
-  id, phone, created_at, updated_at, last_online_at, latitude, longitude, push_token,
-  registration_step, registration_status, name, driver_type, rating, work_status,
-  freelancer_id, company_id, account_status,
-  driver_passport_series, driver_passport_number, driver_pinfl, driver_scan_status,
-  power_plate_type, power_plate_number, power_tech_series, power_tech_number, power_owner_id, power_owner_name, power_scan_status,
-  trailer_plate_type, trailer_plate_number, trailer_tech_series, trailer_tech_number, trailer_owner_id, trailer_owner_name, trailer_scan_status,
-  driver_owner, kyc_status
-FROM drivers
-WHERE phone = $1
-LIMIT 1`
+const driverSelectCols = `
+  d.id, d.phone, d.created_at, d.updated_at, d.last_online_at, d.latitude, d.longitude, d.push_token,
+  d.registration_step, d.registration_status, d.name, d.driver_type, d.rating, d.work_status,
+  d.freelancer_id, d.company_id, d.account_status,
+  d.driver_passport_series, d.driver_passport_number, d.driver_pinfl, d.driver_scan_status,
+  p.power_plate_type, p.power_plate_number, p.power_tech_series, p.power_tech_number, p.power_owner_id, p.power_owner_name, p.power_scan_status,
+  t.trailer_plate_type, t.trailer_plate_number, t.trailer_tech_series, t.trailer_tech_number, t.trailer_owner_id, t.trailer_owner_name, t.trailer_scan_status,
+  d.driver_owner, d.kyc_status`
 
+const driverJoinTables = `
+FROM drivers d
+LEFT JOIN driver_powers p ON p.driver_id = d.id
+LEFT JOIN driver_trailers t ON t.driver_id = d.id`
+
+func (r *Repo) FindByPhone(ctx context.Context, phone string) (*Driver, error) {
+	const q = `SELECT ` + driverSelectCols + driverJoinTables + ` WHERE d.phone = $1 LIMIT 1`
 	d, err := scanDriver(r.pg.QueryRow(ctx, q, phone))
 	if err != nil {
 		return nil, err
@@ -45,19 +47,7 @@ LIMIT 1`
 }
 
 func (r *Repo) FindByID(ctx context.Context, id uuid.UUID) (*Driver, error) {
-	const q = `
-SELECT
-  id, phone, created_at, updated_at, last_online_at, latitude, longitude, push_token,
-  registration_step, registration_status, name, driver_type, rating, work_status,
-  freelancer_id, company_id, account_status,
-  driver_passport_series, driver_passport_number, driver_pinfl, driver_scan_status,
-  power_plate_type, power_plate_number, power_tech_series, power_tech_number, power_owner_id, power_owner_name, power_scan_status,
-  trailer_plate_type, trailer_plate_number, trailer_tech_series, trailer_tech_number, trailer_owner_id, trailer_owner_name, trailer_scan_status,
-  driver_owner, kyc_status
-FROM drivers
-WHERE id = $1
-LIMIT 1`
-
+	const q = `SELECT ` + driverSelectCols + driverJoinTables + ` WHERE d.id = $1 LIMIT 1`
 	d, err := scanDriver(r.pg.QueryRow(ctx, q, id))
 	if err != nil {
 		return nil, err
@@ -146,6 +136,16 @@ func (r *Repo) SetFreelancerID(ctx context.Context, driverID, freelancerID uuid.
 	return err
 }
 
+// UnlinkFromFreelancer removes driver from dispatcher (sets freelancer_id = NULL). Only if driver is currently linked to this freelancer.
+func (r *Repo) UnlinkFromFreelancer(ctx context.Context, driverID, freelancerID uuid.UUID) (bool, error) {
+	const q = `UPDATE drivers SET freelancer_id = NULL, updated_at = now() WHERE id = $1 AND freelancer_id = $2`
+	tag, err := r.pg.Exec(ctx, q, driverID, freelancerID)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 // SearchByPhone returns drivers whose phone matches the search (exact match first, then containing). For dispatcher to find driver and invite by id.
 func (r *Repo) SearchByPhone(ctx context.Context, phoneSearch string, limit int) ([]*Driver, error) {
 	if limit <= 0 {
@@ -159,17 +159,9 @@ func (r *Repo) SearchByPhone(ctx context.Context, phoneSearch string, limit int)
 		return []*Driver{}, nil
 	}
 	pattern := "%" + term + "%"
-	const q = `
-SELECT id, phone, created_at, updated_at, last_online_at, latitude, longitude, push_token,
-  registration_step, registration_status, name, driver_type, rating, work_status,
-  freelancer_id, company_id, account_status,
-  driver_passport_series, driver_passport_number, driver_pinfl, driver_scan_status,
-  power_plate_type, power_plate_number, power_tech_series, power_tech_number, power_owner_id, power_owner_name, power_scan_status,
-  trailer_plate_type, trailer_plate_number, trailer_tech_series, trailer_tech_number, trailer_owner_id, trailer_owner_name, trailer_scan_status,
-  driver_owner, kyc_status
-FROM drivers
-WHERE replace(replace(trim(phone), ' ', ''), '-', '') LIKE $1
-ORDER BY (replace(replace(trim(phone), ' ', ''), '-', '') = $2) DESC, created_at DESC
+	const q = `SELECT ` + driverSelectCols + driverJoinTables + `
+WHERE replace(replace(trim(d.phone), ' ', ''), '-', '') LIKE $1
+ORDER BY (replace(replace(trim(d.phone), ' ', ''), '-', '') = $2) DESC, d.created_at DESC
 LIMIT $3`
 	rows, err := r.pg.Query(ctx, q, pattern, term, limit)
 	if err != nil {
@@ -192,15 +184,7 @@ func (r *Repo) ListByFreelancerID(ctx context.Context, freelancerID uuid.UUID, l
 	if limit <= 0 {
 		limit = 100
 	}
-	const q = `
-SELECT id, phone, created_at, updated_at, last_online_at, latitude, longitude, push_token,
-  registration_step, registration_status, name, driver_type, rating, work_status,
-  freelancer_id, company_id, account_status,
-  driver_passport_series, driver_passport_number, driver_pinfl, driver_scan_status,
-  power_plate_type, power_plate_number, power_tech_series, power_tech_number, power_owner_id, power_owner_name, power_scan_status,
-  trailer_plate_type, trailer_plate_number, trailer_tech_series, trailer_tech_number, trailer_owner_id, trailer_owner_name, trailer_scan_status,
-  driver_owner, kyc_status
-FROM drivers WHERE freelancer_id = $1 ORDER BY updated_at DESC LIMIT $2`
+	const q = `SELECT ` + driverSelectCols + driverJoinTables + ` WHERE d.freelancer_id = $1 ORDER BY d.updated_at DESC LIMIT $2`
 	rows, err := r.pg.Query(ctx, q, freelancerID, limit)
 	if err != nil {
 		return nil, err
@@ -247,6 +231,7 @@ func (r *Repo) UpdatePhone(ctx context.Context, id uuid.UUID, newPhone string) e
 }
 
 type UpdatePowerProfile struct {
+	PowerPlateType   *string
 	PowerPlateNumber *string
 	PowerTechSeries  *string
 	PowerTechNumber  *string
@@ -257,21 +242,27 @@ type UpdatePowerProfile struct {
 
 func (r *Repo) UpdatePowerProfile(ctx context.Context, id uuid.UUID, u UpdatePowerProfile) error {
 	const q = `
-UPDATE drivers
-SET power_plate_number = COALESCE($2, power_plate_number),
-    power_tech_series = COALESCE($3, power_tech_series),
-    power_tech_number = COALESCE($4, power_tech_number),
-    power_owner_id = COALESCE($5, power_owner_id),
-    power_owner_name = COALESCE($6, power_owner_name),
-    power_scan_status = COALESCE($7, power_scan_status),
-    updated_at = now(),
-    last_online_at = now()
-WHERE id = $1`
-	_, err := r.pg.Exec(ctx, q, id, u.PowerPlateNumber, u.PowerTechSeries, u.PowerTechNumber, u.PowerOwnerID, u.PowerOwnerName, u.PowerScanStatus)
+INSERT INTO driver_powers (driver_id, power_plate_type, power_plate_number, power_tech_series, power_tech_number, power_owner_id, power_owner_name, power_scan_status, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+ON CONFLICT (driver_id) DO UPDATE SET
+  power_plate_type = COALESCE(EXCLUDED.power_plate_type, driver_powers.power_plate_type),
+  power_plate_number = COALESCE(EXCLUDED.power_plate_number, driver_powers.power_plate_number),
+  power_tech_series = COALESCE(EXCLUDED.power_tech_series, driver_powers.power_tech_series),
+  power_tech_number = COALESCE(EXCLUDED.power_tech_number, driver_powers.power_tech_number),
+  power_owner_id = COALESCE(EXCLUDED.power_owner_id, driver_powers.power_owner_id),
+  power_owner_name = COALESCE(EXCLUDED.power_owner_name, driver_powers.power_owner_name),
+  power_scan_status = COALESCE(EXCLUDED.power_scan_status, driver_powers.power_scan_status),
+  updated_at = now()`
+	_, err := r.pg.Exec(ctx, q, id, u.PowerPlateType, u.PowerPlateNumber, u.PowerTechSeries, u.PowerTechNumber, u.PowerOwnerID, u.PowerOwnerName, u.PowerScanStatus)
+	if err != nil {
+		return err
+	}
+	_, err = r.pg.Exec(ctx, `UPDATE drivers SET updated_at = now(), last_online_at = now() WHERE id = $1`, id)
 	return err
 }
 
 type UpdateTrailerProfile struct {
+	TrailerPlateType   *string
 	TrailerPlateNumber *string
 	TrailerTechSeries  *string
 	TrailerTechNumber  *string
@@ -282,17 +273,22 @@ type UpdateTrailerProfile struct {
 
 func (r *Repo) UpdateTrailerProfile(ctx context.Context, id uuid.UUID, u UpdateTrailerProfile) error {
 	const q = `
-UPDATE drivers
-SET trailer_plate_number = COALESCE($2, trailer_plate_number),
-    trailer_tech_series = COALESCE($3, trailer_tech_series),
-    trailer_tech_number = COALESCE($4, trailer_tech_number),
-    trailer_owner_id = COALESCE($5, trailer_owner_id),
-    trailer_owner_name = COALESCE($6, trailer_owner_name),
-    trailer_scan_status = COALESCE($7, trailer_scan_status),
-    updated_at = now(),
-    last_online_at = now()
-WHERE id = $1`
-	_, err := r.pg.Exec(ctx, q, id, u.TrailerPlateNumber, u.TrailerTechSeries, u.TrailerTechNumber, u.TrailerOwnerID, u.TrailerOwnerName, u.TrailerScanStatus)
+INSERT INTO driver_trailers (driver_id, trailer_plate_type, trailer_plate_number, trailer_tech_series, trailer_tech_number, trailer_owner_id, trailer_owner_name, trailer_scan_status, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+ON CONFLICT (driver_id) DO UPDATE SET
+  trailer_plate_type = COALESCE(EXCLUDED.trailer_plate_type, driver_trailers.trailer_plate_type),
+  trailer_plate_number = COALESCE(EXCLUDED.trailer_plate_number, driver_trailers.trailer_plate_number),
+  trailer_tech_series = COALESCE(EXCLUDED.trailer_tech_series, driver_trailers.trailer_tech_series),
+  trailer_tech_number = COALESCE(EXCLUDED.trailer_tech_number, driver_trailers.trailer_tech_number),
+  trailer_owner_id = COALESCE(EXCLUDED.trailer_owner_id, driver_trailers.trailer_owner_id),
+  trailer_owner_name = COALESCE(EXCLUDED.trailer_owner_name, driver_trailers.trailer_owner_name),
+  trailer_scan_status = COALESCE(EXCLUDED.trailer_scan_status, driver_trailers.trailer_scan_status),
+  updated_at = now()`
+	_, err := r.pg.Exec(ctx, q, id, u.TrailerPlateType, u.TrailerPlateNumber, u.TrailerTechSeries, u.TrailerTechNumber, u.TrailerOwnerID, u.TrailerOwnerName, u.TrailerScanStatus)
+	if err != nil {
+		return err
+	}
+	_, err = r.pg.Exec(ctx, `UPDATE drivers SET updated_at = now(), last_online_at = now() WHERE id = $1`, id)
 	return err
 }
 
@@ -347,19 +343,22 @@ WHERE id = $1`
 }
 
 func (r *Repo) UpdateTransportType(ctx context.Context, id uuid.UUID, driverType string, freelancerID *uuid.UUID, companyID *uuid.UUID, powerPlateType string, trailerPlateType string, nextStep string, nextStatus string) error {
-	const q = `
+	_, err := r.pg.Exec(ctx, `
 UPDATE drivers
-SET driver_type = $2,
-    freelancer_id = $3,
-    company_id = $4,
-    power_plate_type = $5,
-    trailer_plate_type = $6,
-    registration_step = $7,
-    registration_status = $8,
-    updated_at = now(),
-    last_online_at = now()
-WHERE id = $1`
-	_, err := r.pg.Exec(ctx, q, id, driverType, freelancerID, companyID, powerPlateType, trailerPlateType, nextStep, nextStatus)
+SET driver_type = $2, freelancer_id = $3, company_id = $4, registration_step = $5, registration_status = $6, updated_at = now(), last_online_at = now()
+WHERE id = $1`, id, driverType, freelancerID, companyID, nextStep, nextStatus)
+	if err != nil {
+		return err
+	}
+	_, err = r.pg.Exec(ctx, `
+INSERT INTO driver_powers (driver_id, power_plate_type, updated_at) VALUES ($1, $2, now())
+ON CONFLICT (driver_id) DO UPDATE SET power_plate_type = EXCLUDED.power_plate_type, updated_at = now()`, id, powerPlateType)
+	if err != nil {
+		return err
+	}
+	_, err = r.pg.Exec(ctx, `
+INSERT INTO driver_trailers (driver_id, trailer_plate_type, updated_at) VALUES ($1, $2, now())
+ON CONFLICT (driver_id) DO UPDATE SET trailer_plate_type = EXCLUDED.trailer_plate_type, updated_at = now()`, id, trailerPlateType)
 	return err
 }
 
@@ -391,54 +390,46 @@ type KYCUpdate struct {
 }
 
 func (r *Repo) UpdateKYC(ctx context.Context, id uuid.UUID, u KYCUpdate) error {
-	const q = `
+	_, err := r.pg.Exec(ctx, `
 UPDATE drivers
-SET driver_passport_series = $2,
-    driver_passport_number = $3,
-    driver_pinfl = $4,
-    driver_scan_status = $5,
-    power_plate_number = $6,
-    power_tech_series = $7,
-    power_tech_number = $8,
-    power_owner_id = $9,
-    power_owner_name = $10,
-    power_scan_status = $11,
-    trailer_plate_number = $12,
-    trailer_tech_series = $13,
-    trailer_tech_number = $14,
-    trailer_owner_id = $15,
-    trailer_owner_name = $16,
-    trailer_scan_status = $17,
-    driver_owner = $18,
-    kyc_status = $19,
-    registration_status = $20,
-    registration_step = $21,
-    updated_at = now(),
-    last_online_at = now()
-WHERE id = $1`
-
-	_, err := r.pg.Exec(ctx, q,
-		id,
-		u.DriverPassportSeries,
-		u.DriverPassportNumber,
-		u.DriverPINFL,
-		u.DriverScanStatus,
-		u.PowerPlateNumber,
-		u.PowerTechSeries,
-		u.PowerTechNumber,
-		u.PowerOwnerID,
-		u.PowerOwnerName,
-		u.PowerScanStatus,
-		u.TrailerPlateNumber,
-		u.TrailerTechSeries,
-		u.TrailerTechNumber,
-		u.TrailerOwnerID,
-		u.TrailerOwnerName,
-		u.TrailerScanStatus,
-		u.DriverOwner,
-		u.KYCStatus,
-		u.RegistrationStatus,
-		u.RegistrationStep,
+SET driver_passport_series = $2, driver_passport_number = $3, driver_pinfl = $4, driver_scan_status = $5,
+    driver_owner = $6, kyc_status = $7, registration_status = $8, registration_step = $9,
+    updated_at = now(), last_online_at = now()
+WHERE id = $1`,
+		id, u.DriverPassportSeries, u.DriverPassportNumber, u.DriverPINFL, u.DriverScanStatus,
+		u.DriverOwner, u.KYCStatus, u.RegistrationStatus, u.RegistrationStep,
+	)
+	if err != nil {
+		return err
+	}
+	_, err = r.pg.Exec(ctx, `
+INSERT INTO driver_powers (driver_id, power_plate_number, power_tech_series, power_tech_number, power_owner_id, power_owner_name, power_scan_status, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+ON CONFLICT (driver_id) DO UPDATE SET
+  power_plate_number = EXCLUDED.power_plate_number,
+  power_tech_series = EXCLUDED.power_tech_series,
+  power_tech_number = EXCLUDED.power_tech_number,
+  power_owner_id = EXCLUDED.power_owner_id,
+  power_owner_name = EXCLUDED.power_owner_name,
+  power_scan_status = EXCLUDED.power_scan_status,
+  updated_at = now()`,
+		id, u.PowerPlateNumber, u.PowerTechSeries, u.PowerTechNumber, u.PowerOwnerID, u.PowerOwnerName, u.PowerScanStatus,
+	)
+	if err != nil {
+		return err
+	}
+	_, err = r.pg.Exec(ctx, `
+INSERT INTO driver_trailers (driver_id, trailer_plate_number, trailer_tech_series, trailer_tech_number, trailer_owner_id, trailer_owner_name, trailer_scan_status, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+ON CONFLICT (driver_id) DO UPDATE SET
+  trailer_plate_number = EXCLUDED.trailer_plate_number,
+  trailer_tech_series = EXCLUDED.trailer_tech_series,
+  trailer_tech_number = EXCLUDED.trailer_tech_number,
+  trailer_owner_id = EXCLUDED.trailer_owner_id,
+  trailer_owner_name = EXCLUDED.trailer_owner_name,
+  trailer_scan_status = EXCLUDED.trailer_scan_status,
+  updated_at = now()`,
+		id, u.TrailerPlateNumber, u.TrailerTechSeries, u.TrailerTechNumber, u.TrailerOwnerID, u.TrailerOwnerName, u.TrailerScanStatus,
 	)
 	return err
 }

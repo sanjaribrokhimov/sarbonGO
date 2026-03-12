@@ -135,6 +135,220 @@ func (h *DriverInvitationsHandler) FindDrivers(c *gin.Context) {
 	resp.OK(c, gin.H{"items": items})
 }
 
+// ListSent returns invitations sent by the current dispatcher (company and freelance). Диспетчер видит кому отправил приглашения.
+func (h *DriverInvitationsHandler) ListSent(c *gin.Context) {
+	dispatcherID := c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
+	list, err := h.repo.ListByInvitedBy(c.Request.Context(), dispatcherID)
+	if err != nil {
+		h.logger.Error("driver invitations list sent", zap.Error(err))
+		resp.Error(c, http.StatusInternalServerError, "failed to list invitations")
+		return
+	}
+	if list == nil {
+		list = []driverinvitations.Invitation{}
+	}
+	items := make([]gin.H, 0, len(list))
+	for _, inv := range list {
+		item := gin.H{
+			"token":      inv.Token,
+			"phone":      inv.Phone,
+			"expires_at": inv.ExpiresAt,
+			"created_at": inv.CreatedAt,
+		}
+		if inv.CompanyID != nil && *inv.CompanyID != uuid.Nil {
+			item["type"] = "company"
+			item["company_id"] = inv.CompanyID.String()
+		} else {
+			item["type"] = "freelance"
+			if inv.InvitedByDispatcherID != nil {
+				item["dispatcher_id"] = inv.InvitedByDispatcherID.String()
+			}
+		}
+		items = append(items, item)
+	}
+	resp.OK(c, gin.H{"items": items})
+}
+
+// UnlinkDriver removes driver from dispatcher's list (sets driver.freelancer_id = NULL). Водитель должен быть принят по приглашению (freelancer_id = я).
+func (h *DriverInvitationsHandler) UnlinkDriver(c *gin.Context) {
+	dispatcherID := c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
+	driverID, err := uuid.Parse(c.Param("driverId"))
+	if err != nil || driverID == uuid.Nil {
+		resp.Error(c, http.StatusBadRequest, "invalid driver_id")
+		return
+	}
+	ok, err := h.drv.UnlinkFromFreelancer(c.Request.Context(), driverID, dispatcherID)
+	if err != nil {
+		h.logger.Error("unlink driver", zap.Error(err))
+		resp.Error(c, http.StatusInternalServerError, "failed to unlink")
+		return
+	}
+	if !ok {
+		resp.Error(c, http.StatusForbidden, "driver not found or not linked to you")
+		return
+	}
+	resp.Success(c, http.StatusOK, "unlinked", nil)
+}
+
+// SetDriverPowerReq body for PUT /v1/dispatchers/drivers/:driverId/power
+type SetDriverPowerReq struct {
+	PowerPlateType   *string `json:"power_plate_type,omitempty"`
+	PowerPlateNumber *string `json:"power_plate_number,omitempty"`
+	PowerTechSeries  *string `json:"power_tech_series,omitempty"`
+	PowerTechNumber  *string `json:"power_tech_number,omitempty"`
+	PowerOwnerID     *string `json:"power_owner_id,omitempty"`
+	PowerOwnerName   *string `json:"power_owner_name,omitempty"`
+	PowerScanStatus  *bool   `json:"power_scan_status,omitempty"`
+}
+
+// SetDriverPower adds or updates тягач for a driver. Водитель должен быть принят по приглашению (freelancer_id = я).
+func (h *DriverInvitationsHandler) SetDriverPower(c *gin.Context) {
+	dispatcherID := c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
+	driverID, err := uuid.Parse(c.Param("driverId"))
+	if err != nil || driverID == uuid.Nil {
+		resp.Error(c, http.StatusBadRequest, "invalid driver_id")
+		return
+	}
+	drv, err := h.drv.FindByID(c.Request.Context(), driverID)
+	if err != nil || drv == nil {
+		resp.Error(c, http.StatusNotFound, "driver not found")
+		return
+	}
+	if drv.FreelancerID == nil || *drv.FreelancerID != dispatcherID.String() {
+		resp.Error(c, http.StatusForbidden, "driver must have accepted your invitation")
+		return
+	}
+	var req SetDriverPowerReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		return
+	}
+	trimPtr := func(p **string) {
+		if p == nil || *p == nil {
+			return
+		}
+		v := strings.TrimSpace(**p)
+		if v == "" {
+			*p = nil
+			return
+		}
+		*p = &v
+	}
+	trimPtr(&req.PowerPlateType)
+	trimPtr(&req.PowerPlateNumber)
+	trimPtr(&req.PowerTechSeries)
+	trimPtr(&req.PowerTechNumber)
+	trimPtr(&req.PowerOwnerID)
+	trimPtr(&req.PowerOwnerName)
+	if err := h.drv.UpdatePowerProfile(c.Request.Context(), driverID, drivers.UpdatePowerProfile{
+		PowerPlateType:   req.PowerPlateType,
+		PowerPlateNumber: req.PowerPlateNumber,
+		PowerTechSeries:  req.PowerTechSeries,
+		PowerTechNumber:  req.PowerTechNumber,
+		PowerOwnerID:     req.PowerOwnerID,
+		PowerOwnerName:   req.PowerOwnerName,
+		PowerScanStatus:  req.PowerScanStatus,
+	}); err != nil {
+		h.logger.Error("dispatcher set driver power", zap.Error(err))
+		resp.Error(c, http.StatusInternalServerError, "failed to update power")
+		return
+	}
+	updated, _ := h.drv.FindByID(c.Request.Context(), driverID)
+	resp.OK(c, gin.H{"event": "updated", "driver": updated})
+}
+
+// SetDriverTrailerReq body for PUT /v1/dispatchers/drivers/:driverId/trailer
+type SetDriverTrailerReq struct {
+	TrailerPlateType   *string `json:"trailer_plate_type,omitempty"`
+	TrailerPlateNumber *string `json:"trailer_plate_number,omitempty"`
+	TrailerTechSeries  *string `json:"trailer_tech_series,omitempty"`
+	TrailerTechNumber  *string `json:"trailer_tech_number,omitempty"`
+	TrailerOwnerID     *string `json:"trailer_owner_id,omitempty"`
+	TrailerOwnerName   *string `json:"trailer_owner_name,omitempty"`
+	TrailerScanStatus  *bool   `json:"trailer_scan_status,omitempty"`
+}
+
+// SetDriverTrailer adds or updates прицеп for a driver. Водитель должен быть принят по приглашению (freelancer_id = я).
+func (h *DriverInvitationsHandler) SetDriverTrailer(c *gin.Context) {
+	dispatcherID := c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
+	driverID, err := uuid.Parse(c.Param("driverId"))
+	if err != nil || driverID == uuid.Nil {
+		resp.Error(c, http.StatusBadRequest, "invalid driver_id")
+		return
+	}
+	drv, err := h.drv.FindByID(c.Request.Context(), driverID)
+	if err != nil || drv == nil {
+		resp.Error(c, http.StatusNotFound, "driver not found")
+		return
+	}
+	if drv.FreelancerID == nil || *drv.FreelancerID != dispatcherID.String() {
+		resp.Error(c, http.StatusForbidden, "driver must have accepted your invitation")
+		return
+	}
+	var req SetDriverTrailerReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		return
+	}
+	trimPtr := func(p **string) {
+		if p == nil || *p == nil {
+			return
+		}
+		v := strings.TrimSpace(**p)
+		if v == "" {
+			*p = nil
+			return
+		}
+		*p = &v
+	}
+	trimPtr(&req.TrailerPlateType)
+	trimPtr(&req.TrailerPlateNumber)
+	trimPtr(&req.TrailerTechSeries)
+	trimPtr(&req.TrailerTechNumber)
+	trimPtr(&req.TrailerOwnerID)
+	trimPtr(&req.TrailerOwnerName)
+	if err := h.drv.UpdateTrailerProfile(c.Request.Context(), driverID, drivers.UpdateTrailerProfile{
+		TrailerPlateType:   req.TrailerPlateType,
+		TrailerPlateNumber: req.TrailerPlateNumber,
+		TrailerTechSeries:  req.TrailerTechSeries,
+		TrailerTechNumber:  req.TrailerTechNumber,
+		TrailerOwnerID:     req.TrailerOwnerID,
+		TrailerOwnerName:   req.TrailerOwnerName,
+		TrailerScanStatus:  req.TrailerScanStatus,
+	}); err != nil {
+		h.logger.Error("dispatcher set driver trailer", zap.Error(err))
+		resp.Error(c, http.StatusInternalServerError, "failed to update trailer")
+		return
+	}
+	updated, _ := h.drv.FindByID(c.Request.Context(), driverID)
+	resp.OK(c, gin.H{"event": "updated", "driver": updated})
+}
+
+// CancelInvitation cancels (revokes) an invitation sent by the current dispatcher. Только свои приглашения.
+func (h *DriverInvitationsHandler) CancelInvitation(c *gin.Context) {
+	dispatcherID := c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
+	token := strings.TrimSpace(c.Param("token"))
+	if token == "" {
+		resp.Error(c, http.StatusBadRequest, "token is required")
+		return
+	}
+	inv, err := h.repo.GetByToken(c.Request.Context(), token)
+	if err != nil || inv == nil {
+		resp.Error(c, http.StatusNotFound, "invitation not found or expired")
+		return
+	}
+	if inv.InvitedBy != dispatcherID {
+		resp.Error(c, http.StatusForbidden, "not your invitation")
+		return
+	}
+	if err := h.repo.Delete(c.Request.Context(), token); err != nil {
+		h.logger.Error("driver invitation cancel", zap.Error(err))
+		resp.Error(c, http.StatusInternalServerError, "failed to cancel invitation")
+		return
+	}
+	resp.Success(c, http.StatusOK, "cancelled", nil)
+}
+
 // ListInvitations returns pending invitations for the current driver (by phone). Водитель видит приглашения в чате/разделе приглашений.
 func (h *DriverInvitationsHandler) ListInvitations(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
@@ -174,7 +388,7 @@ func (h *DriverInvitationsHandler) ListInvitations(c *gin.Context) {
 	resp.OK(c, gin.H{"items": items})
 }
 
-// AcceptDriverInvitationReq body for POST /v1/driver-invitations/accept
+// AcceptDriverInvitationReq body for POST /v1/driver/driver-invitations/accept
 type AcceptDriverInvitationReq struct {
 	Token string `json:"token" binding:"required"`
 }
@@ -224,7 +438,7 @@ func (h *DriverInvitationsHandler) Accept(c *gin.Context) {
 	resp.Error(c, http.StatusBadRequest, "invitation invalid")
 }
 
-// DeclineDriverInvitationReq body for POST /v1/driver-invitations/decline
+// DeclineDriverInvitationReq body for POST /v1/driver/driver-invitations/decline
 type DeclineDriverInvitationReq struct {
 	Token string `json:"token" binding:"required"`
 }

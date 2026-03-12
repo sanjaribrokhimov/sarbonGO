@@ -30,7 +30,7 @@ func NewProfileHandler(logger *zap.Logger, driversRepo *drivers.Repo, phoneChang
 	return &ProfileHandler{logger: logger, drivers: driversRepo, phoneChange: phoneChange, tg: tg, otpTTL: otpTTL, otpLen: otpLen}
 }
 
-// GET /v1/profile
+// GET /v1/driver/profile
 func (h *ProfileHandler) Get(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	_ = h.drivers.TouchOnline(c.Request.Context(), driverID)
@@ -50,7 +50,7 @@ type patchDriverReq struct {
 	DriverPINFL          *string `json:"driver_pinfl,omitempty"`
 }
 
-// PATCH /v1/profile/driver
+// PATCH /v1/driver/profile/driver
 func (h *ProfileHandler) PatchDriver(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	var req patchDriverReq
@@ -122,7 +122,7 @@ type heartbeatReq struct {
 	Longitude float64 `json:"longitude" binding:"required"`
 }
 
-// PUT /v1/profile/heartbeat — только latitude и longitude; last_online_at всегда обновляется на сервере автоматически.
+// PUT /v1/driver/profile/heartbeat — только latitude и longitude; last_online_at всегда обновляется на сервере автоматически.
 func (h *ProfileHandler) Heartbeat(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	var req heartbeatReq
@@ -143,7 +143,7 @@ type phoneChangeRequestReq struct {
 	NewPhone string `json:"new_phone" binding:"required"`
 }
 
-// POST /v1/profile/phone-change/request
+// POST /v1/driver/profile/phone-change/request
 func (h *ProfileHandler) PhoneChangeRequest(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	var req phoneChangeRequestReq
@@ -185,7 +185,7 @@ type phoneChangeVerifyReq struct {
 	OTP       string `json:"otp" binding:"required"`
 }
 
-// POST /v1/profile/phone-change/verify
+// POST /v1/driver/profile/phone-change/verify
 func (h *ProfileHandler) PhoneChangeVerify(c *gin.Context) {
 	var req phoneChangeVerifyReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -237,7 +237,7 @@ type patchPowerReq struct {
 	PowerScanStatus  *bool   `json:"power_scan_status,omitempty"`
 }
 
-// PATCH /v1/profile/power
+// PATCH /v1/driver/profile/power
 func (h *ProfileHandler) PatchPower(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	var req patchPowerReq
@@ -288,7 +288,7 @@ type patchTrailerReq struct {
 	TrailerScanStatus  *bool   `json:"trailer_scan_status,omitempty"`
 }
 
-// PATCH /v1/profile/trailer
+// PATCH /v1/driver/profile/trailer
 func (h *ProfileHandler) PatchTrailer(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	var req patchTrailerReq
@@ -330,7 +330,7 @@ func (h *ProfileHandler) PatchTrailer(c *gin.Context) {
 	resp.OK(c, gin.H{"event": "updated", "driver": d})
 }
 
-// DELETE /v1/profile
+// DELETE /v1/driver/profile
 func (h *ProfileHandler) Delete(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	if err := h.drivers.DeleteAndArchive(c.Request.Context(), driverID); err != nil {

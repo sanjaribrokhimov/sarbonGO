@@ -57,7 +57,7 @@ func (h *TripsHandler) List(c *gin.Context) {
 	resp.OK(c, gin.H{"items": []interface{}{toTripResp(t)}})
 }
 
-// ListMy for GET /v1/trips (driver): returns trips assigned to current driver.
+// ListMy for GET /v1/driver/trips (driver): returns trips assigned to current driver.
 func (h *TripsHandler) ListMy(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))

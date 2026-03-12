@@ -30,11 +30,11 @@ tags:
 
       **Кто вызывает:** Водитель (мобильное приложение). После входа все запросы к профилю и регистрации — с заголовком X-User-Token = access_token.
 
-      **Поток входа (существующий водитель):** 1) POST /v1/auth/phone (phone) → OTP отправлен через Telegram Gateway. 2) POST /v1/auth/otp/verify (phone, otp) → status=login и tokens (access_token, refresh_token). Дальше запросы с X-User-Token.
+      **Поток входа (существующий водитель):** 1) POST /v1/driver/auth/phone (phone) → OTP отправлен через Telegram Gateway. 2) POST /v1/driver/auth/otp/verify (phone, otp) → status=login и tokens (access_token, refresh_token). Дальше запросы с X-User-Token.
 
-      **Поток для нового номера:** 1) auth/phone → 2) auth/otp/verify → status=register и session_id (JWT пока нет). Дальше POST /v1/registration/start с session_id, name, oferta_accepted → создаётся профиль и выдаются tokens.
+      **Поток для нового номера:** 1) /v1/driver/auth/phone → 2) /v1/driver/auth/otp/verify → status=register и session_id (JWT пока нет). Дальше POST /v1/driver/registration/start с session_id, name, oferta_accepted → создаётся профиль и выдаются tokens.
 
-      **Данные:** phone в формате +998XXXXXXXXX; otp — код из Telegram/смс. Refresh: POST /v1/auth/refresh (refresh_token). Logout: POST /v1/auth/logout (refresh_token или access_token).
+      **Данные:** phone в формате +998XXXXXXXXX; otp — код из Telegram/смс. Refresh: POST /v1/driver/auth/refresh (refresh_token). Logout: POST /v1/driver/auth/logout (refresh_token или access_token).
   - name: Drivers / Registration
     description: |
       **Руководство: Регистрация и шаги водителя**
@@ -43,21 +43,21 @@ tags:
 
       **Шаги (registration_step):** name-oferta → geo-push → transport-type. **Статусы (registration_status):** start → basic → full.
 
-      **Поток:** 1) registration/start (session_id, name, oferta_accepted) — создаёт запись в drivers, step=name-oferta. 2) geo-push (latitude, longitude, push_token опц.) — шаг geo-push при указании гео. 3) transport-type (driver_type, power_plate_type, trailer_plate_type) — step=transport-type, status=basic. Справочники типов транспорта: GET /v1/transport-options.
+      **Поток:** 1) /v1/driver/registration/start (session_id, name, oferta_accepted) — создаёт запись в drivers, step=name-oferta. 2) geo-push (latitude, longitude, push_token опц.) — шаг geo-push при указании гео. 3) transport-type (driver_type, power_plate_type, trailer_plate_type) — step=transport-type, status=basic. Справочники типов транспорта: GET /v1/driver/transport-options.
   - name: Drivers / KYC
     description: |
       **Руководство: KYC (документы водителя)**
 
       **Кто вызывает:** Водитель (мобильное приложение), с JWT.
 
-      **Поток:** Один запрос PATCH /v1/kyc с блоками driver_data (паспорт, PINFL, driver_scan_status), power_data (ТС: номер, техпаспорт, владелец, power_scan_status), trailer_data (прицеп: то же), driver_owner (true/false). registration_status=full выставляется только когда все обязательные поля заполнены и scan_status подтверждены; прицеп можно не указывать или заполнить полностью.
+      **Поток:** Один запрос PATCH /v1/driver/kyc с блоками driver_data (паспорт, PINFL, driver_scan_status), power_data (ТС: номер, техпаспорт, владелец, power_scan_status), trailer_data (прицеп: то же), driver_owner (true/false). registration_status=full выставляется только когда все обязательные поля заполнены и scan_status подтверждены; прицеп можно не указывать или заполнить полностью.
   - name: Drivers / Profile
     description: |
       **Руководство: Профиль водителя**
 
       **Кто вызывает:** Водитель (мобильное приложение). Все методы требуют X-User-Token (JWT).
 
-      **Поток и данные:** GET /v1/profile — получить профиль (все поля). PATCH /v1/profile/driver — изменить имя, work_status, паспорт. PATCH /v1/profile/power — данные тягача; PATCH /v1/profile/trailer — данные прицепа. PUT /v1/profile/heartbeat — обновить гео (latitude, longitude); last_online_at опционален, также обновляется автоматически при каждом запросе водителя. Смена телефона: .../phone-change/request (new_phone) → OTP; .../phone-change/verify (session_id, otp). DELETE /v1/profile — удалить аккаунт (архивация в deleted_drivers).
+      **Поток и данные:** GET /v1/driver/profile — получить профиль (все поля). PATCH /v1/driver/profile/driver — изменить имя, work_status, паспорт. PATCH /v1/driver/profile/power — данные тягача; PATCH /v1/driver/profile/trailer — данные прицепа. PUT /v1/driver/profile/heartbeat — обновить гео (latitude, longitude); last_online_at опционален, также обновляется автоматически при каждом запросе водителя. Смена телефона: .../phone-change/request (new_phone) → OTP; .../phone-change/verify (session_id, otp). DELETE /v1/driver/profile — удалить аккаунт (архивация в deleted_drivers).
   - name: Freelance Dispatchers / Auth
     description: |
       **Руководство: Авторизация диспетчеров**
@@ -109,7 +109,7 @@ tags:
   - name: "Freelance Dispatchers / Приглашения водителей"
     description: |
       **Отправка приглашений водителям (фриланс-диспетчер).**
-      **Поиск:** GET /v1/dispatchers/drivers/find?phone=... — водители по номеру (совпадения сверху); по id пригласить: POST /v1/dispatchers/driver-invitations (body: driver_id или phone). **Процесс:** 1) Диспетчер: POST /v1/dispatchers/driver-invitations (phone или driver_id) → token. 2) Водитель: GET /v1/driver-invitations — список приглашений; POST .../accept (token) или POST .../decline (token). 4) При принятии: freelancer_id = диспетчер, GET /v1/dispatchers/drivers — список водителей. X-User-Token: dispatcher или driver.
+      **Поиск:** GET /v1/dispatchers/drivers/find?phone=... — водители по номеру (совпадения сверху); по id пригласить: POST /v1/dispatchers/driver-invitations (body: driver_id или phone). **Процесс:** 1) Диспетчер: POST /v1/dispatchers/driver-invitations (phone или driver_id) → token. 2) Водитель: GET /v1/driver/driver-invitations — список приглашений; POST .../accept (token) или POST .../decline (token). 4) При принятии: freelancer_id = диспетчер, GET /v1/dispatchers/drivers — список водителей. X-User-Token: dispatcher или driver.
   - name: "Cargo — Freelance dispatcher"
     description: |
       **Грузы для фриланс-диспетчера.** POST /api/cargo (X-User-Token), GET /api/cargo, GET /api/cargo/:id, PUT, PATCH status, POST/GET offers, POST /api/offers/:id/accept. GET /api/trips?cargo_id=, GET /api/trips/:id.
@@ -121,15 +121,15 @@ tags:
       **Мои водители.** Найти: GET /v1/dispatchers/drivers/find?phone=... Пригласить без компании: POST /v1/dispatchers/driver-invitations (phone или driver_id). Список: GET /v1/dispatchers/drivers. В компании: POST .../companies/:companyId/driver-invitations.
   - name: Freelance Dispatchers / Trips
     description: |
-      **Назначение водителя на рейс.** PATCH /v1/dispatchers/trips/:id/assign-driver (driver_id). Водитель: POST /v1/trips/:id/confirm или reject. Статусы: pending_driver → assigned → loading → en_route → unloading → completed.
+      **Назначение водителя на рейс.** PATCH /v1/dispatchers/trips/:id/assign-driver (driver_id). Водитель: POST /v1/driver/trips/:id/confirm или reject. Статусы: pending_driver → assigned → loading → en_route → unloading → completed.
   - name: Drivers / Trips
     description: |
       **Рейсы водителя**
-      GET /v1/trips — список рейсов, назначенных текущему водителю. POST /v1/trips/:id/confirm — принять назначение (рейс → assigned). POST /v1/trips/:id/reject — отклонить (диспетчер может назначить другого). PATCH /v1/trips/:id/status — смена статуса водителем (loading, en_route, unloading, completed, cancelled). Требуется X-User-Token (driver).
+      GET /v1/driver/trips — список рейсов, назначенных текущему водителю. POST /v1/driver/trips/:id/confirm — принять назначение (рейс → assigned). POST /v1/driver/trips/:id/reject — отклонить (диспетчер может назначить другого). PATCH /v1/driver/trips/:id/status — смена статуса водителем (loading, en_route, unloading, completed, cancelled). Требуется X-User-Token (driver).
   - name: Drivers / Driver invitations
     description: |
       **Приглашения для водителя: получить список, принять или отказать.**
-      **Поток:** 1) GET /v1/driver-invitations — список приглашений (token, type, company_id/dispatcher_id, expires_at). 2) Принять: POST /v1/driver-invitations/accept (body: token). 3) Отказать: POST /v1/driver-invitations/decline (body: token). X-User-Token (driver). Телефон водителя должен совпадать с приглашением. От компании → driver.company_id; от фриланс-диспетчера → driver.freelancer_id.
+      **Поток:** 1) GET /v1/driver/driver-invitations — список приглашений (token, type, company_id/dispatcher_id, expires_at). 2) Принять: POST /v1/driver/driver-invitations/accept (body: token). 3) Отказать: POST /v1/driver/driver-invitations/decline (body: token). X-User-Token (driver). Телефон водителя должен совпадать с приглашением. От компании → driver.company_id; от фриланс-диспетчера → driver.freelancer_id.
   - name: Admin / Auth
     description: |
       **Руководство: Авторизация админа (оператор)**
@@ -150,7 +150,7 @@ tags:
     description: |
       **Руководство: Справочники (общие)**
 
-      GET /v1/transport-options — типы машины и прицепа для водителя. Остальные справочники — по категориям ниже (Reference / Drivers, Cargo, Company, Admin, Freelance Dispatchers).
+      GET /v1/driver/transport-options — типы машины и прицепа для водителя. Остальные справочники — по категориям ниже (Reference / Drivers, Cargo, Company, Admin, Freelance Dispatchers).
   - name: "Reference / Drivers"
     description: |
       **Справочник для раздела Drivers (водители).** Все допустимые значения статусов и типов — чтобы фронт и мобилка не спрашивали «какие статусы есть».
@@ -1050,7 +1050,7 @@ paths:
         "200": { description: Рейс (id, cargo_id, offer_id, driver_id, status) }
         "404": { description: Рейс не найден }
 
-  /v1/transport-options:
+  /v1/driver/transport-options:
     get:
       tags: [Reference]
       summary: "Справочник: типы машины и прицепа"
@@ -1172,7 +1172,7 @@ paths:
         Справочник городов на основе библиотеки tidwall/cities (~10k городов) + доп. список для UZ, AE, TM, KG, TJ (Ташкент TAS, Самарканд SAM, Дубай DXB и др.). Ответ из памяти — быстрый hit API.
         В route_points указывается city_code из этого справочника.
         **Query:** country_code (опционально) — фильтр по стране (UZ, AE, KZ, RU и т.д.); q (опционально) — универсальный поиск по коду/названию (совпадения сверху).
-        Поле **name** возвращается на языке заголовка **X-Language** (ru | uz | en | tr | zh). Для языков кроме en используется fallback на ru (в датасете ru/en).
+        Поле **name** возвращается на языке заголовка **X-Language** (ru | uz | en | tr | zh). Так как датасет фактически ru/en, для языков uz/tr/zh используется fallback на **en**, и только если en отсутствует — на ru.
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
       parameters:
         - name: country_code
@@ -1243,13 +1243,13 @@ paths:
         "400":
           description: "invalid X-Language (allowed: ru, uz, en, tr, zh)"
 
-  /v1/auth/phone:
+  /v1/driver/auth/phone:
     post:
       tags: ["Drivers / Auth"]
       summary: "Шаг 1. Отправить OTP на телефон"
       description: |
         **Кто вызывает:** Водитель (мобильное приложение).
-        **Назначение:** Запрос кода подтверждения. Телефон в формате +998XXXXXXXXX. OTP отправляется через Telegram Gateway. Ответ: status=otp_sent, ttl_seconds. Дальше — ввод кода и вызов /v1/auth/otp/verify.
+        **Назначение:** Запрос кода подтверждения. Телефон в формате +998XXXXXXXXX. OTP отправляется через Telegram Gateway. Ответ: status=otp_sent, ttl_seconds. Дальше — ввод кода и вызов /v1/driver/auth/otp/verify.
         **Данные:** В теле только phone (обязательно).
       requestBody:
         required: true
@@ -1287,13 +1287,13 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
 
-  /v1/auth/otp/verify:
+  /v1/driver/auth/otp/verify:
     post:
       tags: ["Drivers / Auth"]
       summary: "Шаг 2. Подтвердить OTP"
       description: |
         **Кто вызывает:** Водитель (мобильное приложение).
-        **Назначение:** Ввод кода из шага 1. Если номер уже в drivers → status=login и tokens (вход выполнен). Если новый → status=register и session_id для регистрации (POST /v1/registration/start), JWT пока не выдаётся.
+        **Назначение:** Ввод кода из шага 1. Если номер уже в drivers → status=login и tokens (вход выполнен). Если новый → status=register и session_id для регистрации (POST /v1/driver/registration/start), JWT пока не выдаётся.
         **Данные:** phone, otp (обязательно).
       requestBody:
         required: true
@@ -1333,7 +1333,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
 
-  /v1/registration/start:
+  /v1/driver/registration/start:
     post:
       tags: ["Drivers / Registration"]
       summary: "Шаг 3. Создать профиль (имя + оферта)"
@@ -1372,7 +1372,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
 
-  /v1/profile:
+  /v1/driver/profile:
     get:
       tags: ["Drivers / Profile"]
       summary: "Получить профиль водителя"
@@ -1415,7 +1415,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
 
-  /v1/profile/driver:
+  /v1/driver/profile/driver:
     patch:
       tags: ["Drivers / Profile"]
       summary: "Редактировать данные водителя (имя, статус, паспорт)"
@@ -1446,7 +1446,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
 
-  /v1/profile/heartbeat:
+  /v1/driver/profile/heartbeat:
     put:
       tags: ["Drivers / Profile"]
       summary: "Обновить гео и время последней активности"
@@ -1472,7 +1472,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
 
-  /v1/profile/phone-change/request:
+  /v1/driver/profile/phone-change/request:
     post:
       tags: ["Drivers / Profile"]
       summary: "Смена телефона — запрос OTP"
@@ -1499,7 +1499,7 @@ paths:
         "400": { description: Некорректный new_phone; или no account — у номера нет аккаунта Telegram }
         "502": { description: otp send failed — OTP не отправлен }
 
-  /v1/profile/phone-change/verify:
+  /v1/driver/profile/phone-change/verify:
     post:
       tags: ["Drivers / Profile"]
       summary: "Смена телефона — подтверждение OTP"
@@ -1525,7 +1525,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
 
-  /v1/profile/power:
+  /v1/driver/profile/power:
     patch:
       tags: ["Drivers / Profile"]
       summary: "Редактировать данные тягача (Power Unit)"
@@ -1554,7 +1554,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
 
-  /v1/profile/trailer:
+  /v1/driver/profile/trailer:
     patch:
       tags: ["Drivers / Profile"]
       summary: "Редактировать данные прицепа (Trailer Unit)"
@@ -1583,7 +1583,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
 
-  /v1/registration/geo-push:
+  /v1/driver/registration/geo-push:
     patch:
       tags: ["Drivers / Registration"]
       summary: "Шаг 4. Указать гео и push-токен"
@@ -1619,13 +1619,13 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
 
-  /v1/registration/transport-type:
+  /v1/driver/registration/transport-type:
     patch:
       tags: ["Drivers / Registration"]
       summary: "Шаг 5. Выбрать тип транспорта"
       description: |
         **Кто вызывает:** Водитель (мобильное приложение). X-User-Token обязателен.
-        **Назначение:** Указание типа водителя и ТС. После успешного запроса: registration_step=transport-type, registration_status=basic. Справочники кодов: GET /v1/transport-options.
+        **Назначение:** Указание типа водителя и ТС. После успешного запроса: registration_step=transport-type, registration_status=basic. Справочники кодов: GET /v1/driver/transport-options.
         **Данные:** driver_type (company/freelancer/driver), power_plate_type, trailer_plate_type (обязательно); freelancer_id, company_id (опц.).
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
@@ -1660,7 +1660,7 @@ paths:
                   driver: { $ref: "#/components/schemas/Driver" }
                 required: [status, driver]
 
-  /v1/kyc:
+  /v1/driver/kyc:
     patch:
       tags: ["Drivers / KYC"]
       summary: "Отправить KYC (паспорт, ТС, прицеп)"
@@ -1723,7 +1723,7 @@ paths:
                   driver: { $ref: "#/components/schemas/Driver" }
                 required: [status, is_full, driver]
 
-  /v1/auth/refresh:
+  /v1/driver/auth/refresh:
     post:
       tags: ["Drivers / Auth"]
       summary: "Обновить JWT токены (водитель)"
@@ -1836,7 +1836,7 @@ paths:
         "401":
           description: invalid refresh_token
 
-  /v1/auth/logout:
+  /v1/driver/auth/logout:
     post:
       tags: ["Drivers / Auth"]
       summary: "Выход (отзыв сессии)"
@@ -2372,11 +2372,19 @@ paths:
         "200": { description: declined }
 
   /v1/dispatchers/driver-invitations:
+    get:
+      tags: ["Freelance Dispatchers / Приглашения водителей", "Freelance Dispatchers / My drivers"]
+      summary: "Список отправленных приглашений (диспетчер)"
+      description: |
+        **Диспетчер:** список приглашений, которые **я отправил** (по компании и фриланс). Только не истёкшие. В ответе data.items: token, phone, type (company | freelance), company_id или dispatcher_id, expires_at, created_at. По token можно отменить приглашение через DELETE .../driver-invitations/:token.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      responses:
+        "200": { description: "data.items — массив приглашений (token, phone, type, company_id/dispatcher_id, expires_at, created_at)" }
     post:
       tags: ["Freelance Dispatchers / Приглашения водителей", "Freelance Dispatchers / My drivers"]
       summary: "Отправить приглашение водителю (фриланс — без компании)"
       description: |
-        **Фриланс-диспетчер:** пригласить водителя. Передайте **phone** (номер телефона) **или** **driver_id** (UUID водителя из поиска GET /v1/dispatchers/drivers/find). Достаточно одного из полей. В ответе — token; передать водителю (чат/ссылка). Водитель: GET /v1/driver-invitations → список; POST /v1/driver-invitations/accept (token) или POST .../decline (token). После принятия у водителя freelancer_id = текущий диспетчер. X-User-Token (dispatcher).
+        **Фриланс-диспетчер:** пригласить водителя. Передайте **phone** (номер телефона) **или** **driver_id** (UUID водителя из поиска GET /v1/dispatchers/drivers/find). Достаточно одного из полей. В ответе — token; передать водителю (чат/ссылка). Водитель: GET /v1/driver/driver-invitations → список; POST /v1/driver/driver-invitations/accept (token) или POST .../decline (token). После принятия у водителя freelancer_id = текущий диспетчер. X-User-Token (dispatcher).
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
@@ -2399,6 +2407,23 @@ paths:
       responses:
         "201": { description: "data.token, data.expires_in_hours" }
         "400": { description: "invalid payload или phone/driver_id обязателен; driver not found при driver_id" }
+
+  /v1/dispatchers/driver-invitations/{token}:
+    delete:
+      tags: ["Freelance Dispatchers / Приглашения водителей", "Freelance Dispatchers / My drivers"]
+      summary: "Отменить приглашение (диспетчер)"
+      description: |
+        **Диспетчер:** отменить (отозвать) отправленное приглашение. Можно отменить только своё приглашение. token — из GET /v1/dispatchers/driver-invitations.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string, example: "a1b2c3d4e5f6789012345678abcdef0123456789abcdef0123456789" }
+      responses:
+        "200": { description: "data.message = cancelled" }
+        "403": { description: "not your invitation" }
+        "404": { description: "invitation not found or expired" }
 
   /v1/dispatchers/drivers/find:
     get:
@@ -2433,11 +2458,87 @@ paths:
       responses:
         "200": { description: "data.items — массив водителей" }
 
+  /v1/dispatchers/drivers/{driverId}:
+    delete:
+      tags: ["Freelance Dispatchers / Приглашения водителей", "Freelance Dispatchers / My drivers"]
+      summary: "Удалить водителя из списка (отвязать)"
+      description: |
+        **Диспетчер:** отвязать водителя от себя (driver.freelancer_id = NULL). Водитель должен быть в списке «мои водители» (принял приглашение). После отвязки водитель исчезает из GET /v1/dispatchers/drivers.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: driverId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: "data.message = unlinked" }
+        "403": { description: "driver not found or not linked to you" }
+
+  /v1/dispatchers/drivers/{driverId}/power:
+    put:
+      tags: ["Freelance Dispatchers / Приглашения водителей", "Freelance Dispatchers / My drivers"]
+      summary: "Добавить или изменить тягач водителя"
+      description: |
+        **Диспетчер:** добавить/обновить данные тягача для водителя. Водитель должен быть принят по приглашению (freelancer_id = текущий диспетчер). Данные сохраняются и отображаются у водителя. Тело: power_plate_type, power_plate_number, power_tech_series, power_tech_number, power_owner_id, power_owner_name, power_scan_status (все опционально для частичного обновления).
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: driverId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                power_plate_type: { type: string, example: "TRACTOR" }
+                power_plate_number: { type: string }
+                power_tech_series: { type: string }
+                power_tech_number: { type: string }
+                power_owner_id: { type: string }
+                power_owner_name: { type: string }
+                power_scan_status: { type: boolean }
+      responses:
+        "200": { description: "data.event = updated, data.driver — полный объект водителя с тягачом" }
+        "403": { description: "driver must have accepted your invitation" }
+        "404": { description: "driver not found" }
+
+  /v1/dispatchers/drivers/{driverId}/trailer:
+    put:
+      tags: ["Freelance Dispatchers / Приглашения водителей", "Freelance Dispatchers / My drivers"]
+      summary: "Добавить или изменить прицеп водителя"
+      description: |
+        **Диспетчер:** добавить/обновить данные прицепа для водителя. Водитель должен быть принят по приглашению (freelancer_id = текущий диспетчер). Данные сохраняются и отображаются у водителя. Тело: trailer_plate_type, trailer_plate_number, trailer_tech_series, trailer_tech_number, trailer_owner_id, trailer_owner_name, trailer_scan_status (все опционально).
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: driverId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                trailer_plate_type: { type: string, example: "TENTED" }
+                trailer_plate_number: { type: string }
+                trailer_tech_series: { type: string }
+                trailer_tech_number: { type: string }
+                trailer_owner_id: { type: string }
+                trailer_owner_name: { type: string }
+                trailer_scan_status: { type: boolean }
+      responses:
+        "200": { description: "data.event = updated, data.driver — полный объект водителя с прицепом" }
+        "403": { description: "driver must have accepted your invitation" }
+        "404": { description: "driver not found" }
+
   /v1/dispatchers/companies/{companyId}/driver-invitations:
     post:
       tags: ["Freelance Dispatchers / My drivers"]
       summary: "Пригласить водителя в компанию (по телефону)"
-      description: "Тело: phone. В ответе — token. Водитель принимает через POST /v1/driver-invitations/accept."
+      description: "Тело: phone. В ответе — token. Водитель принимает через POST /v1/driver/driver-invitations/accept."
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       parameters:
         - name: companyId
@@ -2463,7 +2564,7 @@ paths:
     patch:
       tags: ["Freelance Dispatchers / Trips"]
       summary: "Назначить водителя на рейс"
-      description: "Тело: driver_id (UUID). Рейс должен быть в статусе pending_driver. Водитель подтверждает через POST /v1/trips/:id/confirm."
+      description: "Тело: driver_id (UUID). Рейс должен быть в статусе pending_driver. Водитель подтверждает через POST /v1/driver/trips/:id/confirm."
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       parameters:
         - name: id
@@ -2485,7 +2586,7 @@ paths:
         "200": { description: status pending_driver, driver_id }
         "404": { description: trip not found or not pending_driver }
 
-  /v1/trips:
+  /v1/driver/trips:
     get:
       tags: ["Drivers / Trips"]
       summary: "Список моих рейсов"
@@ -2498,7 +2599,7 @@ paths:
       responses:
         "200": { description: data.items — массив рейсов }
 
-  /v1/trips/{id}/confirm:
+  /v1/driver/trips/{id}/confirm:
     post:
       tags: ["Drivers / Trips"]
       summary: "Принять назначение на рейс"
@@ -2513,7 +2614,7 @@ paths:
         "200": { description: status assigned }
         "404": { description: trip not found or not assigned to you }
 
-  /v1/trips/{id}/reject:
+  /v1/driver/trips/{id}/reject:
     post:
       tags: ["Drivers / Trips"]
       summary: "Отклонить назначение на рейс"
@@ -2528,7 +2629,7 @@ paths:
         "200": { description: status pending_driver }
         "404": { description: trip not found }
 
-  /v1/trips/{id}/status:
+  /v1/driver/trips/{id}/status:
     patch:
       tags: ["Drivers / Trips"]
       summary: "Сменить статус рейса (водитель)"
@@ -2553,7 +2654,7 @@ paths:
         "400": { description: invalid status transition }
         "403": { description: trip not assigned to you }
 
-  /v1/driver-invitations:
+  /v1/driver/driver-invitations:
     get:
       tags: ["Drivers / Driver invitations", "Freelance Dispatchers / Приглашения водителей"]
       summary: "Список приглашений для водителя"
@@ -2585,7 +2686,7 @@ paths:
                             phone: { type: string }
                             expires_at: { type: string, format: date-time }
                             created_at: { type: string, format: date-time }
-  /v1/driver-invitations/accept:
+  /v1/driver/driver-invitations/accept:
     post:
       tags: ["Drivers / Driver invitations", "Freelance Dispatchers / Приглашения водителей"]
       summary: "Принять приглашение (водитель)"
@@ -2608,7 +2709,7 @@ paths:
         "200": { description: "data.company_id или data.freelancer_id" }
         "400": { description: invitation not found or expired }
         "403": { description: invitation was sent to another phone }
-  /v1/driver-invitations/decline:
+  /v1/driver/driver-invitations/decline:
     post:
       tags: ["Drivers / Driver invitations", "Freelance Dispatchers / Приглашения водителей"]
       summary: "Отказаться от приглашения (водитель)"
