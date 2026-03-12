@@ -1216,7 +1216,7 @@ paths:
           in: query
           required: false
           schema: { type: string, example: "uz" }
-          description: "Поиск по коду страны (например UZ) или по названию на языке X-Language. Совпадения сверху."
+          description: "Универсальный поиск по коду страны (например UZ) или по названию страны на любом из языков (ru/uz/en/tr/zh), независимо от X-Language. В ответе name всегда на языке X-Language. Совпадения сверху."
       responses:
         "200":
           description: "data.items — массив { code, name }"

@@ -312,6 +312,21 @@ type CountryItem struct {
 	Name string `json:"name"`
 }
 
+func normRefSearch(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return ""
+	}
+	// Make search more forgiving across scripts/punctuation.
+	r := strings.NewReplacer(
+		" ", "", "-", "", "_", "",
+		"'", "", "’", "", "`", "",
+		"ʻ", "", "ʼ", "",
+		".", "", ",", "", "(", "", ")", "",
+	)
+	return r.Replace(s)
+}
+
 // GetReferenceCountries returns reference list of all country codes with localized name from X-Language header.
 func GetReferenceCountries() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -326,13 +341,31 @@ func GetReferenceCountries() gin.HandlerFunc {
 		qRaw := strings.TrimSpace(c.Query("q"))
 		q := strings.ToLower(qRaw)
 		qCode := strings.ToUpper(qRaw)
+		qN := normRefSearch(qRaw)
 
 		all := reference.CountriesAll()
 		items := make([]CountryItem, 0, len(all))
 		for _, cc := range all {
-			name := reference.CountryName(cc.Code, lang)
+			name := reference.CountryName(cc.Code, lang) // return name in selected language
+
 			if q != "" {
-				if !strings.Contains(strings.ToLower(name), q) && !strings.Contains(cc.Code, qCode) {
+				// Universal search: match against code + all supported languages, regardless of current X-Language.
+				codeMatch := strings.Contains(cc.Code, qCode) || strings.Contains(normRefSearch(cc.Code), qN)
+
+				nameRu := reference.CountryName(cc.Code, "ru")
+				nameUz := reference.CountryName(cc.Code, "uz")
+				nameEn := reference.CountryName(cc.Code, "en")
+				nameTr := reference.CountryName(cc.Code, "tr")
+				nameZh := reference.CountryName(cc.Code, "zh")
+
+				nameMatch :=
+					strings.Contains(normRefSearch(nameRu), qN) ||
+						strings.Contains(normRefSearch(nameUz), qN) ||
+						strings.Contains(normRefSearch(nameEn), qN) ||
+						strings.Contains(normRefSearch(nameTr), qN) ||
+						strings.Contains(normRefSearch(nameZh), qN)
+
+				if !codeMatch && !nameMatch {
 					continue
 				}
 			}
@@ -344,22 +377,52 @@ func GetReferenceCountries() gin.HandlerFunc {
 
 		if q != "" {
 			rank := func(it CountryItem) int {
-				nameL := strings.ToLower(it.Name)
 				codeU := it.Code
-				switch {
-				case codeU == qCode:
-					return 0
-				case nameL == q:
-					return 1
-				case strings.HasPrefix(codeU, qCode):
-					return 2
-				case strings.HasPrefix(nameL, q):
-					return 3
-				case strings.Contains(codeU, qCode):
-					return 4
-				default:
-					return 5
+				codeN := normRefSearch(codeU)
+
+				// Use all languages for ranking too (universal search), but return Name in selected language.
+				nameRuN := normRefSearch(reference.CountryName(codeU, "ru"))
+				nameUzN := normRefSearch(reference.CountryName(codeU, "uz"))
+				nameEnN := normRefSearch(reference.CountryName(codeU, "en"))
+				nameTrN := normRefSearch(reference.CountryName(codeU, "tr"))
+				nameZhN := normRefSearch(reference.CountryName(codeU, "zh"))
+
+				best := 9
+				consider := func(field string, exactRank int) {
+					if field == "" || qN == "" {
+						return
+					}
+					switch {
+					case field == qN:
+						if exactRank < best {
+							best = exactRank
+						}
+					case strings.HasPrefix(field, qN):
+						if exactRank+2 < best {
+							best = exactRank + 2
+						}
+					case strings.Contains(field, qN):
+						if exactRank+4 < best {
+							best = exactRank + 4
+						}
+					}
 				}
+
+				// code is always the strongest signal
+				if codeU == qCode {
+					return 0
+				}
+				consider(codeN, 0)
+				consider(nameRuN, 1)
+				consider(nameUzN, 1)
+				consider(nameEnN, 1)
+				consider(nameTrN, 1)
+				consider(nameZhN, 1)
+
+				if best == 9 {
+					return 9
+				}
+				return best
 			}
 			sort.SliceStable(items, func(i, j int) bool {
 				ri := rank(items[i])
