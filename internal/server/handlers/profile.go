@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -16,6 +18,9 @@ import (
 	"sarbonNew/internal/telegram"
 	"sarbonNew/internal/util"
 )
+
+const maxDriverPhotoSize = 5 * 1024 * 1024 // 5 MB
+var allowedDriverPhotoTypes = map[string]bool{"image/jpeg": true, "image/png": true}
 
 type ProfileHandler struct {
 	logger *zap.Logger
@@ -343,5 +348,71 @@ func (h *ProfileHandler) Delete(c *gin.Context) {
 		return
 	}
 	resp.OK(c, gin.H{"status": "ok"})
+}
+
+// UploadPhoto — POST multipart/form-data с полем "photo". Фото необязательно при регистрации; можно добавить/обновить когда угодно.
+func (h *ProfileHandler) UploadPhoto(c *gin.Context) {
+	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
+	file, err := c.FormFile("photo")
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, "missing or invalid file: use form field 'photo'")
+		return
+	}
+	if file.Size > maxDriverPhotoSize {
+		resp.Error(c, http.StatusBadRequest, "file too large (max 5 MB)")
+		return
+	}
+	contentType := file.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+	if !allowedDriverPhotoTypes[contentType] {
+		resp.Error(c, http.StatusBadRequest, "allowed types: image/jpeg, image/png")
+		return
+	}
+	f, err := file.Open()
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, "cannot read file")
+		return
+	}
+	defer f.Close()
+	data, err := io.ReadAll(f)
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, "cannot read file")
+		return
+	}
+	if err := h.drivers.UpdatePhoto(c.Request.Context(), driverID, data, contentType); err != nil {
+		h.logger.Error("driver photo update failed", zap.Error(err))
+		resp.Error(c, http.StatusInternalServerError, "internal error")
+		return
+	}
+	resp.OK(c, gin.H{"status": "ok", "event": "photo_uploaded"})
+}
+
+// GetPhoto — GET фото водителя (бинарный ответ с Content-Type). 404 если фото нет.
+func (h *ProfileHandler) GetPhoto(c *gin.Context) {
+	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
+	data, contentType, err := h.drivers.GetPhoto(c.Request.Context(), driverID)
+	if err != nil {
+		if errors.Is(err, drivers.ErrNotFound) {
+			resp.Error(c, http.StatusNotFound, "photo not found")
+			return
+		}
+		h.logger.Error("driver get photo failed", zap.Error(err))
+		resp.Error(c, http.StatusInternalServerError, "internal error")
+		return
+	}
+	c.Data(http.StatusOK, contentType, data)
+}
+
+// DeletePhoto — DELETE фото водителя. Можно удалить когда угодно.
+func (h *ProfileHandler) DeletePhoto(c *gin.Context) {
+	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
+	if err := h.drivers.DeletePhoto(c.Request.Context(), driverID); err != nil {
+		h.logger.Error("driver delete photo failed", zap.Error(err))
+		resp.Error(c, http.StatusInternalServerError, "internal error")
+		return
+	}
+	resp.OK(c, gin.H{"status": "ok", "event": "photo_deleted"})
 }
 

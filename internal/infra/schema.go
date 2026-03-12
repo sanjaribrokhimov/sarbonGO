@@ -81,7 +81,9 @@ ALTER TABLE drivers
   ADD COLUMN IF NOT EXISTS trailer_owner_id VARCHAR NULL,
   ADD COLUMN IF NOT EXISTS trailer_owner_name VARCHAR NULL,
   ADD COLUMN IF NOT EXISTS driver_owner BOOLEAN NULL,
-  ADD COLUMN IF NOT EXISTS driver_scan_status BOOLEAN NULL;
+  ADD COLUMN IF NOT EXISTS driver_scan_status BOOLEAN NULL,
+  ADD COLUMN IF NOT EXISTS photo_data BYTEA NULL,
+  ADD COLUMN IF NOT EXISTS photo_content_type VARCHAR(50) NULL;
 `)
 	if err != nil {
 		return err
@@ -93,8 +95,15 @@ ALTER TABLE drivers
 	}
 
 	// Archive table for hard deletes (clone structure without constraints).
-	// We intentionally do NOT include constraints/indexes to avoid UNIQUE conflicts on phone.
 	_, err = pg.Exec(ctx, `CREATE TABLE IF NOT EXISTS deleted_drivers (LIKE drivers INCLUDING DEFAULTS);`)
+	if err != nil {
+		return err
+	}
+	_, err = pg.Exec(ctx, `
+ALTER TABLE deleted_drivers
+  ADD COLUMN IF NOT EXISTS photo_data BYTEA NULL,
+  ADD COLUMN IF NOT EXISTS photo_content_type VARCHAR(50) NULL;
+`)
 	if err != nil {
 		return err
 	}

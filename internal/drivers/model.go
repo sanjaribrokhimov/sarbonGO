@@ -52,5 +52,8 @@ type Driver struct {
 
 	DriverOwner *bool   `json:"driver_owner"`
 	KYCStatus     *string `json:"kyc_status"`
+
+	// HasPhoto — true если загружено фото в БД (получить через GET /v1/driver/profile/photo). Фото необязательно при регистрации.
+	HasPhoto bool `json:"has_photo"`
 }
 

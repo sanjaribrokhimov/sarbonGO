@@ -57,7 +57,7 @@ tags:
 
       **Кто вызывает:** Водитель (мобильное приложение). Все методы требуют X-User-Token (JWT).
 
-      **Поток и данные:** GET /v1/driver/profile — получить профиль (все поля). PATCH /v1/driver/profile/driver — изменить имя, work_status, паспорт. PATCH /v1/driver/profile/power — данные тягача; PATCH /v1/driver/profile/trailer — данные прицепа. PUT /v1/driver/profile/heartbeat — обновить гео (latitude, longitude); last_online_at опционален, также обновляется автоматически при каждом запросе водителя. Смена телефона: .../phone-change/request (new_phone) → OTP; .../phone-change/verify (session_id, otp). DELETE /v1/driver/profile — удалить аккаунт (архивация в deleted_drivers).
+      **Поток и данные:** GET /v1/driver/profile — получить профиль (все поля, в т.ч. has_photo). PATCH /v1/driver/profile/driver — изменить имя, work_status, паспорт. PATCH /v1/driver/profile/power — данные тягача; PATCH /v1/driver/profile/trailer — данные прицепа. PUT /v1/driver/profile/heartbeat — обновить гео. **Фото:** необязательно при регистрации; можно добавить/обновить/удалить когда угодно: POST /v1/driver/profile/photo — загрузить фото (multipart, поле photo, JPEG/PNG, макс. 5 MB); GET /v1/driver/profile/photo — получить фото; DELETE /v1/driver/profile/photo — удалить фото. Смена телефона: .../phone-change/request (new_phone) → OTP; .../phone-change/verify (session_id, otp). DELETE /v1/driver/profile — удалить аккаунт (архивация в deleted_drivers).
   - name: Freelance Dispatchers / Auth
     description: |
       **Руководство: Авторизация диспетчеров**
@@ -308,6 +308,7 @@ components:
         trailer_scan_status: { type: boolean, nullable: true }
         driver_owner: { type: boolean, nullable: true, example: true }
         kyc_status: { type: string, nullable: true, example: "pending" }
+        has_photo: { type: boolean, description: "true если загружено фото в БД (получить через GET /v1/driver/profile/photo). Фото необязательно при регистрации; можно добавить/обновить/удалить когда угодно." }
       required: [id, phone, created_at, updated_at]
     Dispatcher:
       type: object
@@ -1471,6 +1472,79 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Envelope" }
+
+  /v1/driver/profile/photo:
+    post:
+      tags: ["Drivers / Profile"]
+      summary: "Загрузить фото водителя"
+      description: |
+        **Формат:** multipart/form-data, поле **photo** — файл изображения (image/jpeg или image/png). Макс. размер 5 MB.
+        Фото необязательно при регистрации; можно добавить или обновить когда угодно. Сохраняется в БД. В профиле (GET /profile) поле has_photo будет true; само изображение — через GET /v1/driver/profile/photo.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [photo]
+              properties:
+                photo:
+                  type: string
+                  format: binary
+                  description: "Файл изображения (JPEG или PNG, макс. 5 MB)"
+      responses:
+        "200":
+          description: Фото сохранено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "success" }
+                  data:
+                    type: object
+                    properties:
+                      status: { type: string, example: "ok" }
+                      event: { type: string, example: "photo_uploaded" }
+        "400": { description: "Нет файла, неверный тип или размер" }
+        "401": { description: Не авторизован }
+    get:
+      tags: ["Drivers / Profile"]
+      summary: "Получить фото водителя"
+      description: |
+        Возвращает загруженное фото (бинарные данные) с заголовком Content-Type (image/jpeg или image/png).
+        Если фото не загружалось — 404.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      responses:
+        "200":
+          description: Изображение
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+        "401": { description: Не авторизован }
+        "404": { description: Фото не найдено }
+    delete:
+      tags: ["Drivers / Profile"]
+      summary: "Удалить фото водителя"
+      description: |
+        Удаляет загруженное фото из профиля. Можно вызвать когда угодно; если фото не было — операция всё равно успешна (no-op).
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      responses:
+        "200":
+          description: Фото удалено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "success" }
+                  data:
+                    type: object
+                    properties:
+                      status: { type: string, example: "ok" }
+                      event: { type: string, example: "photo_deleted" }
+        "401": { description: Не авторизован }
 
   /v1/driver/profile/phone-change/request:
     post:

@@ -30,7 +30,8 @@ const driverSelectCols = `
   d.driver_passport_series, d.driver_passport_number, d.driver_pinfl, d.driver_scan_status,
   p.power_plate_type, p.power_plate_number, p.power_tech_series, p.power_tech_number, p.power_owner_id, p.power_owner_name, p.power_scan_status,
   t.trailer_plate_type, t.trailer_plate_number, t.trailer_tech_series, t.trailer_tech_number, t.trailer_owner_id, t.trailer_owner_name, t.trailer_scan_status,
-  d.driver_owner, d.kyc_status`
+  d.driver_owner, d.kyc_status,
+  (d.photo_data IS NOT NULL) AS has_photo`
 
 const driverJoinTables = `
 FROM drivers d
@@ -65,6 +66,7 @@ func scanDriver(row pgx.Row) (*Driver, error) {
 		&d.PowerPlateType, &d.PowerPlateNumber, &d.PowerTechSeries, &d.PowerTechNumber, &d.PowerOwnerID, &d.PowerOwnerName, &d.PowerScanStatus,
 		&d.TrailerPlateType, &d.TrailerPlateNumber, &d.TrailerTechSeries, &d.TrailerTechNumber, &d.TrailerOwnerID, &d.TrailerOwnerName, &d.TrailerScanStatus,
 		&d.DriverOwner, &d.KYCStatus,
+		&d.HasPhoto,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -456,6 +458,33 @@ func (r *Repo) UpdateStep(ctx context.Context, id uuid.UUID, step string) error 
 func (r *Repo) UpdateOnlineAt(ctx context.Context, id uuid.UUID, t time.Time) error {
 	const q = `UPDATE drivers SET last_online_at = $2, updated_at = now() WHERE id = $1`
 	_, err := r.pg.Exec(ctx, q, id, t)
+	return err
+}
+
+// UpdatePhoto сохраняет фото водителя в БД (бинарные данные + content-type).
+func (r *Repo) UpdatePhoto(ctx context.Context, id uuid.UUID, data []byte, contentType string) error {
+	const q = `UPDATE drivers SET photo_data = $2, photo_content_type = $3, updated_at = now(), last_online_at = now() WHERE id = $1`
+	_, err := r.pg.Exec(ctx, q, id, data, contentType)
+	return err
+}
+
+// GetPhoto возвращает фото водителя (данные и content-type). Если фото нет — ErrNotFound.
+func (r *Repo) GetPhoto(ctx context.Context, id uuid.UUID) (data []byte, contentType string, err error) {
+	const q = `SELECT photo_data, COALESCE(photo_content_type, 'image/jpeg') FROM drivers WHERE id = $1 AND photo_data IS NOT NULL`
+	err = r.pg.QueryRow(ctx, q, id).Scan(&data, &contentType)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, "", ErrNotFound
+		}
+		return nil, "", err
+	}
+	return data, contentType, nil
+}
+
+// DeletePhoto удаляет фото водителя (обнуляет photo_data).
+func (r *Repo) DeletePhoto(ctx context.Context, id uuid.UUID) error {
+	const q = `UPDATE drivers SET photo_data = NULL, photo_content_type = NULL, updated_at = now(), last_online_at = now() WHERE id = $1`
+	_, err := r.pg.Exec(ctx, q, id)
 	return err
 }
 
