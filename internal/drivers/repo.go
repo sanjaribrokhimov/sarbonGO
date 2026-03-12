@@ -3,6 +3,7 @@ package drivers
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -143,6 +144,47 @@ func (r *Repo) SetFreelancerID(ctx context.Context, driverID, freelancerID uuid.
 	const q = `UPDATE drivers SET freelancer_id = $2, updated_at = now() WHERE id = $1`
 	_, err := r.pg.Exec(ctx, q, driverID, freelancerID)
 	return err
+}
+
+// SearchByPhone returns drivers whose phone matches the search (exact match first, then containing). For dispatcher to find driver and invite by id.
+func (r *Repo) SearchByPhone(ctx context.Context, phoneSearch string, limit int) ([]*Driver, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	term := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(phoneSearch, " ", ""), "-", ""))
+	if term == "" {
+		return []*Driver{}, nil
+	}
+	pattern := "%" + term + "%"
+	const q = `
+SELECT id, phone, created_at, updated_at, last_online_at, latitude, longitude, push_token,
+  registration_step, registration_status, name, driver_type, rating, work_status,
+  freelancer_id, company_id, account_status,
+  driver_passport_series, driver_passport_number, driver_pinfl, driver_scan_status,
+  power_plate_type, power_plate_number, power_tech_series, power_tech_number, power_owner_id, power_owner_name, power_scan_status,
+  trailer_plate_type, trailer_plate_number, trailer_tech_series, trailer_tech_number, trailer_owner_id, trailer_owner_name, trailer_scan_status,
+  driver_owner, kyc_status
+FROM drivers
+WHERE replace(replace(trim(phone), ' ', ''), '-', '') LIKE $1
+ORDER BY (replace(replace(trim(phone), ' ', ''), '-', '') = $2) DESC, created_at DESC
+LIMIT $3`
+	rows, err := r.pg.Query(ctx, q, pattern, term, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []*Driver
+	for rows.Next() {
+		d, err := scanDriver(rows)
+		if err != nil {
+			return nil, err
+		}
+		list = append(list, d)
+	}
+	return list, rows.Err()
 }
 
 // ListByFreelancerID returns drivers linked to this freelance dispatcher (freelancer_id = dispatcherID).

@@ -225,7 +225,9 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	authed.POST("/trips/:id/confirm", tripsH.DriverConfirm)
 	authed.POST("/trips/:id/reject", tripsH.DriverReject)
 	authed.PATCH("/trips/:id/status", tripsH.PatchStatus)
+	authed.GET("/driver-invitations", driverInvH.ListInvitations)
 	authed.POST("/driver-invitations/accept", driverInvH.Accept)
+	authed.POST("/driver-invitations/decline", driverInvH.Decline)
 
 	dispAuthed := v1.Group("/dispatchers")
 	dispAuthed.Use(mw.RequireDispatcher(jwtm, refreshStore))
@@ -246,6 +248,7 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	dispAuthed.POST("/invitations/decline", dispInvH.Decline)
 	dispAuthed.POST("/driver-invitations", driverInvH.CreateForFreelance)
 	dispAuthed.POST("/companies/:companyId/driver-invitations", driverInvH.Create)
+	dispAuthed.GET("/drivers/find", driverInvH.FindDrivers)
 	dispAuthed.GET("/drivers", driverInvH.ListMyDrivers)
 	dispAuthed.PATCH("/trips/:id/assign-driver", tripsH.AssignDriver)
 

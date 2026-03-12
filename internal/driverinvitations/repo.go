@@ -81,8 +81,33 @@ type Invitation struct {
 	CreatedAt              time.Time
 }
 
-// Delete removes invitation after accept.
+// Delete removes invitation after accept or decline.
 func (r *Repo) Delete(ctx context.Context, token string) error {
 	_, err := r.pg.Exec(ctx, `DELETE FROM driver_invitations WHERE token = $1`, token)
 	return err
+}
+
+// ListByPhone returns non-expired invitations for the given phone (для водителя: список приглашений в чате).
+func (r *Repo) ListByPhone(ctx context.Context, phone string) ([]Invitation, error) {
+	rows, err := r.pg.Query(ctx,
+		`SELECT id, token, company_id, phone, invited_by, invited_by_dispatcher_id, expires_at, created_at
+		 FROM driver_invitations WHERE expires_at > now() AND trim(replace(phone, ' ', '')) = trim(replace($1, ' ', ''))
+		 ORDER BY created_at DESC`,
+		phone)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []Invitation
+	for rows.Next() {
+		var i Invitation
+		var companyID, invDispID *uuid.UUID
+		if err := rows.Scan(&i.ID, &i.Token, &companyID, &i.Phone, &i.InvitedBy, &invDispID, &i.ExpiresAt, &i.CreatedAt); err != nil {
+			return nil, err
+		}
+		i.CompanyID = companyID
+		i.InvitedByDispatcherID = invDispID
+		list = append(list, i)
+	}
+	return list, rows.Err()
 }

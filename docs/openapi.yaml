@@ -109,7 +109,7 @@ tags:
   - name: "Freelance Dispatchers / Приглашения водителей"
     description: |
       **Отправка приглашений водителям (фриланс-диспетчер).**
-      Пригласить водителя по телефону (без компании): POST /v1/dispatchers/driver-invitations (body: phone). В ответе — token; отправить водителю (чат/ссылку). Водитель принимает: POST /v1/driver-invitations/accept (token) с X-User-Token → у водителя freelancer_id = диспетчер. Список моих водителей: GET /v1/dispatchers/drivers. Требуется X-User-Token (dispatcher).
+      **Поиск:** GET /v1/dispatchers/drivers/find?phone=... — водители по номеру (совпадения сверху); по id пригласить: POST /v1/dispatchers/driver-invitations (body: driver_id или phone). **Процесс:** 1) Диспетчер: POST /v1/dispatchers/driver-invitations (phone или driver_id) → token. 2) Водитель: GET /v1/driver-invitations — список приглашений; POST .../accept (token) или POST .../decline (token). 4) При принятии: freelancer_id = диспетчер, GET /v1/dispatchers/drivers — список водителей. X-User-Token: dispatcher или driver.
   - name: "Cargo — Freelance dispatcher"
     description: |
       **Грузы для фриланс-диспетчера.** POST /api/cargo (X-User-Token), GET /api/cargo, GET /api/cargo/:id, PUT, PATCH status, POST/GET offers, POST /api/offers/:id/accept. GET /api/trips?cargo_id=, GET /api/trips/:id.
@@ -118,7 +118,7 @@ tags:
       **Диспетчер компании — только через приглашение.** GET /v1/dispatchers/companies (мои компании), POST /v1/dispatchers/auth/switch-company. Приглашение: POST /v1/dispatchers/companies/:companyId/invitations, accept, decline.
   - name: "Freelance Dispatchers / My drivers"
     description: |
-      **Мои водители.** Пригласить без компании: POST /v1/dispatchers/driver-invitations (phone). Список: GET /v1/dispatchers/drivers. В компании: POST .../companies/:companyId/driver-invitations.
+      **Мои водители.** Найти: GET /v1/dispatchers/drivers/find?phone=... Пригласить без компании: POST /v1/dispatchers/driver-invitations (phone или driver_id). Список: GET /v1/dispatchers/drivers. В компании: POST .../companies/:companyId/driver-invitations.
   - name: Freelance Dispatchers / Trips
     description: |
       **Назначение водителя на рейс.** PATCH /v1/dispatchers/trips/:id/assign-driver (driver_id). Водитель: POST /v1/trips/:id/confirm или reject. Статусы: pending_driver → assigned → loading → en_route → unloading → completed.
@@ -128,8 +128,8 @@ tags:
       GET /v1/trips — список рейсов, назначенных текущему водителю. POST /v1/trips/:id/confirm — принять назначение (рейс → assigned). POST /v1/trips/:id/reject — отклонить (диспетчер может назначить другого). PATCH /v1/trips/:id/status — смена статуса водителем (loading, en_route, unloading, completed, cancelled). Требуется X-User-Token (driver).
   - name: Drivers / Driver invitations
     description: |
-      **Принятие приглашения (компания или фриланс-диспетчер).**
-      POST /v1/driver-invitations/accept (body token) с X-User-Token (driver). Телефон должен совпадать. Приглашение от компании → driver.company_id; от фриланс-диспетчера → driver.freelancer_id. В ответе company_id или freelancer_id.
+      **Приглашения для водителя: получить список, принять или отказать.**
+      **Поток:** 1) GET /v1/driver-invitations — список приглашений (token, type, company_id/dispatcher_id, expires_at). 2) Принять: POST /v1/driver-invitations/accept (body: token). 3) Отказать: POST /v1/driver-invitations/decline (body: token). X-User-Token (driver). Телефон водителя должен совпадать с приглашением. От компании → driver.company_id; от фриланс-диспетчера → driver.freelancer_id.
   - name: Admin / Auth
     description: |
       **Руководство: Авторизация админа (оператор)**
@@ -2335,7 +2335,7 @@ paths:
       tags: ["Freelance Dispatchers / Приглашения водителей", "Freelance Dispatchers / My drivers"]
       summary: "Отправить приглашение водителю (фриланс — без компании)"
       description: |
-        **Фриланс-диспетчер:** отправить приглашение водителю по телефону. Тело: phone (обязательно). В ответе — token; передать водителю (чат/ссылка). Водитель принимает через POST /v1/driver-invitations/accept (token). После принятия у водителя freelancer_id = текущий диспетчер. Требуется X-User-Token (dispatcher).
+        **Фриланс-диспетчер:** пригласить водителя. Передайте **phone** (номер телефона) **или** **driver_id** (UUID водителя из поиска GET /v1/dispatchers/drivers/find). Достаточно одного из полей. В ответе — token; передать водителю (чат/ссылка). Водитель: GET /v1/driver-invitations → список; POST /v1/driver-invitations/accept (token) или POST .../decline (token). После принятия у водителя freelancer_id = текущий диспетчер. X-User-Token (dispatcher).
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
@@ -2344,13 +2344,40 @@ paths:
             schema:
               type: object
               properties:
-                phone: { type: string, example: "+998901234567" }
-              required: [phone]
+                phone: { type: string, example: "+998901234567", description: "Номер телефона водителя (если не указан driver_id)" }
+                driver_id: { type: string, format: uuid, description: "UUID водителя из поиска GET .../drivers/find (приглашение по id)" }
             example:
               phone: "+998901234567"
+            examples:
+              by_phone:
+                summary: "По номеру телефона"
+                value: { phone: "+998901234567" }
+              by_driver_id:
+                summary: "По ID водителя (после поиска)"
+                value: { driver_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890" }
       responses:
         "201": { description: "data.token, data.expires_in_hours" }
-        "400": { description: invalid payload }
+        "400": { description: "invalid payload или phone/driver_id обязателен; driver not found при driver_id" }
+
+  /v1/dispatchers/drivers/find:
+    get:
+      tags: ["Freelance Dispatchers / Приглашения водителей", "Freelance Dispatchers / My drivers"]
+      summary: "Поиск водителей по номеру телефона"
+      description: |
+        **Диспетчер:** поиск водителей по части номера (phone). Совпадения по полному номеру выше. Результат — список водителей (id, phone, name, work_status, driver_type, freelancer_id, company_id); использовать id для приглашения через POST /v1/dispatchers/driver-invitations (body driver_id). X-User-Token (dispatcher).
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: phone
+          in: query
+          required: true
+          schema: { type: string, example: "+998901234567" }
+          description: "Часть или полный номер телефона для поиска"
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+      responses:
+        "200":
+          description: "data.items — массив водителей (id, phone, name, work_status, driver_type, freelancer_id, company_id); точные совпадения сверху"
 
   /v1/dispatchers/drivers:
     get:
@@ -2485,11 +2512,66 @@ paths:
         "400": { description: invalid status transition }
         "403": { description: trip not assigned to you }
 
+  /v1/driver-invitations:
+    get:
+      tags: ["Drivers / Driver invitations", "Freelance Dispatchers / Приглашения водителей"]
+      summary: "Список приглашений для водителя"
+      description: |
+        **Водитель:** приглашения на свой номер телефона (от компании или от фриланс-диспетчера). Показывать в чате/разделе приглашений. По каждому приглашению водитель может принять (POST .../accept) или отказаться (POST .../decline).
+        В ответе data.items — массив: token, type (company | freelance), company_id или dispatcher_id, expires_at, created_at.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      responses:
+        "200":
+          description: "data.items — приглашения (token, type, company_id/dispatcher_id, expires_at, created_at)"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "ok" }
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            token: { type: string }
+                            type: { type: string, enum: [company, freelance, unknown] }
+                            company_id: { type: string, format: uuid }
+                            dispatcher_id: { type: string, format: uuid }
+                            phone: { type: string }
+                            expires_at: { type: string, format: date-time }
+                            created_at: { type: string, format: date-time }
   /v1/driver-invitations/accept:
     post:
-      tags: ["Drivers / Driver invitations"]
-      summary: "Принять приглашение в компанию (водитель)"
-      description: "Тело: token. Телефон водителя должен совпадать с приглашением. После принятия driver.company_id устанавливается."
+      tags: ["Drivers / Driver invitations", "Freelance Dispatchers / Приглашения водителей"]
+      summary: "Принять приглашение (водитель)"
+      description: |
+        Тело: token. Телефон водителя должен совпадать с приглашением.
+        **От компании:** после принятия у водителя устанавливается company_id. **От фриланс-диспетчера:** у водителя устанавливается freelancer_id = id диспетчера; у диспетчера в списке GET /v1/dispatchers/drivers появляется этот водитель.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token: { type: string }
+              required: [token]
+            example:
+              token: "a1b2c3d4e5f6789012345678abcdef0123456789abcdef0123456789"
+      responses:
+        "200": { description: "data.company_id или data.freelancer_id" }
+        "400": { description: invitation not found or expired }
+        "403": { description: invitation was sent to another phone }
+  /v1/driver-invitations/decline:
+    post:
+      tags: ["Drivers / Driver invitations", "Freelance Dispatchers / Приглашения водителей"]
+      summary: "Отказаться от приглашения (водитель)"
+      description: "Тело: token. Приглашение должно быть на номер текущего водителя. Приглашение удаляется."
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
@@ -2501,7 +2583,7 @@ paths:
                 token: { type: string }
               required: [token]
       responses:
-        "200": { description: data.company_id }
+        "200": { description: data.status = declined }
         "400": { description: invitation not found or expired }
         "403": { description: invitation was sent to another phone }
 

@@ -65,17 +65,31 @@ func (h *DriverInvitationsHandler) Create(c *gin.Context) {
 	resp.Success(c, http.StatusCreated, "created", gin.H{"token": token, "expires_in_hours": 168})
 }
 
-// CreateForFreelance creates driver invitation as freelance (no company). Driver gets freelancer_id on accept.
+// CreateForFreelanceReq body for POST /v1/dispatchers/driver-invitations — phone или driver_id (найти водителя через GET .../drivers/find).
+type CreateForFreelanceReq struct {
+	Phone    string     `json:"phone"`
+	DriverID *uuid.UUID `json:"driver_id"`
+}
+
+// CreateForFreelance creates driver invitation as freelance (no company). Можно передать phone или driver_id (после поиска через find).
 func (h *DriverInvitationsHandler) CreateForFreelance(c *gin.Context) {
 	dispatcherID := c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
-	var req CreateDriverInvitationReq
+	var req CreateForFreelanceReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
 		return
 	}
 	phone := strings.TrimSpace(req.Phone)
+	if req.DriverID != nil && *req.DriverID != uuid.Nil {
+		drv, err := h.drv.FindByID(c.Request.Context(), *req.DriverID)
+		if err != nil || drv == nil {
+			resp.Error(c, http.StatusBadRequest, "driver not found")
+			return
+		}
+		phone = strings.TrimSpace(drv.Phone)
+	}
 	if phone == "" {
-		resp.Error(c, http.StatusBadRequest, "phone is required")
+		resp.Error(c, http.StatusBadRequest, "phone or driver_id is required")
 		return
 	}
 	token, err := h.repo.CreateForFreelance(c.Request.Context(), dispatcherID, phone, 7*24*time.Hour)
@@ -87,12 +101,85 @@ func (h *DriverInvitationsHandler) CreateForFreelance(c *gin.Context) {
 	resp.Success(c, http.StatusCreated, "created", gin.H{"token": token, "expires_in_hours": 168})
 }
 
-// AcceptDriverInvitationReq body for POST /v1/drivers/invitations/accept
+// FindDrivers returns drivers matching phone search (для диспетчера: найти водителя и пригласить по driver_id). Совпадения сверху.
+func (h *DriverInvitationsHandler) FindDrivers(c *gin.Context) {
+	_ = c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
+	phoneSearch := strings.TrimSpace(c.Query("phone"))
+	if phoneSearch == "" {
+		resp.OK(c, gin.H{"items": []gin.H{}})
+		return
+	}
+	limit := 20
+	if l := c.Query("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+	list, err := h.drv.SearchByPhone(c.Request.Context(), phoneSearch, limit)
+	if err != nil {
+		h.logger.Error("drivers find", zap.Error(err))
+		resp.Error(c, http.StatusInternalServerError, "failed to search drivers")
+		return
+	}
+	if list == nil {
+		list = []*drivers.Driver{}
+	}
+	items := make([]gin.H, 0, len(list))
+	for _, d := range list {
+		items = append(items, gin.H{
+			"id": d.ID, "phone": d.Phone, "name": d.Name,
+			"work_status": d.WorkStatus, "driver_type": d.DriverType,
+			"freelancer_id": d.FreelancerID, "company_id": d.CompanyID,
+		})
+	}
+	resp.OK(c, gin.H{"items": items})
+}
+
+// ListInvitations returns pending invitations for the current driver (by phone). Водитель видит приглашения в чате/разделе приглашений.
+func (h *DriverInvitationsHandler) ListInvitations(c *gin.Context) {
+	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
+	drv, err := h.drv.FindByID(c.Request.Context(), driverID)
+	if err != nil || drv == nil {
+		resp.Error(c, http.StatusUnauthorized, "driver not found")
+		return
+	}
+	list, err := h.repo.ListByPhone(c.Request.Context(), drv.Phone)
+	if err != nil {
+		h.logger.Error("driver invitations list", zap.Error(err))
+		resp.Error(c, http.StatusInternalServerError, "failed to list invitations")
+		return
+	}
+	if list == nil {
+		list = []driverinvitations.Invitation{}
+	}
+	items := make([]gin.H, 0, len(list))
+	for _, inv := range list {
+		item := gin.H{
+			"token":      inv.Token,
+			"phone":      inv.Phone,
+			"expires_at": inv.ExpiresAt,
+			"created_at": inv.CreatedAt,
+		}
+		if inv.CompanyID != nil && *inv.CompanyID != uuid.Nil {
+			item["type"] = "company"
+			item["company_id"] = inv.CompanyID.String()
+		} else if inv.InvitedByDispatcherID != nil && *inv.InvitedByDispatcherID != uuid.Nil {
+			item["type"] = "freelance"
+			item["dispatcher_id"] = inv.InvitedByDispatcherID.String()
+		} else {
+			item["type"] = "unknown"
+		}
+		items = append(items, item)
+	}
+	resp.OK(c, gin.H{"items": items})
+}
+
+// AcceptDriverInvitationReq body for POST /v1/driver-invitations/accept
 type AcceptDriverInvitationReq struct {
 	Token string `json:"token" binding:"required"`
 }
 
-// AcceptDriverInvitation links driver to company (driver's phone must match invitation).
+// AcceptDriverInvitation links driver to company or to freelance dispatcher (driver's phone must match invitation).
 func (h *DriverInvitationsHandler) Accept(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	var req AcceptDriverInvitationReq
@@ -135,6 +222,38 @@ func (h *DriverInvitationsHandler) Accept(c *gin.Context) {
 		return
 	}
 	resp.Error(c, http.StatusBadRequest, "invitation invalid")
+}
+
+// DeclineDriverInvitationReq body for POST /v1/driver-invitations/decline
+type DeclineDriverInvitationReq struct {
+	Token string `json:"token" binding:"required"`
+}
+
+// DeclineDriverInvitation удаляет приглашение (водитель отказывается). Проверяем, что приглашение было на этот номер.
+func (h *DriverInvitationsHandler) Decline(c *gin.Context) {
+	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
+	var req DeclineDriverInvitationReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		return
+	}
+	token := strings.TrimSpace(req.Token)
+	inv, err := h.repo.GetByToken(c.Request.Context(), token)
+	if err != nil || inv == nil {
+		resp.Error(c, http.StatusBadRequest, "invitation not found or expired")
+		return
+	}
+	drv, err := h.drv.FindByID(c.Request.Context(), driverID)
+	if err != nil || drv == nil {
+		resp.Error(c, http.StatusUnauthorized, "driver not found")
+		return
+	}
+	if strings.TrimSpace(strings.ReplaceAll(inv.Phone, " ", "")) != strings.TrimSpace(strings.ReplaceAll(drv.Phone, " ", "")) {
+		resp.Error(c, http.StatusForbidden, "invitation was sent to another phone")
+		return
+	}
+	_ = h.repo.Delete(c.Request.Context(), token)
+	resp.OK(c, gin.H{"status": "declined"})
 }
 
 // ListMyDrivers returns drivers linked to the current freelance dispatcher (freelancer_id = me).
