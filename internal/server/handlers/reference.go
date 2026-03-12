@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -301,6 +303,77 @@ func GetReferenceCities() gin.HandlerFunc {
 				Lng:         list[i].Lng,
 			}
 		}
+		resp.OK(c, gin.H{"items": items})
+	}
+}
+
+type CountryItem struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+// GetReferenceCountries returns reference list of all country codes with localized name from X-Language header.
+func GetReferenceCountries() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		lang := strings.ToLower(strings.TrimSpace(c.GetHeader("X-Language")))
+		switch lang {
+		case "ru", "uz", "en", "tr", "zh":
+		default:
+			resp.Error(c, http.StatusBadRequest, "invalid X-Language (allowed: ru, uz, en, tr, zh)")
+			return
+		}
+
+		qRaw := strings.TrimSpace(c.Query("q"))
+		q := strings.ToLower(qRaw)
+		qCode := strings.ToUpper(qRaw)
+
+		all := reference.CountriesAll()
+		items := make([]CountryItem, 0, len(all))
+		for _, cc := range all {
+			name := reference.CountryName(cc.Code, lang)
+			if q != "" {
+				if !strings.Contains(strings.ToLower(name), q) && !strings.Contains(cc.Code, qCode) {
+					continue
+				}
+			}
+			items = append(items, CountryItem{
+				Code: cc.Code,
+				Name: name,
+			})
+		}
+
+		if q != "" {
+			rank := func(it CountryItem) int {
+				nameL := strings.ToLower(it.Name)
+				codeU := it.Code
+				switch {
+				case codeU == qCode:
+					return 0
+				case nameL == q:
+					return 1
+				case strings.HasPrefix(codeU, qCode):
+					return 2
+				case strings.HasPrefix(nameL, q):
+					return 3
+				case strings.Contains(codeU, qCode):
+					return 4
+				default:
+					return 5
+				}
+			}
+			sort.SliceStable(items, func(i, j int) bool {
+				ri := rank(items[i])
+				rj := rank(items[j])
+				if ri != rj {
+					return ri < rj
+				}
+				if items[i].Code != items[j].Code {
+					return items[i].Code < items[j].Code
+				}
+				return items[i].Name < items[j].Name
+			})
+		}
+
 		resp.OK(c, gin.H{"items": items})
 	}
 }

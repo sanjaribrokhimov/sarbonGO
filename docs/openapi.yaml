@@ -1202,6 +1202,42 @@ paths:
                             lat: { type: number, nullable: true }
                             lng: { type: number, nullable: true }
 
+  /v1/reference/countries:
+    get:
+      tags: ["Reference / Cargo", "Freelance Dispatchers / Добавление груза"]
+      summary: "Справочник стран (коды ISO + имя на языке X-Language)"
+      description: |
+        Возвращает **все** известные коды стран (ISO 3166-1 alpha-2) и поле **name** на языке, заданном заголовком **X-Language** (ru | uz | en | tr | zh).
+        Если перевод для конкретной страны отсутствует, сервер вернёт английское имя как fallback.
+        Используйте для UI фильтра по стране перед вызовом GET /v1/reference/cities?country_code=...
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema: { type: string, example: "uz" }
+          description: "Поиск по коду страны (например UZ) или по названию на языке X-Language. Совпадения сверху."
+      responses:
+        "200":
+          description: "data.items — массив { code, name }"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            code: { type: string, example: "UZ" }
+                            name: { type: string, example: "Узбекистан" }
+        "400":
+          description: "invalid X-Language (allowed: ru, uz, en, tr, zh)"
+
   /v1/auth/phone:
     post:
       tags: ["Drivers / Auth"]

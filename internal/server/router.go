@@ -171,6 +171,7 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	v1.GET("/reference/admin", handlers.GetReferenceAdmin)
 	v1.GET("/reference/dispatchers", handlers.GetReferenceDispatchers)
 	v1.GET("/reference/cities", handlers.GetReferenceCities())
+	v1.GET("/reference/countries", handlers.GetReferenceCountries())
 
 	// API /api/cargo (same base headers as v1)
 	api := r.Group("/api")
