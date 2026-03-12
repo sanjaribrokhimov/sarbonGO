@@ -17,7 +17,7 @@ func Register(r *gin.Engine) {
 			c.File(p)
 			return
 		}
-		resp.Error(c, http.StatusNotFound, "openapi.yaml not found on disk")
+		resp.ErrorLang(c, http.StatusNotFound, "openapi_not_found")
 	})
 
 	r.GET("/docs", func(c *gin.Context) {

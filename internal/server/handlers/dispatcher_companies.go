@@ -36,26 +36,26 @@ func (h *DispatcherCompaniesHandler) CreateCompany(c *gin.Context) {
 	dispatcherID := c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
 	var req CreateCompanyReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		resp.Error(c, http.StatusBadRequest, "name is required")
+		resp.ErrorLang(c, http.StatusBadRequest, "name_required")
 		return
 	}
 	companyID, err := h.repo.CreateWithOwnerDispatcher(c.Request.Context(), name, dispatcherID)
 	if err != nil {
 		h.logger.Error("dispatcher create company", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to create company")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_create_company")
 		return
 	}
 	if err := h.dcr.Add(c.Request.Context(), dispatcherID, companyID, "owner"); err != nil {
 		h.logger.Error("dispatcher_company_roles add", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to link company")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_link_company")
 		return
 	}
-	resp.Success(c, http.StatusCreated, "created", gin.H{"id": companyID.String(), "name": name})
+	resp.SuccessLang(c, http.StatusCreated, "created", gin.H{"id": companyID.String(), "name": name})
 }
 
 // ListMyCompanies returns companies where dispatcher is owner or has role (GET /v1/dispatchers/companies).
@@ -64,13 +64,13 @@ func (h *DispatcherCompaniesHandler) ListMyCompanies(c *gin.Context) {
 	list, err := h.repo.ListForDispatcher(c.Request.Context(), dispatcherID)
 	if err != nil {
 		h.logger.Error("list for dispatcher", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to list companies")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_list_companies")
 		return
 	}
 	if list == nil {
 		list = []companies.CompanyWithRole{}
 	}
-	resp.Success(c, http.StatusOK, "ok", gin.H{"items": list})
+	resp.OKLang(c, "ok", gin.H{"items": list})
 }
 
 // SwitchCompanyReq body for POST /v1/dispatchers/auth/switch-company
@@ -83,26 +83,26 @@ func (h *DispatcherCompaniesHandler) SwitchCompany(c *gin.Context) {
 	dispatcherID := c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
 	var req SwitchCompanyReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	companyID, err := uuid.Parse(req.CompanyID)
 	if err != nil || companyID == uuid.Nil {
-		resp.Error(c, http.StatusBadRequest, "invalid company_id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_company_id")
 		return
 	}
 	ok, err := h.dcr.HasAccess(c.Request.Context(), dispatcherID, companyID)
 	if err != nil || !ok {
-		resp.Error(c, http.StatusForbidden, "company not found or access denied")
+		resp.ErrorLang(c, http.StatusForbidden, "company_not_found_or_access_denied")
 		return
 	}
 	tokens, _, err := h.jwtm.IssueWithCompany("dispatcher", dispatcherID, companyID)
 	if err != nil {
 		h.logger.Error("issue token with company", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to issue token")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_issue_token")
 		return
 	}
-	resp.Success(c, http.StatusOK, "ok", gin.H{
+	resp.OKLang(c, "ok", gin.H{
 		"access_token":        tokens.AccessToken,
 		"refresh_token":       tokens.RefreshToken,
 		"expires_in":          tokens.ExpiresIn,

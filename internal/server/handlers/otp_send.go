@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -42,18 +41,18 @@ func WriteOTPSendError(c *gin.Context, err error, logger *zap.Logger, logMsg str
 	var tgErr *telegram.GatewayError
 	if errors.As(err, &tgErr) {
 		if errors.Is(err, telegram.ErrNoAccount) {
-			resp.Error(c, http.StatusBadRequest, strings.ToLower(tgErr.Error()))
+			resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 			return true
 		}
 		if errors.Is(err, telegram.ErrRateLimited) {
-			resp.Error(c, http.StatusTooManyRequests, strings.ToLower(tgErr.Error()))
+			resp.ErrorLang(c, http.StatusTooManyRequests, "otp_rate_limited")
 			return true
 		}
 		logger.Warn(logMsg, zap.Error(err))
-		resp.Error(c, http.StatusBadGateway, strings.ToLower(tgErr.Error()))
+		resp.ErrorLang(c, http.StatusBadGateway, "internal_error")
 		return true
 	}
 	logger.Warn(logMsg, zap.Error(err))
-	resp.Error(c, http.StatusBadGateway, strings.ToLower(err.Error()))
+	resp.ErrorLang(c, http.StatusBadGateway, "internal_error")
 	return true
 }

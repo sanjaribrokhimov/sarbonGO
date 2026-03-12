@@ -26,35 +26,35 @@ func NewTripsHandler(logger *zap.Logger, repo *trips.Repo) *TripsHandler {
 func (h *TripsHandler) Get(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
 		return
 	}
 	t, err := h.repo.GetByID(c.Request.Context(), id)
 	if err != nil || t == nil {
-		resp.Error(c, http.StatusNotFound, "trip not found")
+		resp.ErrorLang(c, http.StatusNotFound, "trip_not_found")
 		return
 	}
-	resp.OK(c, toTripResp(t))
+	resp.OKLang(c, "ok", toTripResp(t))
 }
 
 // List for GET /api/trips: ?cargo_id= returns single trip for that cargo.
 func (h *TripsHandler) List(c *gin.Context) {
 	cargoIDStr := c.Query("cargo_id")
 	if cargoIDStr == "" {
-		resp.Error(c, http.StatusBadRequest, "require cargo_id")
+		resp.ErrorLang(c, http.StatusBadRequest, "require_cargo_id")
 		return
 	}
 	cargoID, err := uuid.Parse(cargoIDStr)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid cargo_id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_cargo_id")
 		return
 	}
 	t, err := h.repo.GetByCargoID(c.Request.Context(), cargoID)
 	if err != nil || t == nil {
-		resp.OK(c, gin.H{"items": []interface{}{}})
+		resp.OKLang(c, "ok", gin.H{"items": []interface{}{}})
 		return
 	}
-	resp.OK(c, gin.H{"items": []interface{}{toTripResp(t)}})
+	resp.OKLang(c, "ok", gin.H{"items": []interface{}{toTripResp(t)}})
 }
 
 // ListMy for GET /v1/driver/trips (driver): returns trips assigned to current driver.
@@ -64,14 +64,14 @@ func (h *TripsHandler) ListMy(c *gin.Context) {
 	list, err := h.repo.ListByDriver(c.Request.Context(), driverID, limit)
 	if err != nil {
 		h.logger.Error("trips list my", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to list")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_list")
 		return
 	}
 	out := make([]interface{}, 0, len(list))
 	for i := range list {
 		out = append(out, toTripResp(&list[i]))
 	}
-	resp.OK(c, gin.H{"items": out})
+	resp.OKLang(c, "ok", gin.H{"items": out})
 }
 
 // AssignDriverReq body for PATCH /api/trips/:id/assign-driver (dispatcher).
@@ -83,28 +83,28 @@ type AssignDriverReq struct {
 func (h *TripsHandler) AssignDriver(c *gin.Context) {
 	tripID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
 		return
 	}
 	var req AssignDriverReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	driverID, _ := uuid.Parse(req.DriverID)
 	if driverID == uuid.Nil {
-		resp.Error(c, http.StatusBadRequest, "invalid driver_id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_driver_id")
 		return
 	}
 	if err := h.repo.AssignDriver(c.Request.Context(), tripID, driverID); err != nil {
 		if err == trips.ErrNotFound {
-			resp.Error(c, http.StatusNotFound, "trip not found or not pending_driver")
+			resp.ErrorLang(c, http.StatusNotFound, "trip_not_found_or_not_pending_driver")
 			return
 		}
-		resp.Error(c, http.StatusBadRequest, err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
-	resp.OK(c, gin.H{"status": "pending_driver", "driver_id": driverID.String()})
+	resp.OKLang(c, "ok", gin.H{"status": "pending_driver", "driver_id": driverID.String()})
 }
 
 // DriverConfirm sets trip status to assigned (driver accepted). Driver must be trip.driver_id.
@@ -112,18 +112,18 @@ func (h *TripsHandler) DriverConfirm(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	tripID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
 		return
 	}
 	if err := h.repo.DriverConfirm(c.Request.Context(), tripID, driverID); err != nil {
 		if err == trips.ErrNotFound {
-			resp.Error(c, http.StatusNotFound, "trip not found or not assigned to you")
+			resp.ErrorLang(c, http.StatusNotFound, "trip not found or not assigned to you")
 			return
 		}
-		resp.Error(c, http.StatusBadRequest, err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
-	resp.OK(c, gin.H{"status": trips.StatusAssigned})
+	resp.OKLang(c, "ok", gin.H{"status": trips.StatusAssigned})
 }
 
 // DriverReject clears driver assignment so dispatcher can assign another.
@@ -131,18 +131,18 @@ func (h *TripsHandler) DriverReject(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	tripID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
 		return
 	}
 	if err := h.repo.DriverReject(c.Request.Context(), tripID, driverID); err != nil {
 		if err == trips.ErrNotFound {
-			resp.Error(c, http.StatusNotFound, "trip not found")
+			resp.ErrorLang(c, http.StatusNotFound, "trip_not_found")
 			return
 		}
-		resp.Error(c, http.StatusBadRequest, err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
-	resp.OK(c, gin.H{"status": trips.StatusPendingDriver})
+	resp.OKLang(c, "ok", gin.H{"status": trips.StatusPendingDriver})
 }
 
 // PatchStatusReq body for PATCH /api/trips/:id/status (driver: loading, en_route, unloading, completed).
@@ -155,28 +155,28 @@ func (h *TripsHandler) PatchStatus(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	tripID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
 		return
 	}
 	t, _ := h.repo.GetByID(c.Request.Context(), tripID)
 	if t == nil || t.DriverID == nil || *t.DriverID != driverID {
-		resp.Error(c, http.StatusForbidden, "trip not found or not assigned to you")
+		resp.ErrorLang(c, http.StatusForbidden, "trip not found or not assigned to you")
 		return
 	}
 	var req PatchStatusReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	if err := h.repo.SetStatus(c.Request.Context(), tripID, req.Status); err != nil {
 		if err == trips.ErrInvalidTransition {
-			resp.Error(c, http.StatusBadRequest, "invalid status transition")
+			resp.ErrorLang(c, http.StatusBadRequest, "invalid_status_transition")
 			return
 		}
-		resp.Error(c, http.StatusBadRequest, err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
-	resp.OK(c, gin.H{"status": req.Status})
+	resp.OKLang(c, "updated", gin.H{"status": req.Status})
 }
 
 func toTripResp(t *trips.Trip) gin.H {

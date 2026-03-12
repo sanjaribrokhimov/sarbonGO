@@ -63,12 +63,12 @@ type sendOTPReq struct {
 func (h *AuthHandler) SendOTP(c *gin.Context) {
 	var req sendOTPReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	phone, err := util.NormalizeE164StrictPlus(req.Phone)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 
@@ -78,7 +78,7 @@ func (h *AuthHandler) SendOTP(c *gin.Context) {
 		if WriteOTPSendError(c, err, h.logger, "telegram sendVerificationMessage failed") {
 			return
 		}
-		resp.Error(c, http.StatusInternalServerError, "otp generation failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "otp_generation_failed")
 		return
 	}
 
@@ -86,19 +86,19 @@ func (h *AuthHandler) SendOTP(c *gin.Context) {
 	ip := strings.TrimSpace(c.ClientIP())
 	if err := h.otp.SaveOTP(ctx, phone, code, requestID, ip); err != nil {
 		if errors.Is(err, store.ErrOTPCooldown) {
-			resp.Error(c, http.StatusTooManyRequests, "otp cooldown")
+			resp.ErrorLang(c, http.StatusTooManyRequests, "otp_cooldown")
 			return
 		}
 		if errors.Is(err, store.ErrOTPRateLimited) {
-			resp.Error(c, http.StatusTooManyRequests, "otp rate limited")
+			resp.ErrorLang(c, http.StatusTooManyRequests, "otp_rate_limited")
 			return
 		}
 		h.logger.Error("otp save failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 
-	resp.OK(c, gin.H{"status": "otp_sent", "ttl_seconds": ttlSec})
+	resp.OKLang(c, "otp_sent", gin.H{"status": "otp_sent", "ttl_seconds": ttlSec})
 }
 
 type verifyOTPReq struct {
@@ -109,17 +109,17 @@ type verifyOTPReq struct {
 func (h *AuthHandler) VerifyOTP(c *gin.Context) {
 	var req verifyOTPReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	phone, err := util.NormalizeE164(req.Phone)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	otp := strings.TrimSpace(req.OTP)
 	if len(otp) < 4 || len(otp) > 8 || !util.IsNumeric(otp) {
-		resp.Error(c, http.StatusBadRequest, "otp must be numeric 4..8 digits")
+		resp.ErrorLang(c, http.StatusBadRequest, "otp_must_be_numeric")
 		return
 	}
 
@@ -127,16 +127,16 @@ func (h *AuthHandler) VerifyOTP(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, store.ErrOTPExpired):
-			resp.Error(c, http.StatusUnauthorized, "otp expired")
+			resp.ErrorLang(c, http.StatusUnauthorized, "otp_expired")
 		case errors.Is(err, store.ErrOTPInvalid):
-			resp.Error(c, http.StatusUnauthorized, "otp invalid")
+			resp.ErrorLang(c, http.StatusUnauthorized, "otp_invalid")
 		case errors.Is(err, store.ErrOTPMaxAttempts):
-			resp.Error(c, http.StatusTooManyRequests, "otp max attempts exceeded")
+			resp.ErrorLang(c, http.StatusTooManyRequests, "otp_max_attempts_exceeded")
 		case errors.Is(err, store.ErrOTPVerifyRateLimited):
-			resp.Error(c, http.StatusTooManyRequests, "otp verify attempts exceeded for this phone, try again later")
+			resp.ErrorLang(c, http.StatusTooManyRequests, "otp_verify_attempts_exceeded")
 		default:
 			h.logger.Error("otp verify error", zap.Error(err))
-			resp.Error(c, http.StatusInternalServerError, "internal error")
+			resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		}
 		return
 	}
@@ -147,13 +147,13 @@ func (h *AuthHandler) VerifyOTP(c *gin.Context) {
 		driverUUID, _ := uuid.Parse(d.ID)
 		tokens, refreshClaims, err := h.jwtm.Issue("driver", driverUUID)
 		if err != nil {
-			resp.Error(c, http.StatusInternalServerError, "token issue failed")
+			resp.ErrorLang(c, http.StatusInternalServerError, "token_issue_failed")
 			return
 		}
 		_ = h.refresh.Put(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 		_ = h.refresh.PutSession(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 
-		resp.OK(c, gin.H{
+		resp.OKLang(c, "login", gin.H{
 			"status": "login",
 			"tokens": tokens,
 		})
@@ -161,18 +161,18 @@ func (h *AuthHandler) VerifyOTP(c *gin.Context) {
 	}
 	if !errors.Is(err, drivers.ErrNotFound) {
 		h.logger.Error("find driver by phone failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 
 	sessionID, err := h.sessions.Create(c.Request.Context(), phone)
 	if err != nil {
 		h.logger.Error("create register session failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 
-	resp.OK(c, gin.H{
+	resp.OKLang(c, "register", gin.H{
 		"status":     "register",
 		"session_id": sessionID,
 	})
@@ -191,27 +191,27 @@ type logoutReq struct {
 func (h *AuthHandler) Refresh(c *gin.Context) {
 	var req refreshReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	refreshToken := strings.TrimSpace(req.RefreshToken)
 	if refreshToken == "" {
-		resp.Error(c, http.StatusBadRequest, "refresh_token is required")
+		resp.ErrorLang(c, http.StatusBadRequest, "refresh_token_required")
 		return
 	}
 	// Проверка формата JWT (три части, разделённые точками)
 	if !isJWTFormat(refreshToken) {
-		resp.Error(c, http.StatusUnauthorized, "invalid refresh_token")
+		resp.ErrorLang(c, http.StatusUnauthorized, "invalid_or_expired_refresh_token")
 		return
 	}
 	claims, err := h.jwtm.ParseRefresh(refreshToken)
 	if err != nil {
-		resp.Error(c, http.StatusUnauthorized, "invalid refresh_token")
+		resp.ErrorLang(c, http.StatusUnauthorized, "invalid_or_expired_refresh_token")
 		return
 	}
 	// rotate: old jti must exist
 	if err := h.refresh.Consume(c.Request.Context(), claims.UserID, claims.JTI); err != nil {
-		resp.Error(c, http.StatusUnauthorized, "invalid refresh_token")
+		resp.ErrorLang(c, http.StatusUnauthorized, "invalid_or_expired_refresh_token")
 		return
 	}
 	// Старый access-токен (с этим sid) больше не действителен
@@ -219,18 +219,18 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 
 	userUUID, err := uuid.Parse(claims.UserID)
 	if err != nil {
-		resp.Error(c, http.StatusUnauthorized, "invalid refresh_token")
+		resp.ErrorLang(c, http.StatusUnauthorized, "invalid_or_expired_refresh_token")
 		return
 	}
 	tokens, newRefreshClaims, err := h.jwtm.Issue(claims.Role, userUUID)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, "token issue failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "token_issue_failed")
 		return
 	}
 	_ = h.refresh.Put(c.Request.Context(), newRefreshClaims.UserID, newRefreshClaims.JTI)
 	_ = h.refresh.PutSession(c.Request.Context(), newRefreshClaims.UserID, newRefreshClaims.JTI)
 
-	resp.OK(c, gin.H{"tokens": tokens})
+	resp.OKLang(c, "ok", gin.H{"tokens": tokens})
 }
 
 // Logout инвалидирует сессию. Тело: { "refresh_token": "..." } — отзыв одной сессии; { "access_token": "..." } — отзыв всех сессий водителя.
@@ -238,45 +238,45 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 func (h *AuthHandler) Logout(c *gin.Context) {
 	var req logoutReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	refreshToken := strings.TrimSpace(req.RefreshToken)
 	accessToken := strings.TrimSpace(req.AccessToken)
 	if refreshToken == "" && accessToken == "" {
-		resp.Error(c, http.StatusBadRequest, "refresh_token or access_token required")
+		resp.ErrorLang(c, http.StatusBadRequest, "refresh_token_or_access_token_required")
 		return
 	}
 
 	if refreshToken != "" {
 		claims, err := h.jwtm.ParseRefresh(refreshToken)
 		if err != nil {
-			resp.Error(c, http.StatusUnauthorized, "invalid or expired refresh_token")
+			resp.ErrorLang(c, http.StatusUnauthorized, "invalid_or_expired_refresh_token")
 			return
 		}
 		if claims.Role != "driver" {
-			resp.Error(c, http.StatusUnauthorized, "invalid refresh_token for driver")
+			resp.ErrorLang(c, http.StatusUnauthorized, "invalid_refresh_token_for_driver")
 			return
 		}
 		if err := h.refresh.Consume(c.Request.Context(), claims.UserID, claims.JTI); err != nil {
-			resp.Error(c, http.StatusUnauthorized, "refresh_token already used or invalid")
+			resp.ErrorLang(c, http.StatusUnauthorized, "refresh_token_already_used")
 			return
 		}
-		resp.OK(c, gin.H{"status": "ok"})
+		resp.OKLang(c, "ok", gin.H{"status": "ok"})
 		return
 	}
 
 	userID, role, err := h.jwtm.ParseAccess(accessToken)
 	if err != nil {
-		resp.Error(c, http.StatusUnauthorized, "invalid or expired access_token")
+		resp.ErrorLang(c, http.StatusUnauthorized, "invalid_or_expired_access_token")
 		return
 	}
 	if role != "driver" {
-		resp.Error(c, http.StatusUnauthorized, "access_token is not for driver")
+		resp.ErrorLang(c, http.StatusUnauthorized, "access_token_not_for_driver")
 		return
 	}
 	_ = h.refresh.RevokeAll(c.Request.Context(), userID.String())
-	resp.OK(c, gin.H{"status": "ok"})
+	resp.OKLang(c, "ok", gin.H{"status": "ok"})
 }
 
 // isJWTFormat проверяет, что строка похожа на JWT (три части через точку).

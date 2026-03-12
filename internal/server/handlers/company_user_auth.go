@@ -61,12 +61,12 @@ type companyUserSendOTPReq struct {
 func (h *CompanyUserAuthHandler) SendOTP(c *gin.Context) {
 	var req companyUserSendOTPReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	phone, err := util.NormalizeE164StrictPlus(req.Phone)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	ttlSec := int(h.otpTTL.Seconds())
@@ -75,25 +75,25 @@ func (h *CompanyUserAuthHandler) SendOTP(c *gin.Context) {
 		if WriteOTPSendError(c, err, h.logger, "company user otp send failed") {
 			return
 		}
-		resp.Error(c, http.StatusInternalServerError, "otp generation failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "otp_generation_failed")
 		return
 	}
 	ctx := c.Request.Context()
 	ip := strings.TrimSpace(c.ClientIP())
 	if err := h.otp.SaveOTP(ctx, phone, code, requestID, ip); err != nil {
 		if errors.Is(err, store.ErrOTPCooldown) {
-			resp.Error(c, http.StatusTooManyRequests, "otp cooldown")
+			resp.ErrorLang(c, http.StatusTooManyRequests, "otp_cooldown")
 			return
 		}
 		if errors.Is(err, store.ErrOTPRateLimited) {
-			resp.Error(c, http.StatusTooManyRequests, "otp rate limited")
+			resp.ErrorLang(c, http.StatusTooManyRequests, "otp_rate_limited")
 			return
 		}
 		h.logger.Error("company user otp save failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
-	resp.OK(c, gin.H{"status": "otp_sent", "ttl_seconds": ttlSec})
+	resp.OKLang(c, "otp_sent", gin.H{"status": "otp_sent", "ttl_seconds": ttlSec})
 }
 
 type companyUserVerifyOTPReq struct {
@@ -104,33 +104,33 @@ type companyUserVerifyOTPReq struct {
 func (h *CompanyUserAuthHandler) VerifyOTP(c *gin.Context) {
 	var req companyUserVerifyOTPReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	phone, err := util.NormalizeE164(req.Phone)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	otp := strings.TrimSpace(req.OTP)
 	if len(otp) < 4 || len(otp) > 8 || !util.IsNumeric(otp) {
-		resp.Error(c, http.StatusBadRequest, "otp must be numeric 4..8 digits")
+		resp.ErrorLang(c, http.StatusBadRequest, "otp_must_be_numeric")
 		return
 	}
 	_, err = h.otp.Verify(c.Request.Context(), phone, otp)
 	if err != nil {
 		switch {
 		case errors.Is(err, store.ErrOTPExpired):
-			resp.Error(c, http.StatusUnauthorized, "otp expired")
+			resp.ErrorLang(c, http.StatusUnauthorized, "otp_expired")
 		case errors.Is(err, store.ErrOTPInvalid):
-			resp.Error(c, http.StatusUnauthorized, "otp invalid")
+			resp.ErrorLang(c, http.StatusUnauthorized, "otp_invalid")
 		case errors.Is(err, store.ErrOTPMaxAttempts):
-			resp.Error(c, http.StatusTooManyRequests, "otp max attempts exceeded")
+			resp.ErrorLang(c, http.StatusTooManyRequests, "otp_max_attempts_exceeded")
 		case errors.Is(err, store.ErrOTPVerifyRateLimited):
-			resp.Error(c, http.StatusTooManyRequests, "otp verify attempts exceeded for this phone, try again later")
+			resp.ErrorLang(c, http.StatusTooManyRequests, "otp_verify_attempts_exceeded")
 		default:
 			h.logger.Error("company user otp verify failed", zap.Error(err))
-			resp.Error(c, http.StatusInternalServerError, "verification failed")
+			resp.ErrorLang(c, http.StatusInternalServerError, "verification_failed")
 		}
 		return
 	}
@@ -140,26 +140,26 @@ func (h *CompanyUserAuthHandler) VerifyOTP(c *gin.Context) {
 		tokens, refreshClaims, err := h.jwtm.IssueWithCompany("user", id, uuid.Nil)
 		if err != nil {
 			h.logger.Error("company user token issue failed", zap.Error(err))
-			resp.Error(c, http.StatusInternalServerError, "token issue failed")
+			resp.ErrorLang(c, http.StatusInternalServerError, "token_issue_failed")
 			return
 		}
 		_ = h.refresh.Put(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 		_ = h.refresh.PutSession(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
-		resp.OK(c, gin.H{"status": "login", "tokens": tokens, "user": userToMap(u)})
+		resp.OKLang(c, "login", gin.H{"status": "login", "tokens": tokens, "user": userToMap(u)})
 		return
 	}
 	if !errors.Is(err, appusers.ErrNotFound) {
 		h.logger.Error("company user find by phone failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "verification failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "verification_failed")
 		return
 	}
 	sessionID, err := h.regSessions.Create(c.Request.Context(), phone)
 	if err != nil {
 		h.logger.Error("company user reg session create failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
-	resp.OK(c, gin.H{"status": "register", "session_id": sessionID})
+	resp.OKLang(c, "register", gin.H{"status": "register", "session_id": sessionID})
 }
 
 func userToMap(u *appusers.User) map[string]interface{} {

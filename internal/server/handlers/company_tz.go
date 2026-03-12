@@ -83,7 +83,7 @@ func (h *CompanyTZHandler) getCompanyRole(ctx context.Context, userID, companyID
 func (h *CompanyTZHandler) CreateCompany(c *gin.Context) {
 	userID, ok := h.appUserID(c)
 	if !ok {
-		resp.Error(c, http.StatusUnauthorized, "unauthorized")
+		resp.ErrorLang(c, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	var req struct {
@@ -94,12 +94,12 @@ func (h *CompanyTZHandler) CreateCompany(c *gin.Context) {
 		Address *string  `json:"address"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	ownerRole, _ := h.roles.FindByName(c.Request.Context(), "Owner")
 	if ownerRole == nil {
-		resp.Error(c, http.StatusInternalServerError, "roles not configured")
+		resp.ErrorLang(c, http.StatusInternalServerError, "roles_not_configured")
 		return
 	}
 	// В БД храним Shipper, Carrier, Broker (PascalCase)
@@ -117,7 +117,7 @@ func (h *CompanyTZHandler) CreateCompany(c *gin.Context) {
 	})
 	if err != nil {
 		h.logger.Error("company create failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "company create failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "company_create_failed")
 		return
 	}
 	if err := h.ucr.Add(c.Request.Context(), userID, companyID, uuid.MustParse(ownerRole.ID), userID); err != nil {
@@ -129,14 +129,14 @@ func (h *CompanyTZHandler) CreateCompany(c *gin.Context) {
 	if comp != nil {
 		out["created_at"] = comp.CreatedAt
 	}
-	resp.Success(c, http.StatusCreated, "created", out)
+	resp.SuccessLang(c, http.StatusCreated, "created", out)
 }
 
 // ListMyCompanies GET /auth/companies (TZ 3.4)
 func (h *CompanyTZHandler) ListMyCompanies(c *gin.Context) {
 	userID, ok := h.appUserID(c)
 	if !ok {
-		resp.Error(c, http.StatusUnauthorized, "unauthorized")
+		resp.ErrorLang(c, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	var currentCompanyID uuid.UUID
@@ -146,7 +146,7 @@ func (h *CompanyTZHandler) ListMyCompanies(c *gin.Context) {
 	list, err := h.companies.ListForUser(c.Request.Context(), userID)
 	if err != nil {
 		h.logger.Error("list companies failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "list failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "list_failed")
 		return
 	}
 	out := make([]gin.H, 0, len(list))
@@ -154,44 +154,44 @@ func (h *CompanyTZHandler) ListMyCompanies(c *gin.Context) {
 		isCurrent := currentCompanyID != uuid.Nil && co.ID == currentCompanyID
 		out = append(out, gin.H{"id": co.ID, "name": co.Name, "type": co.Type, "role": co.Role, "is_current": isCurrent})
 	}
-	resp.OK(c, gin.H{"companies": out})
+	resp.OKLang(c, "ok", gin.H{"companies": out})
 }
 
 // SwitchCompany POST /auth/switch-company (TZ 3.4)
 func (h *CompanyTZHandler) SwitchCompany(c *gin.Context) {
 	userID, ok := h.appUserID(c)
 	if !ok {
-		resp.Error(c, http.StatusUnauthorized, "unauthorized")
+		resp.ErrorLang(c, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	var req struct {
 		CompanyID string `json:"company_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	companyID, err := uuid.Parse(req.CompanyID)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid company_id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_company_id")
 		return
 	}
 	roleName, ok := h.getCompanyRole(c.Request.Context(), userID, companyID)
 	if !ok {
-		resp.Error(c, http.StatusForbidden, "not a member of this company")
+		resp.ErrorLang(c, http.StatusForbidden, "not_member_of_company")
 		return
 	}
 	comp, err := h.companies.GetByIDTZ(c.Request.Context(), companyID)
 	if err != nil || comp == nil {
-		resp.Error(c, http.StatusNotFound, "company not found")
+		resp.ErrorLang(c, http.StatusNotFound, "company_not_found")
 		return
 	}
 	tokens, _, err := h.jwtm.IssueWithCompany("user", userID, companyID)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, "token issue failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "token_issue_failed")
 		return
 	}
-	resp.OK(c, gin.H{
+	resp.OKLang(c, "ok", gin.H{
 		"token":               tokens.AccessToken,
 		"refresh_token":       tokens.RefreshToken,
 		"expires_in":          tokens.ExpiresIn,
@@ -206,17 +206,17 @@ func (h *CompanyTZHandler) SwitchCompany(c *gin.Context) {
 func (h *CompanyTZHandler) CreateInvitation(c *gin.Context) {
 	userID, ok := h.appUserID(c)
 	if !ok {
-		resp.Error(c, http.StatusUnauthorized, "unauthorized")
+		resp.ErrorLang(c, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	companyID, err := uuid.Parse(c.Param("companyId"))
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid company id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_company_id")
 		return
 	}
 	actorRole, ok := h.getCompanyRole(c.Request.Context(), userID, companyID)
 	if !ok {
-		resp.Error(c, http.StatusForbidden, "not a member of this company")
+		resp.ErrorLang(c, http.StatusForbidden, "not_member_of_company")
 		return
 	}
 	var req struct {
@@ -224,27 +224,27 @@ func (h *CompanyTZHandler) CreateInvitation(c *gin.Context) {
 		RoleID  string `json:"role_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	roleID, err := uuid.Parse(req.RoleID)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid role_id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_role_id")
 		return
 	}
 	role, err := h.roles.FindByID(c.Request.Context(), roleID)
 	if err != nil || role == nil {
-		resp.Error(c, http.StatusBadRequest, "role not found")
+		resp.ErrorLang(c, http.StatusBadRequest, "role_not_found")
 		return
 	}
 	if !companytz.CanInvite(actorRole, role.Name) {
-		resp.Error(c, http.StatusForbidden, "your role cannot invite this role")
+		resp.ErrorLang(c, http.StatusForbidden, "your_role_cannot_invite")
 		return
 	}
 	inv, err := h.invitations.Create(c.Request.Context(), companyID, roleID, userID, req.Email, inviteExpiresIn)
 	if err != nil {
 		h.logger.Error("invitation create failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "invitation failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "invitation_failed")
 		return
 	}
 	baseURL := "https://sarbon.me"
@@ -253,7 +253,7 @@ func (h *CompanyTZHandler) CreateInvitation(c *gin.Context) {
 	}
 	inviteLink := baseURL + "/accept-invite?token=" + inv.Token
 	_ = h.audit.Log(c.Request.Context(), &userID, &companyID, "create", "invitation", inv.ID, nil, map[string]interface{}{"email": req.Email, "role_id": roleID})
-	resp.Success(c, http.StatusCreated, "created", gin.H{
+	resp.SuccessLang(c, http.StatusCreated, "created", gin.H{
 		"invite_link": inviteLink,
 		"expires_at":  inv.ExpiresAt.Format(time.RFC3339),
 	})
@@ -263,23 +263,23 @@ func (h *CompanyTZHandler) CreateInvitation(c *gin.Context) {
 func (h *CompanyTZHandler) AcceptInvitation(c *gin.Context) {
 	userID, ok := h.appUserID(c)
 	if !ok {
-		resp.Error(c, http.StatusUnauthorized, "unauthorized: login or register first")
+		resp.ErrorLang(c, http.StatusUnauthorized, "unauthorized_login_register_first")
 		return
 	}
 	var req struct {
 		Token string `json:"token" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	inv, err := h.invitations.GetByToken(c.Request.Context(), req.Token)
 	if err != nil {
 		if err == companytz.ErrInvitationNotFound || err == companytz.ErrInvitationExpired {
-			resp.Error(c, http.StatusUnauthorized, "invitation not found or expired")
+			resp.ErrorLang(c, http.StatusUnauthorized, "invitation_not_found_or_expired")
 			return
 		}
-		resp.Error(c, http.StatusInternalServerError, "failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed")
 		return
 	}
 	comp, _ := h.companies.GetByIDTZ(c.Request.Context(), inv.CompanyID)
@@ -302,24 +302,24 @@ func (h *CompanyTZHandler) AcceptInvitation(c *gin.Context) {
 		_ = h.audit.Log(c.Request.Context(), &userID, &inv.CompanyID, "create", "user_company_role", userID, nil, map[string]interface{}{"role_id": inv.RoleID})
 	}
 	_ = h.invitations.Delete(c.Request.Context(), inv.ID)
-	resp.OK(c, out)
+	resp.OKLang(c, "ok", out)
 }
 
 // ListCompanyUsers GET /companies/:id/users (TZ 3.3)
 func (h *CompanyTZHandler) ListCompanyUsers(c *gin.Context) {
 	userID, ok := h.appUserID(c)
 	if !ok {
-		resp.Error(c, http.StatusUnauthorized, "unauthorized")
+		resp.ErrorLang(c, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	companyID, err := uuid.Parse(c.Param("companyId"))
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid company id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_company_id")
 		return
 	}
 	_, ok = h.getCompanyRole(c.Request.Context(), userID, companyID)
 	if !ok {
-		resp.Error(c, http.StatusForbidden, "not a member of this company")
+		resp.ErrorLang(c, http.StatusForbidden, "not_member_of_company")
 		return
 	}
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -330,7 +330,7 @@ func (h *CompanyTZHandler) ListCompanyUsers(c *gin.Context) {
 	offset := (page - 1) * limit
 	list, err := h.ucr.ListUsersByCompany(c.Request.Context(), companyID, limit, offset)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, "list failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "list_failed")
 		return
 	}
 	users := make([]gin.H, 0, len(list))
@@ -342,60 +342,60 @@ func (h *CompanyTZHandler) ListCompanyUsers(c *gin.Context) {
 			"assigned_at": u.AssignedAt,
 		})
 	}
-	resp.OK(c, gin.H{"users": users, "total": len(list), "page": page, "limit": limit})
+	resp.OKLang(c, "ok", gin.H{"users": users, "total": len(list), "page": page, "limit": limit})
 }
 
 // UpdateUserRole PUT /companies/:id/users/:userId/role (TZ 3.3)
 func (h *CompanyTZHandler) UpdateUserRole(c *gin.Context) {
 	userID, ok := h.appUserID(c)
 	if !ok {
-		resp.Error(c, http.StatusUnauthorized, "unauthorized")
+		resp.ErrorLang(c, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	companyID, err := uuid.Parse(c.Param("companyId"))
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid company id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_company_id")
 		return
 	}
 	targetUserID, err := uuid.Parse(c.Param("userId"))
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid user id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_user_id")
 		return
 	}
 	actorRole, ok := h.getCompanyRole(c.Request.Context(), userID, companyID)
 	if !ok {
-		resp.Error(c, http.StatusForbidden, "not a member of this company")
+		resp.ErrorLang(c, http.StatusForbidden, "not_member_of_company")
 		return
 	}
 	var req struct {
 		RoleID string `json:"role_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	newRoleID, err := uuid.Parse(req.RoleID)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid role_id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_role_id")
 		return
 	}
 	newRole, _ := h.roles.FindByID(c.Request.Context(), newRoleID)
 	if newRole == nil {
-		resp.Error(c, http.StatusBadRequest, "role not found")
+		resp.ErrorLang(c, http.StatusBadRequest, "role_not_found")
 		return
 	}
 	if !companytz.CanChangeRole(actorRole, newRole.Name) {
-		resp.Error(c, http.StatusForbidden, "your role cannot assign this role")
+		resp.ErrorLang(c, http.StatusForbidden, "your_role_cannot_assign")
 		return
 	}
 	oldRoleID, err := h.ucr.GetRole(c.Request.Context(), targetUserID, companyID)
 	if err != nil {
-		resp.Error(c, http.StatusNotFound, "user not in company")
+		resp.ErrorLang(c, http.StatusNotFound, "user_not_in_company")
 		return
 	}
 	oldRole, _ := h.roles.FindByID(c.Request.Context(), oldRoleID)
 	if err := h.ucr.UpdateRole(c.Request.Context(), targetUserID, companyID, newRoleID, userID); err != nil {
-		resp.Error(c, http.StatusInternalServerError, "update failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "update_failed")
 		return
 	}
 	oldName := ""
@@ -403,34 +403,34 @@ func (h *CompanyTZHandler) UpdateUserRole(c *gin.Context) {
 		oldName = oldRole.Name
 	}
 	_ = h.audit.Log(c.Request.Context(), &userID, &companyID, "update", "user_company_role", targetUserID, map[string]interface{}{"role": oldName}, map[string]interface{}{"role": newRole.Name})
-	resp.OK(c, gin.H{"user_id": targetUserID, "old_role": oldName, "new_role": newRole.Name})
+	resp.OKLang(c, "ok", gin.H{"user_id": targetUserID, "old_role": oldName, "new_role": newRole.Name})
 }
 
 // RemoveUser DELETE /companies/:id/users/:userId (TZ 3.3)
 func (h *CompanyTZHandler) RemoveUser(c *gin.Context) {
 	userID, ok := h.appUserID(c)
 	if !ok {
-		resp.Error(c, http.StatusUnauthorized, "unauthorized")
+		resp.ErrorLang(c, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	companyID, err := uuid.Parse(c.Param("companyId"))
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid company id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_company_id")
 		return
 	}
 	targetUserID, err := uuid.Parse(c.Param("userId"))
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid user id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_user_id")
 		return
 	}
 	actorRole, ok := h.getCompanyRole(c.Request.Context(), userID, companyID)
 	if !ok {
-		resp.Error(c, http.StatusForbidden, "not a member of this company")
+		resp.ErrorLang(c, http.StatusForbidden, "not_member_of_company")
 		return
 	}
 	targetRoleID, err := h.ucr.GetRole(c.Request.Context(), targetUserID, companyID)
 	if err != nil {
-		resp.Error(c, http.StatusNotFound, "user not in company")
+		resp.ErrorLang(c, http.StatusNotFound, "user_not_in_company")
 		return
 	}
 	targetRole, _ := h.roles.FindByID(c.Request.Context(), targetRoleID)
@@ -439,11 +439,11 @@ func (h *CompanyTZHandler) RemoveUser(c *gin.Context) {
 		targetRoleName = targetRole.Name
 	}
 	if !companytz.CanRemove(actorRole, targetRoleName) {
-		resp.Error(c, http.StatusForbidden, "your role cannot remove this user")
+		resp.ErrorLang(c, http.StatusForbidden, "your_role_cannot_remove")
 		return
 	}
 	if err := h.ucr.Remove(c.Request.Context(), targetUserID, companyID); err != nil {
-		resp.Error(c, http.StatusInternalServerError, "remove failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "remove_failed")
 		return
 	}
 	_ = h.audit.Log(c.Request.Context(), &userID, &companyID, "delete", "user_company_role", targetUserID, map[string]interface{}{"role": targetRoleName}, nil)

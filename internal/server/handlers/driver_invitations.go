@@ -38,31 +38,31 @@ func (h *DriverInvitationsHandler) Create(c *gin.Context) {
 	dispatcherID := c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
 	companyID, _ := uuid.Parse(c.Param("companyId"))
 	if companyID == uuid.Nil {
-		resp.Error(c, http.StatusBadRequest, "invalid company_id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_company_id")
 		return
 	}
 	ok, err := h.dcr.HasAccess(c.Request.Context(), dispatcherID, companyID)
 	if err != nil || !ok {
-		resp.Error(c, http.StatusForbidden, "company not found or access denied")
+		resp.ErrorLang(c, http.StatusForbidden, "company_not_found_or_access_denied")
 		return
 	}
 	var req CreateDriverInvitationReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	phone := strings.TrimSpace(req.Phone)
 	if phone == "" {
-		resp.Error(c, http.StatusBadRequest, "phone is required")
+		resp.ErrorLang(c, http.StatusBadRequest, "phone_required")
 		return
 	}
 	token, err := h.repo.Create(c.Request.Context(), companyID, phone, dispatcherID, 7*24*time.Hour)
 	if err != nil {
 		h.logger.Error("driver invitation create", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to create invitation")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_create_invitation")
 		return
 	}
-	resp.Success(c, http.StatusCreated, "created", gin.H{"token": token, "expires_in_hours": 168})
+	resp.SuccessLang(c, http.StatusCreated, "created", gin.H{"token": token, "expires_in_hours": 168})
 }
 
 // CreateForFreelanceReq body for POST /v1/dispatchers/driver-invitations — phone или driver_id (найти водителя через GET .../drivers/find).
@@ -76,29 +76,29 @@ func (h *DriverInvitationsHandler) CreateForFreelance(c *gin.Context) {
 	dispatcherID := c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
 	var req CreateForFreelanceReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	phone := strings.TrimSpace(req.Phone)
 	if req.DriverID != nil && *req.DriverID != uuid.Nil {
 		drv, err := h.drv.FindByID(c.Request.Context(), *req.DriverID)
 		if err != nil || drv == nil {
-			resp.Error(c, http.StatusBadRequest, "driver not found")
+			resp.ErrorLang(c, http.StatusBadRequest, "driver_not_found")
 			return
 		}
 		phone = strings.TrimSpace(drv.Phone)
 	}
 	if phone == "" {
-		resp.Error(c, http.StatusBadRequest, "phone or driver_id is required")
+		resp.ErrorLang(c, http.StatusBadRequest, "phone_or_driver_id_required")
 		return
 	}
 	token, err := h.repo.CreateForFreelance(c.Request.Context(), dispatcherID, phone, 7*24*time.Hour)
 	if err != nil {
 		h.logger.Error("driver invitation create freelance", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to create invitation")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_create_invitation")
 		return
 	}
-	resp.Success(c, http.StatusCreated, "created", gin.H{"token": token, "expires_in_hours": 168})
+	resp.SuccessLang(c, http.StatusCreated, "created", gin.H{"token": token, "expires_in_hours": 168})
 }
 
 // FindDrivers returns drivers matching phone search (для диспетчера: найти водителя и пригласить по driver_id). Совпадения сверху.
@@ -106,7 +106,7 @@ func (h *DriverInvitationsHandler) FindDrivers(c *gin.Context) {
 	_ = c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
 	phoneSearch := strings.TrimSpace(c.Query("phone"))
 	if phoneSearch == "" {
-		resp.OK(c, gin.H{"items": []gin.H{}})
+		resp.OKLang(c, "ok", gin.H{"items": []gin.H{}})
 		return
 	}
 	limit := 20
@@ -118,7 +118,7 @@ func (h *DriverInvitationsHandler) FindDrivers(c *gin.Context) {
 	list, err := h.drv.SearchByPhone(c.Request.Context(), phoneSearch, limit)
 	if err != nil {
 		h.logger.Error("drivers find", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to search drivers")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_search_drivers")
 		return
 	}
 	if list == nil {
@@ -132,7 +132,7 @@ func (h *DriverInvitationsHandler) FindDrivers(c *gin.Context) {
 			"freelancer_id": d.FreelancerID, "company_id": d.CompanyID,
 		})
 	}
-	resp.OK(c, gin.H{"items": items})
+	resp.OKLang(c, "ok", gin.H{"items": items})
 }
 
 // ListSent returns invitations sent by the current dispatcher (company and freelance). Диспетчер видит кому отправил приглашения.
@@ -141,7 +141,7 @@ func (h *DriverInvitationsHandler) ListSent(c *gin.Context) {
 	list, err := h.repo.ListByInvitedBy(c.Request.Context(), dispatcherID)
 	if err != nil {
 		h.logger.Error("driver invitations list sent", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to list invitations")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_list_invitations")
 		return
 	}
 	if list == nil {
@@ -166,7 +166,7 @@ func (h *DriverInvitationsHandler) ListSent(c *gin.Context) {
 		}
 		items = append(items, item)
 	}
-	resp.OK(c, gin.H{"items": items})
+	resp.OKLang(c, "ok", gin.H{"items": items})
 }
 
 // UnlinkDriver removes driver from dispatcher's list (sets driver.freelancer_id = NULL). Водитель должен быть принят по приглашению (freelancer_id = я).
@@ -174,20 +174,20 @@ func (h *DriverInvitationsHandler) UnlinkDriver(c *gin.Context) {
 	dispatcherID := c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
 	driverID, err := uuid.Parse(c.Param("driverId"))
 	if err != nil || driverID == uuid.Nil {
-		resp.Error(c, http.StatusBadRequest, "invalid driver_id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_driver_id")
 		return
 	}
 	ok, err := h.drv.UnlinkFromFreelancer(c.Request.Context(), driverID, dispatcherID)
 	if err != nil {
 		h.logger.Error("unlink driver", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to unlink")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_unlink")
 		return
 	}
 	if !ok {
-		resp.Error(c, http.StatusForbidden, "driver not found or not linked to you")
+		resp.ErrorLang(c, http.StatusForbidden, "driver_not_linked")
 		return
 	}
-	resp.Success(c, http.StatusOK, "unlinked", nil)
+	resp.OKLang(c, "ok", nil)
 }
 
 // SetDriverPowerReq body for PUT /v1/dispatchers/drivers/:driverId/power
@@ -206,21 +206,21 @@ func (h *DriverInvitationsHandler) SetDriverPower(c *gin.Context) {
 	dispatcherID := c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
 	driverID, err := uuid.Parse(c.Param("driverId"))
 	if err != nil || driverID == uuid.Nil {
-		resp.Error(c, http.StatusBadRequest, "invalid driver_id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_driver_id")
 		return
 	}
 	drv, err := h.drv.FindByID(c.Request.Context(), driverID)
 	if err != nil || drv == nil {
-		resp.Error(c, http.StatusNotFound, "driver not found")
+		resp.ErrorLang(c, http.StatusNotFound, "driver_not_found")
 		return
 	}
 	if drv.FreelancerID == nil || *drv.FreelancerID != dispatcherID.String() {
-		resp.Error(c, http.StatusForbidden, "driver must have accepted your invitation")
+		resp.ErrorLang(c, http.StatusForbidden, "driver_must_accept_invitation")
 		return
 	}
 	var req SetDriverPowerReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	trimPtr := func(p **string) {
@@ -250,11 +250,11 @@ func (h *DriverInvitationsHandler) SetDriverPower(c *gin.Context) {
 		PowerScanStatus:  req.PowerScanStatus,
 	}); err != nil {
 		h.logger.Error("dispatcher set driver power", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to update power")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_update_power")
 		return
 	}
 	updated, _ := h.drv.FindByID(c.Request.Context(), driverID)
-	resp.OK(c, gin.H{"event": "updated", "driver": updated})
+	resp.OKLang(c, "updated", gin.H{"event": "updated", "driver": updated})
 }
 
 // SetDriverTrailerReq body for PUT /v1/dispatchers/drivers/:driverId/trailer
@@ -273,21 +273,21 @@ func (h *DriverInvitationsHandler) SetDriverTrailer(c *gin.Context) {
 	dispatcherID := c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
 	driverID, err := uuid.Parse(c.Param("driverId"))
 	if err != nil || driverID == uuid.Nil {
-		resp.Error(c, http.StatusBadRequest, "invalid driver_id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_driver_id")
 		return
 	}
 	drv, err := h.drv.FindByID(c.Request.Context(), driverID)
 	if err != nil || drv == nil {
-		resp.Error(c, http.StatusNotFound, "driver not found")
+		resp.ErrorLang(c, http.StatusNotFound, "driver_not_found")
 		return
 	}
 	if drv.FreelancerID == nil || *drv.FreelancerID != dispatcherID.String() {
-		resp.Error(c, http.StatusForbidden, "driver must have accepted your invitation")
+		resp.ErrorLang(c, http.StatusForbidden, "driver_must_accept_invitation")
 		return
 	}
 	var req SetDriverTrailerReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	trimPtr := func(p **string) {
@@ -317,11 +317,11 @@ func (h *DriverInvitationsHandler) SetDriverTrailer(c *gin.Context) {
 		TrailerScanStatus:  req.TrailerScanStatus,
 	}); err != nil {
 		h.logger.Error("dispatcher set driver trailer", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to update trailer")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_update_trailer")
 		return
 	}
 	updated, _ := h.drv.FindByID(c.Request.Context(), driverID)
-	resp.OK(c, gin.H{"event": "updated", "driver": updated})
+	resp.OKLang(c, "updated", gin.H{"event": "updated", "driver": updated})
 }
 
 // CancelInvitation cancels (revokes) an invitation sent by the current dispatcher. Только свои приглашения.
@@ -329,24 +329,24 @@ func (h *DriverInvitationsHandler) CancelInvitation(c *gin.Context) {
 	dispatcherID := c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
 	token := strings.TrimSpace(c.Param("token"))
 	if token == "" {
-		resp.Error(c, http.StatusBadRequest, "token is required")
+		resp.ErrorLang(c, http.StatusBadRequest, "token_required")
 		return
 	}
 	inv, err := h.repo.GetByToken(c.Request.Context(), token)
 	if err != nil || inv == nil {
-		resp.Error(c, http.StatusNotFound, "invitation not found or expired")
+		resp.ErrorLang(c, http.StatusNotFound, "invitation_not_found_or_expired")
 		return
 	}
 	if inv.InvitedBy != dispatcherID {
-		resp.Error(c, http.StatusForbidden, "not your invitation")
+		resp.ErrorLang(c, http.StatusForbidden, "not_your_invitation")
 		return
 	}
 	if err := h.repo.Delete(c.Request.Context(), token); err != nil {
 		h.logger.Error("driver invitation cancel", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to cancel invitation")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_cancel_invitation")
 		return
 	}
-	resp.Success(c, http.StatusOK, "cancelled", nil)
+	resp.OKLang(c, "ok", nil)
 }
 
 // ListInvitations returns pending invitations for the current driver (by phone). Водитель видит приглашения в чате/разделе приглашений.
@@ -354,13 +354,13 @@ func (h *DriverInvitationsHandler) ListInvitations(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	drv, err := h.drv.FindByID(c.Request.Context(), driverID)
 	if err != nil || drv == nil {
-		resp.Error(c, http.StatusUnauthorized, "driver not found")
+		resp.ErrorLang(c, http.StatusUnauthorized, "driver_not_found")
 		return
 	}
 	list, err := h.repo.ListByPhone(c.Request.Context(), drv.Phone)
 	if err != nil {
 		h.logger.Error("driver invitations list", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to list invitations")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_list_invitations")
 		return
 	}
 	if list == nil {
@@ -385,7 +385,7 @@ func (h *DriverInvitationsHandler) ListInvitations(c *gin.Context) {
 		}
 		items = append(items, item)
 	}
-	resp.OK(c, gin.H{"items": items})
+	resp.OKLang(c, "ok", gin.H{"items": items})
 }
 
 // AcceptDriverInvitationReq body for POST /v1/driver/driver-invitations/accept
@@ -398,44 +398,44 @@ func (h *DriverInvitationsHandler) Accept(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	var req AcceptDriverInvitationReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	inv, err := h.repo.GetByToken(c.Request.Context(), strings.TrimSpace(req.Token))
 	if err != nil || inv == nil {
-		resp.Error(c, http.StatusBadRequest, "invitation not found or expired")
+		resp.ErrorLang(c, http.StatusBadRequest, "invitation_not_found_or_expired")
 		return
 	}
 	drv, err := h.drv.FindByID(c.Request.Context(), driverID)
 	if err != nil || drv == nil {
-		resp.Error(c, http.StatusUnauthorized, "driver not found")
+		resp.ErrorLang(c, http.StatusUnauthorized, "driver_not_found")
 		return
 	}
 	if strings.TrimSpace(strings.ReplaceAll(inv.Phone, " ", "")) != strings.TrimSpace(strings.ReplaceAll(drv.Phone, " ", "")) {
-		resp.Error(c, http.StatusForbidden, "invitation was sent to another phone")
+		resp.ErrorLang(c, http.StatusForbidden, "invitation_sent_to_another_phone")
 		return
 	}
 	if inv.CompanyID != nil && *inv.CompanyID != uuid.Nil {
 		if err := h.drv.SetCompanyID(c.Request.Context(), driverID, *inv.CompanyID); err != nil {
 			h.logger.Error("driver set company", zap.Error(err))
-			resp.Error(c, http.StatusInternalServerError, "failed to accept")
+			resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_accept")
 			return
 		}
 		_ = h.repo.Delete(c.Request.Context(), inv.Token)
-		resp.Success(c, http.StatusOK, "accepted", gin.H{"company_id": inv.CompanyID.String()})
+		resp.SuccessLang(c, http.StatusOK, "accepted", gin.H{"company_id": inv.CompanyID.String()})
 		return
 	}
 	if inv.InvitedByDispatcherID != nil && *inv.InvitedByDispatcherID != uuid.Nil {
 		if err := h.drv.SetFreelancerID(c.Request.Context(), driverID, *inv.InvitedByDispatcherID); err != nil {
 			h.logger.Error("driver set freelancer", zap.Error(err))
-			resp.Error(c, http.StatusInternalServerError, "failed to accept")
+			resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_accept")
 			return
 		}
 		_ = h.repo.Delete(c.Request.Context(), inv.Token)
-		resp.Success(c, http.StatusOK, "accepted", gin.H{"freelancer_id": inv.InvitedByDispatcherID.String()})
+		resp.SuccessLang(c, http.StatusOK, "accepted", gin.H{"freelancer_id": inv.InvitedByDispatcherID.String()})
 		return
 	}
-	resp.Error(c, http.StatusBadRequest, "invitation invalid")
+	resp.ErrorLang(c, http.StatusBadRequest, "invitation_invalid")
 }
 
 // DeclineDriverInvitationReq body for POST /v1/driver/driver-invitations/decline
@@ -448,26 +448,26 @@ func (h *DriverInvitationsHandler) Decline(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	var req DeclineDriverInvitationReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	token := strings.TrimSpace(req.Token)
 	inv, err := h.repo.GetByToken(c.Request.Context(), token)
 	if err != nil || inv == nil {
-		resp.Error(c, http.StatusBadRequest, "invitation not found or expired")
+		resp.ErrorLang(c, http.StatusBadRequest, "invitation_not_found_or_expired")
 		return
 	}
 	drv, err := h.drv.FindByID(c.Request.Context(), driverID)
 	if err != nil || drv == nil {
-		resp.Error(c, http.StatusUnauthorized, "driver not found")
+		resp.ErrorLang(c, http.StatusUnauthorized, "driver_not_found")
 		return
 	}
 	if strings.TrimSpace(strings.ReplaceAll(inv.Phone, " ", "")) != strings.TrimSpace(strings.ReplaceAll(drv.Phone, " ", "")) {
-		resp.Error(c, http.StatusForbidden, "invitation was sent to another phone")
+		resp.ErrorLang(c, http.StatusForbidden, "invitation_sent_to_another_phone")
 		return
 	}
 	_ = h.repo.Delete(c.Request.Context(), token)
-	resp.OK(c, gin.H{"status": "declined"})
+	resp.OKLang(c, "declined", gin.H{"status": "declined"})
 }
 
 // ListMyDrivers returns drivers linked to the current freelance dispatcher (freelancer_id = me).
@@ -482,11 +482,11 @@ func (h *DriverInvitationsHandler) ListMyDrivers(c *gin.Context) {
 	list, err := h.drv.ListByFreelancerID(c.Request.Context(), dispatcherID, limit)
 	if err != nil {
 		h.logger.Error("list my drivers", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to list drivers")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_list_drivers")
 		return
 	}
 	if list == nil {
 		list = []*drivers.Driver{}
 	}
-	resp.Success(c, http.StatusOK, "ok", gin.H{"items": list})
+	resp.OKLang(c, "ok", gin.H{"items": list})
 }

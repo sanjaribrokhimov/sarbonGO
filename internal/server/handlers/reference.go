@@ -156,7 +156,7 @@ func GetReferenceDrivers(c *gin.Context) {
 			},
 		},
 	}
-	resp.OK(c, out)
+	resp.OKLang(c, "ok", out)
 }
 
 // GetReferenceCargo возвращает справочник для раздела Cargo. value — верхний регистр, label и description — по X-Language.
@@ -209,7 +209,7 @@ func GetReferenceCargo(c *gin.Context) {
 		RemainingType:  refItemsToItemWithLabelLocalized(reference.RemainingTypeRefs, "cargo.remaining_type", lang),
 		LoadingType:    refItemsToItemWithLabelLocalized(reference.LoadingTypeRefs, "cargo.loading_type", lang),
 	}
-	resp.OK(c, out)
+	resp.OKLang(c, "ok", out)
 }
 
 // GetReferenceAdmin возвращает справочник для раздела Admin. value — верхний регистр, label — по X-Language.
@@ -226,7 +226,7 @@ func GetReferenceAdmin(c *gin.Context) {
 			{Value: "OPERATOR", Label: reference.RefLabel("admin.admin_type", "OPERATOR", lang)},
 		},
 	}
-	resp.OK(c, out)
+	resp.OKLang(c, "ok", out)
 }
 
 // GetReferenceDispatchers возвращает справочник для раздела Freelance Dispatchers. value — верхний регистр, label — по X-Language.
@@ -239,7 +239,7 @@ func GetReferenceDispatchers(c *gin.Context) {
 			{Value: "OFFLINE", Label: reference.RefLabel("dispatchers.work_status", "OFFLINE", lang)},
 		},
 	}
-	resp.OK(c, out)
+	resp.OKLang(c, "ok", out)
 }
 
 // GetReferenceCompany возвращает справочник для раздела Company (роли из БД). value — верхний регистр, label — по X-Language.
@@ -248,7 +248,7 @@ func GetReferenceCompany(rolesRepo *approles.Repo) gin.HandlerFunc {
 		lang := refLang(c)
 		roles, err := rolesRepo.ListAll(c.Request.Context())
 		if err != nil {
-			resp.Error(c, 500, "failed to load roles")
+			resp.ErrorLang(c, 500, "failed_to_load_roles")
 			return
 		}
 		out := ReferenceCompanyResponse{
@@ -286,7 +286,7 @@ func GetReferenceCompany(rolesRepo *approles.Repo) gin.HandlerFunc {
 			}
 			out.Roles = append(out.Roles, RoleRef{ID: r.ID, Name: nameUpper, Label: label, Description: desc})
 		}
-		resp.OK(c, out)
+		resp.OKLang(c, "ok", out)
 	}
 }
 
@@ -345,7 +345,7 @@ func GetReferenceCities() gin.HandlerFunc {
 		switch lang {
 		case "ru", "uz", "en", "tr", "zh":
 		default:
-			resp.Error(c, http.StatusBadRequest, "invalid X-Language (allowed: ru, uz, en, tr, zh)")
+			resp.ErrorLang(c, http.StatusBadRequest, "invalid_x_language")
 			return
 		}
 
@@ -356,7 +356,7 @@ func GetReferenceCities() gin.HandlerFunc {
 
 		list, err := reference.CitiesByCountry(countryCode)
 		if err != nil {
-			resp.Error(c, 500, "failed to load cities")
+			resp.ErrorLang(c, 500, "failed_to_load_cities")
 			return
 		}
 
@@ -472,7 +472,7 @@ func GetReferenceCities() gin.HandlerFunc {
 		for _, t := range tmp {
 			items = append(items, t.item)
 		}
-		resp.OK(c, gin.H{"items": items})
+		resp.OKLang(c, "ok", gin.H{"items": items})
 	}
 }
 
@@ -503,7 +503,7 @@ func GetReferenceCountries() gin.HandlerFunc {
 		switch lang {
 		case "ru", "uz", "en", "tr", "zh":
 		default:
-			resp.Error(c, http.StatusBadRequest, "invalid X-Language (allowed: ru, uz, en, tr, zh)")
+			resp.ErrorLang(c, http.StatusBadRequest, "invalid_x_language")
 			return
 		}
 
@@ -606,6 +606,6 @@ func GetReferenceCountries() gin.HandlerFunc {
 			})
 		}
 
-		resp.OK(c, gin.H{"items": items})
+		resp.OKLang(c, "ok", gin.H{"items": items})
 	}
 }

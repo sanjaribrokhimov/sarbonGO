@@ -46,3 +46,26 @@ func ErrorWithData(c *gin.Context, httpCode int, description string, data any) {
 	})
 }
 
+// Lang returns X-Language from request (ru, uz, en, tr, zh). Default "en".
+func Lang(c *gin.Context) string {
+	return LangFromContext(c)
+}
+
+// OKLang sends success 200 with description by message key and X-Language. status stays "success" (English).
+func OKLang(c *gin.Context, messageKey string, data any) {
+	desc := Msg(messageKey, Lang(c))
+	Success(c, http.StatusOK, desc, data)
+}
+
+// SuccessLang sends success with code and localized description by key.
+func SuccessLang(c *gin.Context, httpCode int, messageKey string, data any) {
+	desc := Msg(messageKey, Lang(c))
+	Success(c, httpCode, desc, data)
+}
+
+// ErrorLang sends error response with description by message key and X-Language. status stays "error" (English).
+func ErrorLang(c *gin.Context, httpCode int, messageKey string) {
+	desc := Msg(messageKey, Lang(c))
+	Error(c, httpCode, desc)
+}
+

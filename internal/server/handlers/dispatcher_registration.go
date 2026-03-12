@@ -40,22 +40,22 @@ type dispCompleteReq struct {
 func (h *DispatcherRegistrationHandler) Complete(c *gin.Context) {
 	var req dispCompleteReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	if err := util.ValidatePassword(req.Password); err != nil {
-		resp.Error(c, http.StatusBadRequest, err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 
 	phone, err := h.sessions.Consume(c.Request.Context(), strings.TrimSpace(req.SessionID))
 	if err != nil {
 		if errors.Is(err, store.ErrDispatcherSessionNotFound) {
-			resp.Error(c, http.StatusUnauthorized, "session expired or invalid")
+			resp.ErrorLang(c, http.StatusUnauthorized, "session_expired_or_invalid")
 			return
 		}
 		h.logger.Error("consume session failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 
@@ -64,35 +64,35 @@ func (h *DispatcherRegistrationHandler) Complete(c *gin.Context) {
 		id, _ := uuid.Parse(existing.ID)
 		tokens, refreshClaims, err := h.jwtm.Issue("dispatcher", id)
 		if err != nil {
-			resp.Error(c, http.StatusInternalServerError, "token issue failed")
+			resp.ErrorLang(c, http.StatusInternalServerError, "token_issue_failed")
 			return
 		}
 		_ = h.refresh.Put(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 		_ = h.refresh.PutSession(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
-		resp.OK(c, gin.H{"status": "login", "tokens": tokens, "dispatcher": existing})
+		resp.OKLang(c, "login", gin.H{"status": "login", "tokens": tokens, "dispatcher": existing})
 		return
 	}
 	if !errors.Is(err, dispatchers.ErrNotFound) {
 		h.logger.Error("find by phone failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 
 	pwHash, err := util.HashPassword(req.Password)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, "password hash failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "password_hash_failed")
 		return
 	}
 	name := strings.TrimSpace(req.Name)
 	if len(name) < 2 {
-		resp.Error(c, http.StatusBadRequest, "name is too short")
+		resp.ErrorLang(c, http.StatusBadRequest, "name_too_short")
 		return
 	}
 	ps := strings.TrimSpace(req.PassportSeries)
 	pn := strings.TrimSpace(req.PassportNumber)
 	pinfl := strings.TrimSpace(req.PINFL)
 	if ps == "" || pn == "" || pinfl == "" {
-		resp.Error(c, http.StatusBadRequest, "passport_series, passport_number, pinfl are required")
+		resp.ErrorLang(c, http.StatusBadRequest, "passport_pinfl_required")
 		return
 	}
 
@@ -106,22 +106,22 @@ func (h *DispatcherRegistrationHandler) Complete(c *gin.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, dispatchers.ErrPhoneAlreadyRegistered) {
-			resp.Error(c, http.StatusConflict, "this phone is already registered")
+			resp.ErrorLang(c, http.StatusConflict, "phone_already_registered")
 			return
 		}
 		h.logger.Error("dispatcher create failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 
 	tokens, refreshClaims, err := h.jwtm.Issue("dispatcher", id)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, "token issue failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "token_issue_failed")
 		return
 	}
 	_ = h.refresh.Put(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 	_ = h.refresh.PutSession(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 
 	disp, _ := h.repo.FindByID(c.Request.Context(), id)
-	resp.OK(c, gin.H{"status": "registered", "tokens": tokens, "dispatcher": disp})
+	resp.OKLang(c, "ok", gin.H{"status": "registered", "tokens": tokens, "dispatcher": disp})
 }

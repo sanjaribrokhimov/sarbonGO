@@ -34,44 +34,44 @@ type adminLoginPasswordReq struct {
 func (h *AdminAuthHandler) LoginPassword(c *gin.Context) {
 	var req adminLoginPasswordReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	login := strings.TrimSpace(req.Login)
 	pw := strings.TrimSpace(req.Password)
 	if login == "" || pw == "" {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 
 	a, err := h.repo.FindByLogin(c.Request.Context(), login)
 	if err != nil {
 		if errors.Is(err, admins.ErrNotFound) {
-			resp.Error(c, http.StatusUnauthorized, "invalid login or password")
+			resp.ErrorLang(c, http.StatusUnauthorized, "invalid_login_or_password")
 			return
 		}
 		h.logger.Error("admin findByLogin failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 	if strings.ToLower(strings.TrimSpace(a.Status)) != "active" {
-		resp.Error(c, http.StatusUnauthorized, "admin inactive")
+		resp.ErrorLang(c, http.StatusUnauthorized, "admin_inactive")
 		return
 	}
 	if !util.ComparePassword(a.Password, pw) {
-		resp.Error(c, http.StatusUnauthorized, "invalid login or password")
+		resp.ErrorLang(c, http.StatusUnauthorized, "invalid_login_or_password")
 		return
 	}
 
 	tokens, refreshClaims, err := h.jwtm.Issue("admin", a.ID)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, "token issue failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "token_issue_failed")
 		return
 	}
 	_ = h.refresh.Put(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 	_ = h.refresh.PutSession(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 
-	resp.OK(c, gin.H{
+	resp.OKLang(c, "ok", gin.H{
 		"tokens": tokens,
 		"admin": gin.H{
 			"id":     a.ID,

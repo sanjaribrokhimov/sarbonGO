@@ -55,14 +55,14 @@ func (h *ChatHandler) getUserID(c *gin.Context) (uuid.UUID, bool) {
 func (h *ChatHandler) ListConversations(c *gin.Context) {
 	userID, ok := h.getUserID(c)
 	if !ok {
-		resp.Error(c, http.StatusUnauthorized, "user not identified")
+		resp.ErrorLang(c, http.StatusUnauthorized, "user_not_identified")
 		return
 	}
 	limit := getIntQuery(c, "limit", 50)
 	list, err := h.repo.ListConversations(c.Request.Context(), userID, limit)
 	if err != nil {
 		h.logger.Error("chat list conversations", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to list conversations")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_list_conversations")
 		return
 	}
 	// Enrich with peer_id for each
@@ -75,7 +75,7 @@ func (h *ChatHandler) ListConversations(c *gin.Context) {
 			"created_at": conv.CreatedAt,
 		})
 	}
-	resp.OK(c, gin.H{"conversations": out})
+	resp.OKLang(c, "ok", gin.H{"conversations": out})
 }
 
 // GetOrCreateConversation gets or creates a conversation with peer_id.
@@ -83,33 +83,33 @@ func (h *ChatHandler) ListConversations(c *gin.Context) {
 func (h *ChatHandler) GetOrCreateConversation(c *gin.Context) {
 	userID, ok := h.getUserID(c)
 	if !ok {
-		resp.Error(c, http.StatusUnauthorized, "user not identified")
+		resp.ErrorLang(c, http.StatusUnauthorized, "user_not_identified")
 		return
 	}
 	var req struct {
 		PeerID string `json:"peer_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	peerID, err := uuid.Parse(req.PeerID)
 	if err != nil || peerID == uuid.Nil {
-		resp.Error(c, http.StatusBadRequest, "invalid peer_id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_peer_id")
 		return
 	}
 	conv, err := h.repo.GetOrCreateConversation(c.Request.Context(), userID, peerID)
 	if err != nil {
 		if err == chat.ErrSameUser {
-			resp.Error(c, http.StatusBadRequest, "cannot chat with yourself")
+			resp.ErrorLang(c, http.StatusBadRequest, "cannot_chat_with_yourself")
 			return
 		}
 		h.logger.Error("chat get or create conversation", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to create conversation")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_create_conversation")
 		return
 	}
 	peerID = conv.PeerID(userID)
-	resp.OK(c, gin.H{
+	resp.OKLang(c, "ok", gin.H{
 		"id":         conv.ID,
 		"peer_id":   peerID,
 		"created_at": conv.CreatedAt,
@@ -121,13 +121,13 @@ func (h *ChatHandler) GetOrCreateConversation(c *gin.Context) {
 func (h *ChatHandler) ListMessages(c *gin.Context) {
 	userID, ok := h.getUserID(c)
 	if !ok {
-		resp.Error(c, http.StatusUnauthorized, "user not identified")
+		resp.ErrorLang(c, http.StatusUnauthorized, "user_not_identified")
 		return
 	}
 	convIDStr := c.Param("id")
 	convID, err := uuid.Parse(convIDStr)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid conversation id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_conversation_id")
 		return
 	}
 	var cursor *uuid.UUID
@@ -141,10 +141,10 @@ func (h *ChatHandler) ListMessages(c *gin.Context) {
 	list, err := h.repo.ListMessages(c.Request.Context(), convID, userID, cursor, limit)
 	if err != nil {
 		h.logger.Error("chat list messages", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to list messages")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_list_messages")
 		return
 	}
-	resp.OK(c, gin.H{"messages": list})
+	resp.OKLang(c, "ok", gin.H{"messages": list})
 }
 
 // SendMessage creates a message and broadcasts via WebSocket.
@@ -152,39 +152,39 @@ func (h *ChatHandler) ListMessages(c *gin.Context) {
 func (h *ChatHandler) SendMessage(c *gin.Context) {
 	userID, ok := h.getUserID(c)
 	if !ok {
-		resp.Error(c, http.StatusUnauthorized, "user not identified")
+		resp.ErrorLang(c, http.StatusUnauthorized, "user_not_identified")
 		return
 	}
 	convIDStr := c.Param("id")
 	convID, err := uuid.Parse(convIDStr)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid conversation id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_conversation_id")
 		return
 	}
 	var req struct {
 		Body string `json:"body" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	if len(req.Body) > 64*1024 {
-		resp.Error(c, http.StatusBadRequest, "message too long")
+		resp.ErrorLang(c, http.StatusBadRequest, "message_too_long")
 		return
 	}
 	conv, err := h.repo.GetConversation(c.Request.Context(), convID, userID)
 	if err != nil || conv == nil {
-		resp.Error(c, http.StatusNotFound, "conversation not found")
+		resp.ErrorLang(c, http.StatusNotFound, "conversation_not_found")
 		return
 	}
 	msg, err := h.repo.CreateMessage(c.Request.Context(), convID, userID, req.Body)
 	if err != nil {
 		h.logger.Error("chat create message", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to send message")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_send_message")
 		return
 	}
 	h.hub.BroadcastMessage(conv.UserAID, conv.UserBID, msg)
-	resp.Success(c, http.StatusCreated, "sent", msg)
+	resp.SuccessLang(c, http.StatusCreated, "ok", msg)
 }
 
 // EditMessage updates a message.
@@ -192,32 +192,32 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 func (h *ChatHandler) EditMessage(c *gin.Context) {
 	userID, ok := h.getUserID(c)
 	if !ok {
-		resp.Error(c, http.StatusUnauthorized, "user not identified")
+		resp.ErrorLang(c, http.StatusUnauthorized, "user_not_identified")
 		return
 	}
 	msgIDStr := c.Param("id")
 	msgID, err := uuid.Parse(msgIDStr)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid message id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_message_id")
 		return
 	}
 	var req struct {
 		Body string `json:"body" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	if len(req.Body) > 64*1024 {
-		resp.Error(c, http.StatusBadRequest, "message too long")
+		resp.ErrorLang(c, http.StatusBadRequest, "message_too_long")
 		return
 	}
 	msg, err := h.repo.UpdateMessage(c.Request.Context(), msgID, userID, req.Body)
 	if err != nil {
-		resp.Error(c, http.StatusNotFound, "message not found or not yours")
+		resp.ErrorLang(c, http.StatusNotFound, "message_not_found")
 		return
 	}
-	resp.OK(c, msg)
+	resp.OKLang(c, "ok", msg)
 }
 
 // DeleteMessage soft-deletes a message.
@@ -225,25 +225,25 @@ func (h *ChatHandler) EditMessage(c *gin.Context) {
 func (h *ChatHandler) DeleteMessage(c *gin.Context) {
 	userID, ok := h.getUserID(c)
 	if !ok {
-		resp.Error(c, http.StatusUnauthorized, "user not identified")
+		resp.ErrorLang(c, http.StatusUnauthorized, "user_not_identified")
 		return
 	}
 	msgIDStr := c.Param("id")
 	msgID, err := uuid.Parse(msgIDStr)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid message id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_message_id")
 		return
 	}
 	if err := h.repo.DeleteMessage(c.Request.Context(), msgID, userID); err != nil {
 		if err == chat.ErrNotFound {
-			resp.Error(c, http.StatusNotFound, "message not found or not yours")
+			resp.ErrorLang(c, http.StatusNotFound, "message_not_found")
 			return
 		}
 		h.logger.Error("chat delete message", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to delete")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_delete_message")
 		return
 	}
-	resp.OK(c, gin.H{"deleted": true})
+	resp.OKLang(c, "ok", gin.H{"deleted": true})
 }
 
 // GetPresence returns online/last_seen (and optionally typing) for a user.
@@ -252,7 +252,7 @@ func (h *ChatHandler) GetPresence(c *gin.Context) {
 	userIDStr := c.Param("user_id")
 	targetID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid user_id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_user_id")
 		return
 	}
 	var convID *uuid.UUID
@@ -264,10 +264,10 @@ func (h *ChatHandler) GetPresence(c *gin.Context) {
 	}
 	pres, err := h.presence.GetPresence(c.Request.Context(), targetID, convID)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, "failed to get presence")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_get_presence")
 		return
 	}
-	resp.OK(c, pres)
+	resp.OKLang(c, "ok", pres)
 }
 
 // ServeWS upgrades connection to WebSocket and runs the client (read/write pumps).
@@ -275,7 +275,7 @@ func (h *ChatHandler) GetPresence(c *gin.Context) {
 func (h *ChatHandler) ServeWS(c *gin.Context) {
 	userID, ok := h.getUserID(c)
 	if !ok {
-		resp.Error(c, http.StatusUnauthorized, "user not identified")
+		resp.ErrorLang(c, http.StatusUnauthorized, "user_not_identified")
 		return
 	}
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)

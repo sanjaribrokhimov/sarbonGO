@@ -18,18 +18,18 @@ func RequireAdmin(jwtm *security.JWTManager, refreshStore *store.RefreshStore) g
 	return func(c *gin.Context) {
 		raw := strings.TrimSpace(c.GetHeader(HeaderUserToken))
 		if raw == "" {
-			resp.Error(c, 401, "missing X-User-Token")
+			resp.ErrorLang(c, 401, "missing_user_token")
 			c.Abort()
 			return
 		}
 		id, role, _, sid, err := jwtm.ParseAccessWithSID(raw)
 		if err != nil || id == uuid.Nil || role != "admin" {
-			resp.Error(c, 401, "invalid X-User-Token")
+			resp.ErrorLang(c, 401, "invalid_user_token")
 			c.Abort()
 			return
 		}
 		if sid != "" && refreshStore != nil && !refreshStore.SessionValid(c.Request.Context(), sid) {
-			resp.Error(c, 401, "invalid X-User-Token")
+			resp.ErrorLang(c, 401, "invalid_user_token")
 			c.Abort()
 			return
 		}

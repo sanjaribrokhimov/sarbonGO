@@ -21,19 +21,19 @@ func RequireDriver(jwtm *security.JWTManager, refreshStore *store.RefreshStore) 
 	return func(c *gin.Context) {
 		raw := strings.TrimSpace(c.GetHeader(HeaderUserToken))
 		if raw == "" {
-			resp.Error(c, 401, "missing X-User-Token")
+			resp.ErrorLang(c, 401, "missing_user_token")
 			c.Abort()
 			return
 		}
 		id, role, _, sid, err := jwtm.ParseAccessWithSID(raw)
 		if err != nil || id == uuid.Nil || role != "driver" {
-			resp.Error(c, 401, "invalid X-User-Token")
+			resp.ErrorLang(c, 401, "invalid_user_token")
 			c.Abort()
 			return
 		}
 		// После refresh старый access недействителен (sid инвалидируется)
 		if sid != "" && refreshStore != nil && !refreshStore.SessionValid(c.Request.Context(), sid) {
-			resp.Error(c, 401, "invalid X-User-Token")
+			resp.ErrorLang(c, 401, "invalid_user_token")
 			c.Abort()
 			return
 		}
@@ -46,18 +46,18 @@ func RequireDispatcher(jwtm *security.JWTManager, refreshStore *store.RefreshSto
 	return func(c *gin.Context) {
 		raw := strings.TrimSpace(c.GetHeader(HeaderUserToken))
 		if raw == "" {
-			resp.Error(c, 401, "missing X-User-Token")
+			resp.ErrorLang(c, 401, "missing_user_token")
 			c.Abort()
 			return
 		}
 		id, role, companyID, sid, err := jwtm.ParseAccessWithSID(raw)
 		if err != nil || id == uuid.Nil || role != "dispatcher" {
-			resp.Error(c, 401, "invalid X-User-Token")
+			resp.ErrorLang(c, 401, "invalid_user_token")
 			c.Abort()
 			return
 		}
 		if sid != "" && refreshStore != nil && !refreshStore.SessionValid(c.Request.Context(), sid) {
-			resp.Error(c, 401, "invalid X-User-Token")
+			resp.ErrorLang(c, 401, "invalid_user_token")
 			c.Abort()
 			return
 		}
@@ -118,18 +118,18 @@ func RequireChatUser(jwtm *security.JWTManager, refreshStore *store.RefreshStore
 		}
 		raw := strings.TrimSpace(c.GetHeader(HeaderUserToken))
 		if raw == "" {
-			resp.Error(c, 401, "missing X-User-Token or X-User-ID (or query user_id/token)")
+			resp.ErrorLang(c, 401, "missing_user_token_or_id")
 			c.Abort()
 			return
 		}
 		id, role, _, sid, err := jwtm.ParseAccessWithSID(raw)
 		if err != nil || id == uuid.Nil {
-			resp.Error(c, 401, "invalid X-User-Token")
+			resp.ErrorLang(c, 401, "invalid_user_token")
 			c.Abort()
 			return
 		}
 		if sid != "" && refreshStore != nil && !refreshStore.SessionValid(c.Request.Context(), sid) {
-			resp.Error(c, 401, "invalid X-User-Token")
+			resp.ErrorLang(c, 401, "invalid_user_token")
 			c.Abort()
 			return
 		}

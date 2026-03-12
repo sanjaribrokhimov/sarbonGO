@@ -52,23 +52,23 @@ type adminCreateCompanyReq struct {
 func (h *AdminCompaniesHandler) Create(c *gin.Context) {
 	var req adminCreateCompanyReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid payload")
 		return
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
-		resp.Error(c, http.StatusBadRequest, "name is required")
+		resp.ErrorLang(c, http.StatusBadRequest, "name_required")
 		return
 	}
 
 	rawAdminID, ok := c.Get(mw.CtxAdminID)
 	if !ok {
-		resp.Error(c, http.StatusUnauthorized, "unauthorized")
+		resp.ErrorLang(c, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	adminID, ok := rawAdminID.(uuid.UUID)
 	if !ok || adminID == uuid.Nil {
-		resp.Error(c, http.StatusUnauthorized, "unauthorized")
+		resp.ErrorLang(c, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -104,15 +104,11 @@ func (h *AdminCompaniesHandler) Create(c *gin.Context) {
 	})
 	if err != nil {
 		h.logger.Error("company create failed", zap.Error(err))
-		msg := "company create failed"
-		if errStr := err.Error(); errStr != "" {
-			msg = msg + ": " + errStr
-		}
-		resp.Error(c, http.StatusInternalServerError, msg)
+		resp.ErrorLang(c, http.StatusInternalServerError, "company_create_failed")
 		return
 	}
 
-	resp.OK(c, gin.H{"company_id": id})
+	resp.OKLang(c, "created", gin.H{"company_id": id})
 }
 
 // adminSetOwnerReq body for PATCH /admin/companies/:id/owner
@@ -124,64 +120,64 @@ type adminSetOwnerReq struct {
 func (h *AdminCompaniesHandler) SetOwner(c *gin.Context) {
 	companyIDStr := c.Param("id")
 	if companyIDStr == "" {
-		resp.Error(c, http.StatusBadRequest, "company id required")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_company_id")
 		return
 	}
 	companyID, err := uuid.Parse(companyIDStr)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid company id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_company_id")
 		return
 	}
 	var req adminSetOwnerReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid payload")
 		return
 	}
 	ownerID, err := uuid.Parse(strings.TrimSpace(req.OwnerID))
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid owner_id: must be UUID")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	user, err := h.usersRepo.FindByID(c.Request.Context(), ownerID)
 	if err != nil {
 		if errors.Is(err, appusers.ErrNotFound) {
-			resp.Error(c, http.StatusBadRequest, "owner_id must be an existing company user (register via POST /v1/company-users/auth/phone and registration/complete first)")
+			resp.ErrorLang(c, http.StatusBadRequest, "invalid_user_id")
 			return
 		}
 		h.logger.Error("company user find by id failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "set owner failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 	// Владельцем может быть только пользователь с ролью OWNER в company_users
 	if user.Role == nil || strings.TrimSpace(*user.Role) != "OWNER" {
-		resp.Error(c, http.StatusBadRequest, "owner_id must be a company user with role 'OWNER' (company_users.role)")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	if err := h.repo.SetOwner(c.Request.Context(), companyID, ownerID); err != nil {
 		h.logger.Error("company set owner failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "set owner failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 	// Двусторонняя связь: у владельца в company_users тоже проставляем company_id
 	if err := h.usersRepo.UpdateCompanyID(c.Request.Context(), ownerID, &companyID); err != nil {
 		h.logger.Error("company user company_id update failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "set owner failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
-	resp.OK(c, gin.H{"status": "ok", "message": "owner set, status set to active"})
+	resp.OKLang(c, "ok", gin.H{"status": "ok", "message": "owner set, status set to active"})
 }
 
 // SearchOwners GET /admin/company-users/owners/search?q=... — поиск владельцев (company_users с role=owner) по телефону, имени или фамилии. Сортировка: точное совпадение → начинается с → содержит.
 func (h *AdminCompaniesHandler) SearchOwners(c *gin.Context) {
 	q := strings.TrimSpace(c.Query("q"))
 	if q == "" {
-		resp.Success(c, 200, "ok", []any{})
+		resp.OKLang(c, "ok", []any{})
 		return
 	}
 	list, err := h.usersRepo.SearchOwners(c.Request.Context(), q, 50)
 	if err != nil {
 		h.logger.Error("search owners failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "search failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 	// Без password_hash в ответе
@@ -198,6 +194,6 @@ func (h *AdminCompaniesHandler) SearchOwners(c *gin.Context) {
 			"updated_at":  u.UpdatedAt,
 		})
 	}
-	resp.Success(c, 200, "ok", out)
+	resp.OKLang(c, "ok", out)
 }
 

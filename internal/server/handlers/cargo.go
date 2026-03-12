@@ -87,11 +87,11 @@ type PaymentReq struct {
 func (h *CargoHandler) Create(c *gin.Context) {
 	var req CreateCargoReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	if err := validateCargoCreate(req); err != nil {
-		resp.Error(c, http.StatusBadRequest, err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	params := toCreateParams(req)
@@ -112,7 +112,7 @@ func (h *CargoHandler) Create(c *gin.Context) {
 					count, err := h.repo.CountByDispatcher(c.Request.Context(), userID)
 					if err != nil {
 						h.logger.Error("cargo count by dispatcher", zap.Error(err))
-						resp.Error(c, http.StatusInternalServerError, "failed to check cargo limit")
+						resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_check_cargo_limit")
 						return
 					}
 					if count >= h.cfg.FreelanceDispatcherCargoLimit {
@@ -135,18 +135,18 @@ func (h *CargoHandler) Create(c *gin.Context) {
 	id, err := h.repo.Create(c.Request.Context(), params)
 	if err != nil {
 		h.logger.Error("cargo create", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to create cargo")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_create_cargo")
 		return
 	}
 	// Возвращаем полный объект груза (как GET /api/cargo/:id), чтобы клиент видел все сохранённые данные
 	obj, err := h.repo.GetByID(c.Request.Context(), id, false)
 	if err != nil || obj == nil {
-		resp.Success(c, http.StatusCreated, "created", gin.H{"id": id.String()})
+		resp.SuccessLang(c, http.StatusCreated, "created", gin.H{"id": id.String()})
 		return
 	}
 	points, _ := h.repo.GetRoutePoints(c.Request.Context(), id)
 	pay, _ := h.repo.GetPayment(c.Request.Context(), id)
-	resp.Success(c, http.StatusCreated, "created", toCargoDetail(obj, points, pay))
+	resp.SuccessLang(c, http.StatusCreated, "created", toCargoDetail(obj, points, pay))
 }
 
 func (h *CargoHandler) List(c *gin.Context) {
@@ -181,10 +181,10 @@ func (h *CargoHandler) List(c *gin.Context) {
 	result, err := h.repo.List(c.Request.Context(), f)
 	if err != nil {
 		h.logger.Error("cargo list", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to list cargo")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_list")
 		return
 	}
-	resp.OK(c, gin.H{
+	resp.OKLang(c, "ok", gin.H{
 		"items": toCargoListItems(result.Items),
 		"total": result.Total,
 	})
@@ -193,89 +193,89 @@ func (h *CargoHandler) List(c *gin.Context) {
 func (h *CargoHandler) GetByID(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
 		return
 	}
 	obj, err := h.repo.GetByID(c.Request.Context(), id, false)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, "failed to get cargo")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_get_cargo")
 		return
 	}
 	if obj == nil {
-		resp.Error(c, http.StatusNotFound, "cargo not found")
+		resp.ErrorLang(c, http.StatusNotFound, "cargo_not_found")
 		return
 	}
 	points, _ := h.repo.GetRoutePoints(c.Request.Context(), id)
 	pay, _ := h.repo.GetPayment(c.Request.Context(), id)
-	resp.OK(c, toCargoDetail(obj, points, pay))
+	resp.OKLang(c, "ok", toCargoDetail(obj, points, pay))
 }
 
 func (h *CargoHandler) Update(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
 		return
 	}
 	var req UpdateCargoReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	if err := validateCargoUpdate(req); err != nil {
-		resp.Error(c, http.StatusBadRequest, err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	params := toUpdateParams(req)
 	if err := h.repo.Update(c.Request.Context(), id, params); err != nil {
 		if err == cargo.ErrCannotEditAfterAssigned {
-			resp.Error(c, http.StatusBadRequest, err.Error())
+			resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 			return
 		}
 		h.logger.Error("cargo update", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to update cargo")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_update_cargo")
 		return
 	}
-	resp.OK(c, gin.H{"id": id.String()})
+	resp.OKLang(c, "ok", gin.H{"id": id.String()})
 }
 
 func (h *CargoHandler) Delete(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
 		return
 	}
 	if err := h.repo.Delete(c.Request.Context(), id); err != nil {
 		h.logger.Error("cargo delete", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to delete cargo")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_delete_cargo")
 		return
 	}
-	resp.OK(c, gin.H{"id": id.String()})
+	resp.OKLang(c, "ok", gin.H{"id": id.String()})
 }
 
 func (h *CargoHandler) PatchStatus(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
 		return
 	}
 	var req struct {
 		Status string `json:"status" binding:"required,oneof=created searching assigned in_transit delivered cancelled"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	if err := h.repo.SetStatus(c.Request.Context(), id, req.Status); err != nil {
-		resp.Error(c, http.StatusBadRequest, err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
-	resp.OK(c, gin.H{"id": id.String(), "status": req.Status})
+	resp.OKLang(c, "updated", gin.H{"id": id.String(), "status": req.Status})
 }
 
 func (h *CargoHandler) CreateOffer(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
 		return
 	}
 	var req struct {
@@ -285,52 +285,52 @@ func (h *CargoHandler) CreateOffer(c *gin.Context) {
 		Comment   string    `json:"comment"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	offerID, err := h.repo.CreateOffer(c.Request.Context(), id, req.CarrierID, req.Price, req.Currency, req.Comment)
 	if err != nil {
 		h.logger.Error("cargo create offer", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to create offer")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed to create offer")
 		return
 	}
-	resp.Success(c, http.StatusCreated, "created", gin.H{"id": offerID.String()})
+	resp.SuccessLang(c, http.StatusCreated, "created", gin.H{"id": offerID.String()})
 }
 
 func (h *CargoHandler) ListOffers(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
 		return
 	}
 	offers, err := h.repo.GetOffers(c.Request.Context(), id)
 	if err != nil {
 		h.logger.Error("cargo list offers", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to list offers")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed to list offers")
 		return
 	}
-	resp.OK(c, gin.H{"items": toOfferList(offers)})
+	resp.OKLang(c, "ok", gin.H{"items": toOfferList(offers)})
 }
 
 func (h *CargoHandler) AcceptOffer(c *gin.Context) {
 	offerID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid offer id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid offer id")
 		return
 	}
 	cargoID, err := h.repo.AcceptOffer(c.Request.Context(), offerID)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	if h.tripsRepo != nil {
 		tripID, _ := h.tripsRepo.Create(c.Request.Context(), cargoID, offerID)
 		if tripID != uuid.Nil {
-			resp.OK(c, gin.H{"cargo_id": cargoID.String(), "offer_id": offerID.String(), "trip_id": tripID.String(), "status": "accepted"})
+			resp.OKLang(c, "ok", gin.H{"cargo_id": cargoID.String(), "offer_id": offerID.String(), "trip_id": tripID.String(), "status": "accepted"})
 			return
 		}
 	}
-	resp.OK(c, gin.H{"cargo_id": cargoID.String(), "offer_id": offerID.String(), "status": "accepted"})
+	resp.OKLang(c, "ok", gin.H{"cargo_id": cargoID.String(), "offer_id": offerID.String(), "status": "accepted"})
 }
 
 // UpdateCargoReq for PUT /api/cargo/:id (all optional).

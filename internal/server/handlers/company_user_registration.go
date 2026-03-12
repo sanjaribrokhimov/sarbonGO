@@ -52,27 +52,27 @@ type companyUserCompleteReq struct {
 func (h *CompanyUserRegistrationHandler) Complete(c *gin.Context) {
 	var req companyUserCompleteReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	if err := util.ValidatePassword(req.Password); err != nil {
-		resp.Error(c, http.StatusBadRequest, err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	phone, err := h.sessions.Consume(c.Request.Context(), strings.TrimSpace(req.SessionID))
 	if err != nil {
 		if errors.Is(err, store.ErrDispatcherSessionNotFound) {
-			resp.Error(c, http.StatusUnauthorized, "session expired or invalid")
+			resp.ErrorLang(c, http.StatusUnauthorized, "session_expired_or_invalid")
 			return
 		}
 		h.logger.Error("company user session consume failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 	phone = strings.TrimSpace(phone)
 	firstName := strings.TrimSpace(req.FirstName)
 	if len(firstName) < 2 {
-		resp.Error(c, http.StatusBadRequest, "first_name is too short")
+		resp.ErrorLang(c, http.StatusBadRequest, "first_name_too_short")
 		return
 	}
 	var lastName *string
@@ -81,28 +81,28 @@ func (h *CompanyUserRegistrationHandler) Complete(c *gin.Context) {
 	}
 	pwHash, err := util.HashPassword(req.Password)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, "password hash failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "password_hash_failed")
 		return
 	}
 	u, err := h.repo.Create(c.Request.Context(), phone, pwHash, &firstName, lastName, nil, companyUserRoleOwner)
 	if err != nil {
 		if errors.Is(err, appusers.ErrPhoneExists) {
-			resp.Error(c, http.StatusConflict, "this phone is already registered")
+			resp.ErrorLang(c, http.StatusConflict, "phone_already_registered")
 			return
 		}
 		h.logger.Error("company user create failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 	id, _ := uuid.Parse(u.ID)
 	tokens, refreshClaims, err := h.jwtm.IssueWithCompany("user", id, uuid.Nil)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, "token issue failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "token_issue_failed")
 		return
 	}
 	_ = h.refresh.Put(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 	_ = h.refresh.PutSession(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
-	resp.OK(c, gin.H{
+	resp.OKLang(c, "ok", gin.H{
 		"status": "registered",
 		"tokens": tokens,
 		"user": gin.H{

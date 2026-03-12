@@ -38,31 +38,31 @@ func (h *DispatcherInvitationsHandler) CreateInvitation(c *gin.Context) {
 	dispatcherID := c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
 	companyID, _ := uuid.Parse(c.Param("companyId"))
 	if companyID == uuid.Nil {
-		resp.Error(c, http.StatusBadRequest, "invalid company_id")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_company_id")
 		return
 	}
 	ok, err := h.dcr.HasAccess(c.Request.Context(), dispatcherID, companyID)
 	if err != nil || !ok {
-		resp.Error(c, http.StatusForbidden, "company not found or access denied")
+		resp.ErrorLang(c, http.StatusForbidden, "company_not_found_or_access_denied")
 		return
 	}
 	var req CreateInvitationReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	phone := strings.TrimSpace(req.Phone)
 	if phone == "" {
-		resp.Error(c, http.StatusBadRequest, "phone is required")
+		resp.ErrorLang(c, http.StatusBadRequest, "phone_required")
 		return
 	}
 	token, err := h.repo.Create(c.Request.Context(), companyID, req.Role, phone, dispatcherID, 7*24*time.Hour)
 	if err != nil {
 		h.logger.Error("dispatcher invitation create", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to create invitation")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_create_invitation")
 		return
 	}
-	resp.Success(c, http.StatusCreated, "created", gin.H{"token": token, "expires_in_hours": 168})
+	resp.SuccessLang(c, http.StatusCreated, "created", gin.H{"token": token, "expires_in_hours": 168})
 }
 
 // AcceptReq body for POST /v1/dispatchers/invitations/accept
@@ -77,30 +77,30 @@ func (h *DispatcherInvitationsHandler) Accept(c *gin.Context) {
 	dispatcherID := c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
 	var req AcceptReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	inv, err := h.repo.GetByToken(c.Request.Context(), strings.TrimSpace(req.Token))
 	if err != nil || inv == nil {
-		resp.Error(c, http.StatusBadRequest, "invitation not found or expired")
+		resp.ErrorLang(c, http.StatusBadRequest, "invitation_not_found_or_expired")
 		return
 	}
 	disp, err := h.disp.FindByID(c.Request.Context(), dispatcherID)
 	if err != nil || disp == nil {
-		resp.Error(c, http.StatusUnauthorized, "dispatcher not found")
+		resp.ErrorLang(c, http.StatusUnauthorized, "dispatcher_not_found")
 		return
 	}
 	if normPhone(inv.Phone) != normPhone(disp.Phone) {
-		resp.Error(c, http.StatusForbidden, "invitation was sent to another phone")
+		resp.ErrorLang(c, http.StatusForbidden, "invitation_sent_to_another_phone")
 		return
 	}
 	if err := h.dcr.Add(c.Request.Context(), dispatcherID, inv.CompanyID, inv.Role); err != nil {
 		h.logger.Error("dcr add on accept", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "failed to accept")
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_accept")
 		return
 	}
 	_ = h.repo.Delete(c.Request.Context(), inv.Token)
-	resp.Success(c, http.StatusOK, "accepted", gin.H{"company_id": inv.CompanyID.String()})
+	resp.SuccessLang(c, http.StatusOK, "accepted", gin.H{"company_id": inv.CompanyID.String()})
 }
 
 // DeclineReq body for POST /v1/dispatchers/invitations/decline
@@ -112,9 +112,9 @@ type DeclineReq struct {
 func (h *DispatcherInvitationsHandler) Decline(c *gin.Context) {
 	var req DeclineReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload: "+err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	_ = h.repo.Delete(c.Request.Context(), strings.TrimSpace(req.Token))
-	resp.Success(c, http.StatusOK, "declined", nil)
+	resp.SuccessLang(c, http.StatusOK, "declined", nil)
 }

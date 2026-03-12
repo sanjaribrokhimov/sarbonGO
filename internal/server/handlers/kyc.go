@@ -61,7 +61,7 @@ func (h *KYCHandler) Submit(c *gin.Context) {
 
 	var req kycReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 
@@ -99,7 +99,7 @@ func (h *KYCHandler) Submit(c *gin.Context) {
 	// Keep current status unless we can upgrade to full.
 	current, err := h.drivers.FindByID(c.Request.Context(), driverID)
 	if err != nil {
-		resp.Error(c, http.StatusUnauthorized, "driver not found")
+		resp.ErrorLang(c, http.StatusUnauthorized, "driver_not_found")
 		return
 	}
 	nextStatus := current.RegistrationStatus
@@ -143,7 +143,7 @@ func (h *KYCHandler) Submit(c *gin.Context) {
 
 	if err := h.drivers.UpdateKYC(c.Request.Context(), driverID, u); err != nil {
 		h.logger.Error("update kyc failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 
@@ -151,11 +151,11 @@ func (h *KYCHandler) Submit(c *gin.Context) {
 	// (даже при kyc_status=pending, например если не все скан-статусы true).
 	if err := h.drivers.ApplyFullDefaults(c.Request.Context(), driverID); err != nil {
 		h.logger.Error("apply full defaults failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 	updated, _ := h.drivers.FindByID(c.Request.Context(), driverID)
-	resp.OK(c, gin.H{
+	resp.OKLang(c, "ok", gin.H{
 		"event":   "updated",
 		"is_full": isFull,
 		"driver":  updated,

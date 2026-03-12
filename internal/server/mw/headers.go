@@ -25,7 +25,7 @@ func RequireBaseHeaders(cfg config.Config) gin.HandlerFunc {
 		clientToken := strings.TrimSpace(c.GetHeader(HeaderClientToken))
 
 		if device == "" || lang == "" || clientToken == "" {
-			resp.Error(c, http.StatusBadRequest, "missing required headers: X-Device-Type, X-Language, X-Client-Token")
+			resp.ErrorLang(c, http.StatusBadRequest, "missing_required_headers")
 			c.Abort()
 			return
 		}
@@ -33,7 +33,7 @@ func RequireBaseHeaders(cfg config.Config) gin.HandlerFunc {
 		switch device {
 		case "ios", "android", "web":
 		default:
-			resp.Error(c, http.StatusBadRequest, "invalid X-Device-Type (allowed: ios, android, web)")
+			resp.ErrorLang(c, http.StatusBadRequest, "invalid_x_device_type")
 			c.Abort()
 			return
 		}
@@ -41,13 +41,13 @@ func RequireBaseHeaders(cfg config.Config) gin.HandlerFunc {
 		switch lang {
 		case "ru", "uz", "en", "tr", "zh":
 		default:
-			resp.Error(c, http.StatusBadRequest, "invalid X-Language (allowed: ru, uz, en, tr, zh)")
+			resp.ErrorLang(c, http.StatusBadRequest, "invalid_x_language")
 			c.Abort()
 			return
 		}
 
 		if cfg.ClientTokenExpected != "" && clientToken != cfg.ClientTokenExpected {
-			resp.Error(c, http.StatusUnauthorized, "invalid X-Client-Token")
+			resp.ErrorLang(c, http.StatusUnauthorized, "invalid_x_client_token")
 			c.Abort()
 			return
 		}

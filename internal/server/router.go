@@ -52,7 +52,7 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 
 	// Public endpoints that should still validate base headers.
 	r.GET("/health", func(c *gin.Context) {
-		resp.OK(c, gin.H{"status": "ok"})
+		resp.OKLang(c, "ok", gin.H{"status": "ok"})
 	})
 
 	// Swagger UI (OpenAPI served from local file)

@@ -45,27 +45,27 @@ type startReq struct {
 func (h *RegistrationHandler) Start(c *gin.Context) {
 	var req startReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	if !req.OfertaAccepted {
-		resp.Error(c, http.StatusBadRequest, "oferta_accepted must be true")
+		resp.ErrorLang(c, http.StatusBadRequest, "oferta_accepted_required")
 		return
 	}
 	name := strings.TrimSpace(req.Name)
 	if len(name) < 2 {
-		resp.Error(c, http.StatusBadRequest, "name is too short")
+		resp.ErrorLang(c, http.StatusBadRequest, "name_too_short")
 		return
 	}
 
 	phone, err := h.sessions.Consume(c.Request.Context(), strings.TrimSpace(req.SessionID))
 	if err != nil {
 		if errors.Is(err, store.ErrSessionNotFound) {
-			resp.Error(c, http.StatusUnauthorized, "session_id expired or invalid")
+			resp.ErrorLang(c, http.StatusUnauthorized, "session_id_expired_or_invalid")
 			return
 		}
 		h.logger.Error("consume session failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 
@@ -75,13 +75,13 @@ func (h *RegistrationHandler) Start(c *gin.Context) {
 		driverUUID, _ := uuid.Parse(existing.ID)
 		tokens, refreshClaims, err := h.jwtm.Issue("driver", driverUUID)
 		if err != nil {
-			resp.Error(c, http.StatusInternalServerError, "token issue failed")
+			resp.ErrorLang(c, http.StatusInternalServerError, "token_issue_failed")
 			return
 		}
 		_ = h.refresh.Put(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 		_ = h.refresh.PutSession(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 
-		resp.OK(c, gin.H{
+		resp.OKLang(c, "ok", gin.H{
 			"status": "login",
 			"tokens": tokens,
 			"driver": existing,
@@ -90,27 +90,27 @@ func (h *RegistrationHandler) Start(c *gin.Context) {
 	}
 	if !errors.Is(err, drivers.ErrNotFound) {
 		h.logger.Error("find by phone failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 
 	id, err := h.drivers.CreateStart(c.Request.Context(), phone, name)
 	if err != nil {
 		h.logger.Error("create driver failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 
 	tokens, refreshClaims, err := h.jwtm.Issue("driver", id)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, "token issue failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "token_issue_failed")
 		return
 	}
 	_ = h.refresh.Put(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 	_ = h.refresh.PutSession(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 
 	drv, _ := h.drivers.FindByID(c.Request.Context(), id)
-	resp.OK(c, gin.H{
+	resp.OKLang(c, "ok", gin.H{
 		"status":               "registered",
 		"tokens":               tokens,
 		"driver":               drv,
@@ -133,7 +133,7 @@ func (h *RegistrationHandler) GeoPush(c *gin.Context) {
 
 	d, err := h.drivers.FindByID(c.Request.Context(), driverID)
 	if err != nil {
-		resp.Error(c, http.StatusUnauthorized, "driver not found")
+		resp.ErrorLang(c, http.StatusUnauthorized, "driver_not_found")
 		return
 	}
 
@@ -142,15 +142,15 @@ func (h *RegistrationHandler) GeoPush(c *gin.Context) {
 		if req.PushToken != nil && strings.TrimSpace(*req.PushToken) != "" {
 			if err := h.drivers.UpdatePushToken(c.Request.Context(), driverID, strings.TrimSpace(*req.PushToken)); err != nil {
 				h.logger.Error("update push token failed", zap.Error(err))
-				resp.Error(c, http.StatusInternalServerError, "internal error")
+				resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 				return
 			}
 			updated, _ := h.drivers.FindByID(c.Request.Context(), driverID)
-			resp.OK(c, gin.H{"status": "ok", "driver": updated})
+			resp.OKLang(c, "ok", gin.H{"status": "ok", "driver": updated})
 			return
 		}
 		_ = h.drivers.TouchOnline(c.Request.Context(), driverID)
-		resp.OK(c, gin.H{"status": "ok", "driver": d})
+		resp.OKLang(c, "ok", gin.H{"status": "ok", "driver": d})
 		return
 	}
 
@@ -161,11 +161,11 @@ func (h *RegistrationHandler) GeoPush(c *gin.Context) {
 
 	if err := h.drivers.UpdateGeo(c.Request.Context(), driverID, *req.Latitude, *req.Longitude, string(nextStep), req.PushToken); err != nil {
 		h.logger.Error("update geo failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 	updated, _ := h.drivers.FindByID(c.Request.Context(), driverID)
-	resp.OK(c, gin.H{"status": "ok", "driver": updated})
+	resp.OKLang(c, "ok", gin.H{"status": "ok", "driver": updated})
 }
 
 type transportReq struct {
@@ -181,13 +181,13 @@ func (h *RegistrationHandler) TransportType(c *gin.Context) {
 
 	var req transportReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 
 	d, err := h.drivers.FindByID(c.Request.Context(), driverID)
 	if err != nil {
-		resp.Error(c, http.StatusUnauthorized, "driver not found")
+		resp.ErrorLang(c, http.StatusUnauthorized, "driver_not_found")
 		return
 	}
 
@@ -195,18 +195,18 @@ func (h *RegistrationHandler) TransportType(c *gin.Context) {
 	switch domain.DriverType(dt) {
 	case domain.DriverTypeCompany, domain.DriverTypeFreelancer, domain.DriverTypeDriver:
 	default:
-		resp.Error(c, http.StatusBadRequest, "invalid driver_type")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_driver_type")
 		return
 	}
 
 	ppt := strings.TrimSpace(req.PowerPlateType)
 	tpt := strings.TrimSpace(req.TrailerPlateType)
 	if ppt == "" {
-		resp.Error(c, http.StatusBadRequest, "power_plate_type is required")
+		resp.ErrorLang(c, http.StatusBadRequest, "power_plate_type_required")
 		return
 	}
 	if tpt == "" {
-		resp.Error(c, http.StatusBadRequest, "trailer_plate_type is required")
+		resp.ErrorLang(c, http.StatusBadRequest, "trailer_plate_type_required")
 		return
 	}
 
@@ -214,7 +214,7 @@ func (h *RegistrationHandler) TransportType(c *gin.Context) {
 	if req.FreelancerID != nil && strings.TrimSpace(*req.FreelancerID) != "" {
 		u, err := uuid.Parse(strings.TrimSpace(*req.FreelancerID))
 		if err != nil {
-			resp.Error(c, http.StatusBadRequest, "invalid freelancer_id")
+			resp.ErrorLang(c, http.StatusBadRequest, "invalid_freelancer_id")
 			return
 		}
 		freelancerUUID = &u
@@ -223,7 +223,7 @@ func (h *RegistrationHandler) TransportType(c *gin.Context) {
 	if req.CompanyID != nil && strings.TrimSpace(*req.CompanyID) != "" {
 		u, err := uuid.Parse(strings.TrimSpace(*req.CompanyID))
 		if err != nil {
-			resp.Error(c, http.StatusBadRequest, "invalid company_id")
+			resp.ErrorLang(c, http.StatusBadRequest, "invalid_company_id")
 			return
 		}
 		companyUUID = &u
@@ -236,10 +236,10 @@ func (h *RegistrationHandler) TransportType(c *gin.Context) {
 
 	if err := h.drivers.UpdateTransportType(c.Request.Context(), driverID, dt, freelancerUUID, companyUUID, ppt, tpt, string(domain.StepTransportType), nextStatus); err != nil {
 		h.logger.Error("update transport type failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 	updated, _ := h.drivers.FindByID(c.Request.Context(), driverID)
-	resp.OK(c, gin.H{"status": "ok", "driver": updated})
+	resp.OKLang(c, "ok", gin.H{"status": "ok", "driver": updated})
 }
 

@@ -41,10 +41,10 @@ func (h *ProfileHandler) Get(c *gin.Context) {
 	_ = h.drivers.TouchOnline(c.Request.Context(), driverID)
 	d, err := h.drivers.FindByID(c.Request.Context(), driverID)
 	if err != nil {
-		resp.Error(c, http.StatusUnauthorized, "driver not found")
+		resp.ErrorLang(c, http.StatusUnauthorized, "driver_not_found")
 		return
 	}
-	resp.OK(c, gin.H{"driver": d})
+	resp.OKLang(c, "ok", gin.H{"driver": d})
 }
 
 type patchDriverReq struct {
@@ -60,14 +60,14 @@ func (h *ProfileHandler) PatchDriver(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	var req patchDriverReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 
 	if req.Name != nil {
 		v := strings.TrimSpace(*req.Name)
 		if len(v) < 2 {
-			resp.Error(c, http.StatusBadRequest, "name is too short")
+			resp.ErrorLang(c, http.StatusBadRequest, "name_too_short")
 			return
 		}
 		req.Name = &v
@@ -78,14 +78,14 @@ func (h *ProfileHandler) PatchDriver(c *gin.Context) {
 		case "available", "loaded", "busy":
 			req.WorkStatus = &v
 		default:
-			resp.Error(c, http.StatusBadRequest, "invalid work_status (allowed: available, loaded, busy)")
+			resp.ErrorLang(c, http.StatusBadRequest, "invalid_work_status")
 			return
 		}
 	}
 	if req.DriverPassportSeries != nil {
 		v := strings.TrimSpace(*req.DriverPassportSeries)
 		if v == "" {
-			resp.Error(c, http.StatusBadRequest, "driver_passport_series cannot be empty")
+			resp.ErrorLang(c, http.StatusBadRequest, "driver_passport_series_required")
 			return
 		}
 		req.DriverPassportSeries = &v
@@ -93,7 +93,7 @@ func (h *ProfileHandler) PatchDriver(c *gin.Context) {
 	if req.DriverPassportNumber != nil {
 		v := strings.TrimSpace(*req.DriverPassportNumber)
 		if v == "" {
-			resp.Error(c, http.StatusBadRequest, "driver_passport_number cannot be empty")
+			resp.ErrorLang(c, http.StatusBadRequest, "driver_passport_number_required")
 			return
 		}
 		req.DriverPassportNumber = &v
@@ -101,7 +101,7 @@ func (h *ProfileHandler) PatchDriver(c *gin.Context) {
 	if req.DriverPINFL != nil {
 		v := strings.TrimSpace(*req.DriverPINFL)
 		if v == "" {
-			resp.Error(c, http.StatusBadRequest, "driver_pinfl cannot be empty")
+			resp.ErrorLang(c, http.StatusBadRequest, "driver_pinfl_required")
 			return
 		}
 		req.DriverPINFL = &v
@@ -114,12 +114,12 @@ func (h *ProfileHandler) PatchDriver(c *gin.Context) {
 		DriverPINFL:          req.DriverPINFL,
 	}); err != nil {
 		h.logger.Error("update driver profile failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 
 	d, _ := h.drivers.FindByID(c.Request.Context(), driverID)
-	resp.OK(c, gin.H{"event": "updated", "driver": d})
+	resp.OKLang(c, "updated", gin.H{"event": "updated", "driver": d})
 }
 
 type heartbeatReq struct {
@@ -132,16 +132,16 @@ func (h *ProfileHandler) Heartbeat(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	var req heartbeatReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	if err := h.drivers.UpdateHeartbeat(c.Request.Context(), driverID, req.Latitude, req.Longitude, time.Now().UTC()); err != nil {
 		h.logger.Error("heartbeat update failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 	d, _ := h.drivers.FindByID(c.Request.Context(), driverID)
-	resp.OK(c, gin.H{"event": "heartbeat", "driver": d})
+	resp.OKLang(c, "heartbeat", gin.H{"event": "heartbeat", "driver": d})
 }
 
 type phoneChangeRequestReq struct {
@@ -153,17 +153,17 @@ func (h *ProfileHandler) PhoneChangeRequest(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	var req phoneChangeRequestReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	newPhone, err := util.ValidateUzPhoneStrict(req.NewPhone)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	// Check uniqueness
 	if _, err := h.drivers.FindByPhone(c.Request.Context(), newPhone); err == nil {
-		resp.Error(c, http.StatusConflict, "this phone is already registered")
+		resp.ErrorLang(c, http.StatusConflict, "phone_already_registered")
 		return
 	}
 
@@ -173,16 +173,16 @@ func (h *ProfileHandler) PhoneChangeRequest(c *gin.Context) {
 		if WriteOTPSendError(c, err, h.logger, "telegram sendVerificationMessage failed") {
 			return
 		}
-		resp.Error(c, http.StatusInternalServerError, "otp generation failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "otp_generation_failed")
 		return
 	}
 	sessionID, err := h.phoneChange.Create(c.Request.Context(), driverID, newPhone, code)
 	if err != nil {
 		h.logger.Error("phone change session create failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
-	resp.OK(c, gin.H{"event": "otp_sent", "session_id": sessionID, "ttl_seconds": ttlSec})
+	resp.OKLang(c, "otp_sent", gin.H{"event": "otp_sent", "session_id": sessionID, "ttl_seconds": ttlSec})
 }
 
 type phoneChangeVerifyReq struct {
@@ -194,13 +194,13 @@ type phoneChangeVerifyReq struct {
 func (h *ProfileHandler) PhoneChangeVerify(c *gin.Context) {
 	var req phoneChangeVerifyReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	sessionID := strings.TrimSpace(req.SessionID)
 	otp := strings.TrimSpace(req.OTP)
 	if otp == "" {
-		resp.Error(c, http.StatusBadRequest, "otp is required")
+		resp.ErrorLang(c, http.StatusBadRequest, "otp_required")
 		return
 	}
 
@@ -208,29 +208,29 @@ func (h *ProfileHandler) PhoneChangeVerify(c *gin.Context) {
 	if err != nil {
 		switch err {
 		case store.ErrPhoneChangeOTPExpired:
-			resp.Error(c, http.StatusUnauthorized, "session expired or invalid")
+			resp.ErrorLang(c, http.StatusUnauthorized, "session_expired_or_invalid")
 		case store.ErrPhoneChangeOTPInvalid:
-			resp.Error(c, http.StatusUnauthorized, "otp invalid")
+			resp.ErrorLang(c, http.StatusUnauthorized, "otp_invalid")
 		case store.ErrPhoneChangeMaxAttempts:
-			resp.Error(c, http.StatusTooManyRequests, "otp max attempts exceeded")
+			resp.ErrorLang(c, http.StatusTooManyRequests, "otp_max_attempts_exceeded")
 		default:
 			h.logger.Error("phone change verify failed", zap.Error(err))
-			resp.Error(c, http.StatusInternalServerError, "internal error")
+			resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		}
 		return
 	}
 
 	if err := h.drivers.UpdatePhone(c.Request.Context(), rec.DriverID, rec.NewPhone); err != nil {
 		if err == drivers.ErrPhoneAlreadyRegistered {
-			resp.Error(c, http.StatusConflict, "this phone is already registered")
+			resp.ErrorLang(c, http.StatusConflict, "phone_already_registered")
 			return
 		}
 		h.logger.Error("phone update failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 	d, _ := h.drivers.FindByID(c.Request.Context(), rec.DriverID)
-	resp.OK(c, gin.H{"event": "phone_updated", "driver": d})
+	resp.OKLang(c, "phone_updated", gin.H{"event": "phone_updated", "driver": d})
 }
 
 type patchPowerReq struct {
@@ -247,7 +247,7 @@ func (h *ProfileHandler) PatchPower(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	var req patchPowerReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 
@@ -277,11 +277,11 @@ func (h *ProfileHandler) PatchPower(c *gin.Context) {
 		PowerScanStatus:  req.PowerScanStatus,
 	}); err != nil {
 		h.logger.Error("update power profile failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 	d, _ := h.drivers.FindByID(c.Request.Context(), driverID)
-	resp.OK(c, gin.H{"event": "updated", "driver": d})
+	resp.OKLang(c, "updated", gin.H{"event": "updated", "driver": d})
 }
 
 type patchTrailerReq struct {
@@ -298,7 +298,7 @@ func (h *ProfileHandler) PatchTrailer(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	var req patchTrailerReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 
@@ -328,11 +328,11 @@ func (h *ProfileHandler) PatchTrailer(c *gin.Context) {
 		TrailerScanStatus:  req.TrailerScanStatus,
 	}); err != nil {
 		h.logger.Error("update trailer profile failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 	d, _ := h.drivers.FindByID(c.Request.Context(), driverID)
-	resp.OK(c, gin.H{"event": "updated", "driver": d})
+	resp.OKLang(c, "updated", gin.H{"event": "updated", "driver": d})
 }
 
 // DELETE /v1/driver/profile
@@ -340,14 +340,14 @@ func (h *ProfileHandler) Delete(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	if err := h.drivers.DeleteAndArchive(c.Request.Context(), driverID); err != nil {
 		if err == drivers.ErrDeleteNotFound {
-			resp.Error(c, http.StatusNotFound, "driver not found")
+			resp.ErrorLang(c, http.StatusNotFound, "driver_not_found")
 			return
 		}
 		h.logger.Error("delete profile failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
-	resp.OK(c, gin.H{"status": "ok"})
+	resp.OKLang(c, "ok", gin.H{"status": "ok"})
 }
 
 // UploadPhoto — POST multipart/form-data с полем "photo". Фото необязательно при регистрации; можно добавить/обновить когда угодно.
@@ -355,11 +355,11 @@ func (h *ProfileHandler) UploadPhoto(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	file, err := c.FormFile("photo")
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "missing or invalid file: use form field 'photo'")
+		resp.ErrorLang(c, http.StatusBadRequest, "photo_file_required")
 		return
 	}
 	if file.Size > maxDriverPhotoSize {
-		resp.Error(c, http.StatusBadRequest, "file too large (max 5 MB)")
+		resp.ErrorLang(c, http.StatusBadRequest, "file_too_large")
 		return
 	}
 	contentType := file.Header.Get("Content-Type")
@@ -367,26 +367,26 @@ func (h *ProfileHandler) UploadPhoto(c *gin.Context) {
 		contentType = "image/jpeg"
 	}
 	if !allowedDriverPhotoTypes[contentType] {
-		resp.Error(c, http.StatusBadRequest, "allowed types: image/jpeg, image/png")
+		resp.ErrorLang(c, http.StatusBadRequest, "allowed_image_types")
 		return
 	}
 	f, err := file.Open()
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "cannot read file")
+		resp.ErrorLang(c, http.StatusBadRequest, "cannot_read_file")
 		return
 	}
 	defer f.Close()
 	data, err := io.ReadAll(f)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, "cannot read file")
+		resp.ErrorLang(c, http.StatusBadRequest, "cannot_read_file")
 		return
 	}
 	if err := h.drivers.UpdatePhoto(c.Request.Context(), driverID, data, contentType); err != nil {
 		h.logger.Error("driver photo update failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
-	resp.OK(c, gin.H{"status": "ok", "event": "photo_uploaded"})
+	resp.OKLang(c, "photo_uploaded", gin.H{"status": "ok", "event": "photo_uploaded"})
 }
 
 // GetPhoto — GET фото водителя (бинарный ответ с Content-Type). 404 если фото нет.
@@ -395,11 +395,11 @@ func (h *ProfileHandler) GetPhoto(c *gin.Context) {
 	data, contentType, err := h.drivers.GetPhoto(c.Request.Context(), driverID)
 	if err != nil {
 		if errors.Is(err, drivers.ErrNotFound) {
-			resp.Error(c, http.StatusNotFound, "photo not found")
+			resp.ErrorLang(c, http.StatusNotFound, "photo_not_found")
 			return
 		}
 		h.logger.Error("driver get photo failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 	c.Data(http.StatusOK, contentType, data)
@@ -410,9 +410,9 @@ func (h *ProfileHandler) DeletePhoto(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	if err := h.drivers.DeletePhoto(c.Request.Context(), driverID); err != nil {
 		h.logger.Error("driver delete photo failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
-	resp.OK(c, gin.H{"status": "ok", "event": "photo_deleted"})
+	resp.OKLang(c, "photo_deleted", gin.H{"status": "ok", "event": "photo_deleted"})
 }
 

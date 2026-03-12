@@ -69,12 +69,12 @@ type dispSendOTPReq struct {
 func (h *DispatcherAuthHandler) SendOTP(c *gin.Context) {
 	var req dispSendOTPReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	phone, err := util.NormalizeE164StrictPlus(req.Phone)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 
@@ -84,7 +84,7 @@ func (h *DispatcherAuthHandler) SendOTP(c *gin.Context) {
 		if WriteOTPSendError(c, err, h.logger, "telegram sendVerificationMessage failed") {
 			return
 		}
-		resp.Error(c, http.StatusInternalServerError, "otp generation failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "otp_generation_failed")
 		return
 	}
 
@@ -92,19 +92,19 @@ func (h *DispatcherAuthHandler) SendOTP(c *gin.Context) {
 	ip := strings.TrimSpace(c.ClientIP())
 	if err := h.otp.SaveOTP(ctx, dispOTPNamespace+phone, code, requestID, ip); err != nil {
 		if errors.Is(err, store.ErrOTPCooldown) {
-			resp.Error(c, http.StatusTooManyRequests, "otp cooldown")
+			resp.ErrorLang(c, http.StatusTooManyRequests, "otp_cooldown")
 			return
 		}
 		if errors.Is(err, store.ErrOTPRateLimited) {
-			resp.Error(c, http.StatusTooManyRequests, "otp rate limited")
+			resp.ErrorLang(c, http.StatusTooManyRequests, "otp_rate_limited")
 			return
 		}
 		h.logger.Error("otp save failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
 
-	resp.OK(c, gin.H{"status": "otp_sent", "ttl_seconds": ttlSec})
+	resp.OKLang(c, "otp_sent", gin.H{"status": "otp_sent", "ttl_seconds": ttlSec})
 }
 
 type dispVerifyOTPReq struct {
@@ -115,17 +115,17 @@ type dispVerifyOTPReq struct {
 func (h *DispatcherAuthHandler) VerifyOTP(c *gin.Context) {
 	var req dispVerifyOTPReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	phone, err := util.NormalizeE164StrictPlus(req.Phone)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	otp := strings.TrimSpace(req.OTP)
 	if len(otp) < 4 || len(otp) > 8 || !util.IsNumeric(otp) {
-		resp.Error(c, http.StatusBadRequest, "otp must be numeric 4..8 digits")
+		resp.ErrorLang(c, http.StatusBadRequest, "otp_must_be_numeric")
 		return
 	}
 
@@ -133,16 +133,16 @@ func (h *DispatcherAuthHandler) VerifyOTP(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, store.ErrOTPExpired):
-			resp.Error(c, http.StatusUnauthorized, "otp expired")
+			resp.ErrorLang(c, http.StatusUnauthorized, "otp_expired")
 		case errors.Is(err, store.ErrOTPInvalid):
-			resp.Error(c, http.StatusUnauthorized, "otp invalid")
+			resp.ErrorLang(c, http.StatusUnauthorized, "otp_invalid")
 		case errors.Is(err, store.ErrOTPMaxAttempts):
-			resp.Error(c, http.StatusTooManyRequests, "otp max attempts exceeded")
+			resp.ErrorLang(c, http.StatusTooManyRequests, "otp_max_attempts_exceeded")
 		case errors.Is(err, store.ErrOTPVerifyRateLimited):
-			resp.Error(c, http.StatusTooManyRequests, "otp verify attempts exceeded for this phone, try again later")
+			resp.ErrorLang(c, http.StatusTooManyRequests, "otp_verify_attempts_exceeded")
 		default:
 			h.logger.Error("dispatchers auth otp verify failed", zap.String("path", "dispatchers/auth/otp/verify"), zap.Error(err))
-			resp.Error(c, http.StatusInternalServerError, "verification failed")
+			resp.ErrorLang(c, http.StatusInternalServerError, "verification_failed")
 		}
 		return
 	}
@@ -153,27 +153,27 @@ func (h *DispatcherAuthHandler) VerifyOTP(c *gin.Context) {
 		tokens, refreshClaims, err := h.jwtm.Issue("dispatcher", id)
 		if err != nil {
 			h.logger.Error("dispatcher token issue failed", zap.Error(err))
-			resp.Error(c, http.StatusInternalServerError, "token issue failed")
+			resp.ErrorLang(c, http.StatusInternalServerError, "token_issue_failed")
 			return
 		}
 		_ = h.refresh.Put(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 		_ = h.refresh.PutSession(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
-		resp.OK(c, gin.H{"status": "login", "tokens": tokens})
+		resp.OKLang(c, "login", gin.H{"status": "login", "tokens": tokens})
 		return
 	}
 	if !errors.Is(err, dispatchers.ErrNotFound) {
 		h.logger.Error("find dispatcher by phone failed", zap.String("path", "dispatchers/auth/otp/verify"), zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "verification failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "verification_failed")
 		return
 	}
 
 	sessionID, err := h.regSessions.Create(c.Request.Context(), phone)
 	if err != nil {
 		h.logger.Error("create dispatcher register session failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
-	resp.OK(c, gin.H{"status": "register", "session_id": sessionID})
+	resp.OKLang(c, "register", gin.H{"status": "register", "session_id": sessionID})
 }
 
 type dispLoginPasswordReq struct {
@@ -184,32 +184,32 @@ type dispLoginPasswordReq struct {
 func (h *DispatcherAuthHandler) LoginPassword(c *gin.Context) {
 	var req dispLoginPasswordReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	phone, err := util.NormalizeE164(req.Phone)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	d, err := h.repo.FindByPhone(c.Request.Context(), phone)
 	if err != nil {
-		resp.Error(c, http.StatusUnauthorized, "invalid phone or password")
+		resp.ErrorLang(c, http.StatusUnauthorized, "invalid_phone_or_password")
 		return
 	}
 	if !util.ComparePassword(d.Password, req.Password) {
-		resp.Error(c, http.StatusUnauthorized, "invalid phone or password")
+		resp.ErrorLang(c, http.StatusUnauthorized, "invalid_phone_or_password")
 		return
 	}
 	id, _ := uuid.Parse(d.ID)
 	tokens, refreshClaims, err := h.jwtm.Issue("dispatcher", id)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, "token issue failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "token_issue_failed")
 		return
 	}
 	_ = h.refresh.Put(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
 	_ = h.refresh.PutSession(c.Request.Context(), refreshClaims.UserID, refreshClaims.JTI)
-	resp.OK(c, gin.H{"status": "login", "tokens": tokens})
+	resp.OKLang(c, "login", gin.H{"status": "login", "tokens": tokens})
 }
 
 type dispResetReq struct {
@@ -219,17 +219,17 @@ type dispResetReq struct {
 func (h *DispatcherAuthHandler) ResetPasswordRequest(c *gin.Context) {
 	var req dispResetReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	phone, err := util.NormalizeE164StrictPlus(req.Phone)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 	d, err := h.repo.FindByPhone(c.Request.Context(), phone)
 	if err != nil {
-		resp.Error(c, http.StatusNotFound, "dispatcher not found")
+		resp.ErrorLang(c, http.StatusNotFound, "dispatcher_not_found")
 		return
 	}
 
@@ -239,17 +239,17 @@ func (h *DispatcherAuthHandler) ResetPasswordRequest(c *gin.Context) {
 		if WriteOTPSendError(c, err, h.logger, "telegram sendVerificationMessage failed") {
 			return
 		}
-		resp.Error(c, http.StatusInternalServerError, "otp generation failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "otp_generation_failed")
 		return
 	}
 	dispID, _ := uuid.Parse(d.ID)
 	sessionID, err := h.resetActions.Create(c.Request.Context(), dispID, phone, "", code)
 	if err != nil {
 		h.logger.Error("reset password action create failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
-	resp.OK(c, gin.H{"status": "otp_sent", "session_id": sessionID, "ttl_seconds": ttlSec})
+	resp.OKLang(c, "otp_sent", gin.H{"status": "otp_sent", "session_id": sessionID, "ttl_seconds": ttlSec})
 }
 
 type dispResetConfirmReq struct {
@@ -261,11 +261,11 @@ type dispResetConfirmReq struct {
 func (h *DispatcherAuthHandler) ResetPasswordConfirm(c *gin.Context) {
 	var req dispResetConfirmReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	if err := util.ValidatePassword(req.NewPassword); err != nil {
-		resp.Error(c, http.StatusBadRequest, err.Error())
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
 	}
 
@@ -273,29 +273,29 @@ func (h *DispatcherAuthHandler) ResetPasswordConfirm(c *gin.Context) {
 	if err != nil {
 		switch err {
 		case store.ErrDispActionExpired:
-			resp.Error(c, http.StatusUnauthorized, "session expired or invalid")
+			resp.ErrorLang(c, http.StatusUnauthorized, "session_expired_or_invalid")
 		case store.ErrDispActionInvalidOTP:
-			resp.Error(c, http.StatusUnauthorized, "otp invalid")
+			resp.ErrorLang(c, http.StatusUnauthorized, "otp_invalid")
 		case store.ErrDispActionMaxAttempts:
-			resp.Error(c, http.StatusTooManyRequests, "otp max attempts exceeded")
+			resp.ErrorLang(c, http.StatusTooManyRequests, "otp_max_attempts_exceeded")
 		default:
 			h.logger.Error("reset password verify failed", zap.Error(err))
-			resp.Error(c, http.StatusInternalServerError, "internal error")
+			resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		}
 		return
 	}
 
 	hash, err := util.HashPassword(req.NewPassword)
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, "password hash failed")
+		resp.ErrorLang(c, http.StatusInternalServerError, "password_hash_failed")
 		return
 	}
 	if err := h.repo.UpdatePasswordHash(c.Request.Context(), payload.DispatcherID, hash); err != nil {
 		h.logger.Error("reset password update failed", zap.Error(err))
-		resp.Error(c, http.StatusInternalServerError, "internal error")
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
-	resp.OK(c, gin.H{"status": "ok"})
+	resp.OKLang(c, "ok", gin.H{"status": "ok"})
 }
 
 type dispLogoutReq struct {
@@ -308,44 +308,44 @@ type dispLogoutReq struct {
 func (h *DispatcherAuthHandler) Logout(c *gin.Context) {
 	var req dispLogoutReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.Error(c, http.StatusBadRequest, "invalid payload")
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}
 	refreshToken := strings.TrimSpace(req.RefreshToken)
 	accessToken := strings.TrimSpace(req.AccessToken)
 	if refreshToken == "" && accessToken == "" {
-		resp.Error(c, http.StatusBadRequest, "refresh_token or access_token required")
+		resp.ErrorLang(c, http.StatusBadRequest, "refresh_token_or_access_token_required")
 		return
 	}
 
 	if refreshToken != "" {
 		claims, err := h.jwtm.ParseRefresh(refreshToken)
 		if err != nil {
-			resp.Error(c, http.StatusUnauthorized, "invalid or expired refresh_token")
+			resp.ErrorLang(c, http.StatusUnauthorized, "invalid_or_expired_refresh_token")
 			return
 		}
 		if claims.Role != "dispatcher" {
-			resp.Error(c, http.StatusUnauthorized, "invalid refresh_token for dispatcher")
+			resp.ErrorLang(c, http.StatusUnauthorized, "invalid_refresh_token_for_dispatcher")
 			return
 		}
 		if err := h.refresh.Consume(c.Request.Context(), claims.UserID, claims.JTI); err != nil {
-			resp.Error(c, http.StatusUnauthorized, "refresh_token already used or invalid")
+			resp.ErrorLang(c, http.StatusUnauthorized, "refresh_token_already_used")
 			return
 		}
-		resp.OK(c, gin.H{"status": "ok"})
+		resp.OKLang(c, "ok", gin.H{"status": "ok"})
 		return
 	}
 
 	// logout по access_token — отзываем все сессии этого диспетчера
 	userID, role, err := h.jwtm.ParseAccess(accessToken)
 	if err != nil {
-		resp.Error(c, http.StatusUnauthorized, "invalid or expired access_token")
+		resp.ErrorLang(c, http.StatusUnauthorized, "invalid_or_expired_access_token")
 		return
 	}
 	if role != "dispatcher" {
-		resp.Error(c, http.StatusUnauthorized, "access_token is not for dispatcher")
+		resp.ErrorLang(c, http.StatusUnauthorized, "access_token_not_for_dispatcher")
 		return
 	}
 	_ = h.refresh.RevokeAll(c.Request.Context(), userID.String())
-	resp.OK(c, gin.H{"status": "ok"})
+	resp.OKLang(c, "ok", gin.H{"status": "ok"})
 }
