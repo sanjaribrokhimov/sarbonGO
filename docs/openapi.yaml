@@ -1171,16 +1171,22 @@ paths:
       description: |
         Справочник городов на основе библиотеки tidwall/cities (~10k городов) + доп. список для UZ, AE, TM, KG, TJ (Ташкент TAS, Самарканд SAM, Дубай DXB и др.). Ответ из памяти — быстрый hit API.
         В route_points указывается city_code из этого справочника.
-        **Query:** country_code (опционально) — фильтр по стране (UZ, AE, KZ, RU и т.д.).
+        **Query:** country_code (опционально) — фильтр по стране (UZ, AE, KZ, RU и т.д.); q (опционально) — универсальный поиск по коду/названию (совпадения сверху).
+        Поле **name** возвращается на языке заголовка **X-Language** (ru | uz | en | tr | zh). Для языков кроме en используется fallback на ru (в датасете ru/en).
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
       parameters:
         - name: country_code
           in: query
           schema: { type: string, example: "UZ" }
           description: "Фильтр по коду страны (UZ, AE, KZ, RU и т.д.)"
+        - name: q
+          in: query
+          required: false
+          schema: { type: string, example: "tas" }
+          description: "Универсальный поиск по code (TAS) или по названию города (ru/en), независимо от X-Language. Совпадения сверху."
       responses:
         "200":
-          description: "data.items — массив { id, code, name_ru, name_en, country_code, lat, lng }"
+          description: "data.items — массив { id, code, name, country_code, lat, lng }"
           content:
             application/json:
               schema:
@@ -1196,8 +1202,7 @@ paths:
                           properties:
                             id: { type: string, format: uuid }
                             code: { type: string, example: "TAS" }
-                            name_ru: { type: string, example: "Ташкент" }
-                            name_en: { type: string, nullable: true }
+                            name: { type: string, example: "Ташкент" }
                             country_code: { type: string, example: "UZ" }
                             lat: { type: number, nullable: true }
                             lng: { type: number, nullable: true }

@@ -280,20 +280,57 @@ type CityRef struct {
 	Lng         *float64 `json:"lng,omitempty"`
 }
 
+type CityItem struct {
+	ID          string   `json:"id"`
+	Code        string   `json:"code"`
+	Name        string   `json:"name"`
+	CountryCode string   `json:"country_code"`
+	Lat         *float64 `json:"lat,omitempty"`
+	Lng         *float64 `json:"lng,omitempty"`
+}
+
+func cityNameByLang(c CityRef, lang string) string {
+	lang = strings.ToLower(strings.TrimSpace(lang))
+	if lang == "en" {
+		if c.NameEn != nil && strings.TrimSpace(*c.NameEn) != "" {
+			return strings.TrimSpace(*c.NameEn)
+		}
+	}
+	// Dataset is primarily ru/en; for uz/tr/zh we fallback to ru.
+	return strings.TrimSpace(c.NameRu)
+}
+
 // GetReferenceCities возвращает справочник городов мира из встроенного датасета (in-memory, быстрый API).
 // Query: country_code — фильтр по стране (UZ, AE, RU и т.д.). Данные: ~150k городов (lutangar/cities.json).
 func GetReferenceCities() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		lang := strings.ToLower(strings.TrimSpace(c.GetHeader("X-Language")))
+		switch lang {
+		case "ru", "uz", "en", "tr", "zh":
+		default:
+			resp.Error(c, http.StatusBadRequest, "invalid X-Language (allowed: ru, uz, en, tr, zh)")
+			return
+		}
+
 		countryCode := strings.TrimSpace(c.Query("country_code"))
+		qRaw := strings.TrimSpace(c.Query("q"))
+		qCode := strings.ToUpper(qRaw)
+		qN := normRefSearch(qRaw)
+
 		list, err := reference.CitiesByCountry(countryCode)
 		if err != nil {
 			resp.Error(c, 500, "failed to load cities")
 			return
 		}
-		// Convert to handler response shape (reference.CityRef already matches)
-		items := make([]CityRef, len(list))
+
+		type cityItemWithNames struct {
+			item   CityItem
+			nameRu string
+			nameEn string
+		}
+		tmp := make([]cityItemWithNames, 0, len(list))
 		for i := range list {
-			items[i] = CityRef{
+			ci := CityRef{
 				ID:          list[i].ID,
 				Code:        list[i].Code,
 				NameRu:      list[i].NameRu,
@@ -302,6 +339,101 @@ func GetReferenceCities() gin.HandlerFunc {
 				Lat:         list[i].Lat,
 				Lng:         list[i].Lng,
 			}
+
+			nameOut := cityNameByLang(ci, lang)
+			nameRu := strings.TrimSpace(ci.NameRu)
+			nameEn := ""
+			if ci.NameEn != nil {
+				nameEn = strings.TrimSpace(*ci.NameEn)
+			}
+
+			if qN != "" {
+				codeMatch := strings.Contains(ci.Code, qCode) || strings.Contains(normRefSearch(ci.Code), qN)
+				ruMatch := strings.Contains(normRefSearch(ci.NameRu), qN)
+				enMatch := false
+				if ci.NameEn != nil {
+					enMatch = strings.Contains(normRefSearch(*ci.NameEn), qN)
+				}
+				if !codeMatch && !ruMatch && !enMatch {
+					continue
+				}
+			}
+
+			tmp = append(tmp, cityItemWithNames{
+				item: CityItem{
+					ID:          ci.ID,
+					Code:        ci.Code,
+					Name:        nameOut,
+					CountryCode: ci.CountryCode,
+					Lat:         ci.Lat,
+					Lng:         ci.Lng,
+				},
+				nameRu: nameRu,
+				nameEn: nameEn,
+			})
+		}
+
+		if qN != "" {
+			rank := func(it cityItemWithNames) int {
+				codeU := it.item.Code
+				codeN := normRefSearch(codeU)
+				nameOutN := normRefSearch(it.item.Name)
+				nameRuN := normRefSearch(it.nameRu)
+				nameEnN := normRefSearch(it.nameEn)
+
+				best := 9
+				consider := func(field string, base int) {
+					if field == "" || qN == "" {
+						return
+					}
+					switch {
+					case field == qN:
+						if base < best {
+							best = base
+						}
+					case strings.HasPrefix(field, qN):
+						if base+2 < best {
+							best = base + 2
+						}
+					case strings.Contains(field, qN):
+						if base+4 < best {
+							best = base + 4
+						}
+					}
+				}
+
+				if codeU == qCode {
+					return 0
+				}
+				consider(codeN, 0)
+				consider(nameOutN, 1)
+				consider(nameRuN, 1)
+				consider(nameEnN, 1)
+				if best == 9 {
+					return 9
+				}
+				return best
+			}
+
+			sort.SliceStable(tmp, func(i, j int) bool {
+				ri := rank(tmp[i])
+				rj := rank(tmp[j])
+				if ri != rj {
+					return ri < rj
+				}
+				if tmp[i].item.CountryCode != tmp[j].item.CountryCode {
+					return tmp[i].item.CountryCode < tmp[j].item.CountryCode
+				}
+				if tmp[i].item.Code != tmp[j].item.Code {
+					return tmp[i].item.Code < tmp[j].item.Code
+				}
+				return tmp[i].item.Name < tmp[j].item.Name
+			})
+		}
+
+		items := make([]CityItem, 0, len(tmp))
+		for _, t := range tmp {
+			items = append(items, t.item)
 		}
 		resp.OK(c, gin.H{"items": items})
 	}
