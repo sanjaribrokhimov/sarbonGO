@@ -7,19 +7,25 @@ import (
 	"github.com/google/uuid"
 )
 
-// CargoStatus values.
+// CargoStatus values (UPPERCASE everywhere in API and DB).
 const (
-	StatusCreated          = "created"
-	StatusPendingModeration = "pending_moderation"
-	StatusSearching        = "searching"
-	StatusRejected         = "rejected"
-	StatusAssigned         = "assigned"
-	StatusInProgress       = "in_progress"
-	StatusInTransit        = "in_transit"
-	StatusDelivered        = "delivered"
-	StatusCompleted        = "completed"
-	StatusCancelled        = "cancelled"
+	StatusCreated            = "CREATED"
+	StatusPendingModeration  = "PENDING_MODERATION"
+	StatusSearchingAll       = "SEARCHING_ALL"       // visible to all drivers
+	StatusSearchingCompany   = "SEARCHING_COMPANY"   // visible only to company drivers
+	StatusRejected           = "REJECTED"
+	StatusAssigned          = "ASSIGNED"
+	StatusInProgress        = "IN_PROGRESS"
+	StatusInTransit         = "IN_TRANSIT"
+	StatusDelivered         = "DELIVERED"
+	StatusCompleted         = "COMPLETED"
+	StatusCancelled         = "CANCELLED"
 )
+
+// IsSearching returns true if status is one of the "searching" variants (cargo visible for offers).
+func IsSearching(status string) bool {
+	return status == StatusSearchingAll || status == StatusSearchingCompany
+}
 
 // Documents is the JSON object for cargo.documents (TIR, T1, CMR, etc.).
 type Documents struct {

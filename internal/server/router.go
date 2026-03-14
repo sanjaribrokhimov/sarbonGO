@@ -134,7 +134,7 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	dispProfileH := handlers.NewDispatcherProfileHandler(logger, dispatchersRepo, dispPhoneActions, tgClient, cfg.OTPTTL, cfg.OTPLength)
 	adminAuthH := handlers.NewAdminAuthHandler(logger, adminsRepo, jwtm, refreshStore)
 	adminCompaniesH := handlers.NewAdminCompaniesHandler(logger, companiesRepo, appusersRepo)
-	cargoH := handlers.NewCargoHandler(logger, cargoRepo, tripsRepo, jwtm, cfg)
+	cargoH := handlers.NewCargoHandler(logger, cargoRepo, tripsRepo, driversRepo, jwtm, cfg)
 	adminCargoModH := handlers.NewAdminCargoModerationHandler(logger, cargoRepo)
 	dispCompaniesH := handlers.NewDispatcherCompaniesHandler(logger, companiesRepo, dcrRepo, jwtm)
 	dispInvH := handlers.NewDispatcherInvitationsHandler(logger, dispInvRepo, dcrRepo, dispatchersRepo)

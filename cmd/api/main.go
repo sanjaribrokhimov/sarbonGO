@@ -7,6 +7,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
+	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -114,9 +117,9 @@ func runMigrationsUp(dbURL string) error {
 	}()
 
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-		// Если миграция прервалась (Dirty database version N), сбрасываем на предыдущую и повторяем Up
+		// Если миграция прервалась (Dirty database version N), сбрасываем на N-1 и повторяем Up
 		if strings.Contains(err.Error(), "Dirty database") {
-			const prevVersion = 28 // версия до 000029
+			prevVersion := parseDirtyVersion(err.Error())
 			if forceErr := m.Force(prevVersion); forceErr != nil {
 				return fmt.Errorf("force version after dirty failed: %w", forceErr)
 			}
@@ -131,11 +134,27 @@ func runMigrationsUp(dbURL string) error {
 }
 
 func findMigrationsSourceURL() (string, error) {
+	// 1) Ищем migrations от текущей рабочей директории (go run . из корня или из cmd/api)
 	wd, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
-	dir := wd
+	if u, err := findMigrationsInDir(wd); err == nil {
+		return u, nil
+	}
+	// 2) Fallback: ищем от директории main.go (чтобы работало при запуске из любой папки)
+	if _, file, _, ok := runtime.Caller(0); ok {
+		dir := filepath.Dir(file)
+		if u, err := findMigrationsInDir(dir); err == nil {
+			return u, nil
+		}
+	}
+	return "", fmt.Errorf("migrations directory not found (cwd: %s)", wd)
+}
+
+// findMigrationsInDir ищет папку migrations в dir или выше по дереву.
+func findMigrationsInDir(start string) (string, error) {
+	dir := start
 	for i := 0; i < 12; i++ {
 		migDir := filepath.Join(dir, "migrations")
 		if st, err := os.Stat(migDir); err == nil && st.IsDir() {
@@ -147,5 +166,16 @@ func findMigrationsSourceURL() (string, error) {
 		}
 		dir = parent
 	}
-	return "", fmt.Errorf("migrations directory not found from cwd: %s", wd)
+	return "", fmt.Errorf("not found from %s", start)
+}
+
+// parseDirtyVersion извлекает номер версии из сообщения "Dirty database version N" и возвращает N-1 для force.
+func parseDirtyVersion(errMsg string) int {
+	re := regexp.MustCompile(`(?i)dirty database version\s+(\d+)`)
+	if m := re.FindStringSubmatch(errMsg); len(m) == 2 {
+		if v, err := strconv.Atoi(m[1]); err == nil && v > 0 {
+			return v - 1
+		}
+	}
+	return 28 // fallback: перезапустить миграции с 29
 }

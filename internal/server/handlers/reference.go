@@ -166,7 +166,8 @@ func GetReferenceCargo(c *gin.Context) {
 		CargoStatus: []ItemWithLabelAndDescription{
 			{Value: "CREATED", Label: reference.RefLabel("cargo.cargo_status", "CREATED", lang), Description: reference.CargoStatusDescription("CREATED", lang)},
 			{Value: "PENDING_MODERATION", Label: reference.RefLabel("cargo.cargo_status", "PENDING_MODERATION", lang), Description: reference.CargoStatusDescription("PENDING_MODERATION", lang)},
-			{Value: "SEARCHING", Label: reference.RefLabel("cargo.cargo_status", "SEARCHING", lang), Description: reference.CargoStatusDescription("SEARCHING", lang)},
+			{Value: "SEARCHING_ALL", Label: reference.RefLabel("cargo.cargo_status", "SEARCHING_ALL", lang), Description: reference.CargoStatusDescription("SEARCHING_ALL", lang)},
+			{Value: "SEARCHING_COMPANY", Label: reference.RefLabel("cargo.cargo_status", "SEARCHING_COMPANY", lang), Description: reference.CargoStatusDescription("SEARCHING_COMPANY", lang)},
 			{Value: "REJECTED", Label: reference.RefLabel("cargo.cargo_status", "REJECTED", lang), Description: reference.CargoStatusDescription("REJECTED", lang)},
 			{Value: "ASSIGNED", Label: reference.RefLabel("cargo.cargo_status", "ASSIGNED", lang), Description: reference.CargoStatusDescription("ASSIGNED", lang)},
 			{Value: "IN_PROGRESS", Label: reference.RefLabel("cargo.cargo_status", "IN_PROGRESS", lang), Description: reference.CargoStatusDescription("IN_PROGRESS", lang)},

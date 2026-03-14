@@ -11,21 +11,21 @@ type RefItem struct {
 	Label string `json:"label"`
 }
 
-// RoutePointTypeRefs — тип точки маршрута (load, unload, customs, transit).
+// RoutePointTypeRefs — тип точки маршрута (UPPERCASE в API и справочнике).
 var RoutePointTypeRefs = []RefItem{
-	{Value: "load", Label: "Погрузка"},
-	{Value: "unload", Label: "Выгрузка"},
-	{Value: "customs", Label: "Таможня"},
-	{Value: "transit", Label: "Транзит"},
+	{Value: "LOAD", Label: "Погрузка"},
+	{Value: "UNLOAD", Label: "Выгрузка"},
+	{Value: "CUSTOMS", Label: "Таможня"},
+	{Value: "TRANSIT", Label: "Транзит"},
 }
 
-// TruckTypeRefs — тип кузова (значения как в API — нижний регистр).
+// TruckTypeRefs — тип кузова (UPPERCASE в API и справочнике).
 var TruckTypeRefs = []RefItem{
-	{Value: "refrigerator", Label: "Рефрижератор"},
-	{Value: "tent", Label: "Тент"},
-	{Value: "flatbed", Label: "Борт"},
-	{Value: "tanker", Label: "Цистерна"},
-	{Value: "other", Label: "Другое"},
+	{Value: "REFRIGERATOR", Label: "Рефрижератор"},
+	{Value: "TENT", Label: "Тент"},
+	{Value: "FLATBED", Label: "Борт"},
+	{Value: "TANKER", Label: "Цистерна"},
+	{Value: "OTHER", Label: "Другое"},
 }
 
 // ShipmentTypeRefs — тип отправки (FTL, LTL и т.д.).
@@ -47,67 +47,67 @@ var CurrencyRefs = []RefItem{
 	{Value: "OTHER", Label: "Другая"},
 }
 
-// PrepaymentTypeRefs — способ предоплаты.
+// PrepaymentTypeRefs — способ предоплаты (UPPERCASE).
 var PrepaymentTypeRefs = []RefItem{
-	{Value: "bank_transfer", Label: "Банковский перевод"},
-	{Value: "cash", Label: "Наличные"},
-	{Value: "card", Label: "Карта"},
-	{Value: "invoice", Label: "По счёту"},
-	{Value: "other", Label: "Другое"},
+	{Value: "BANK_TRANSFER", Label: "Банковский перевод"},
+	{Value: "CASH", Label: "Наличные"},
+	{Value: "CARD", Label: "Карта"},
+	{Value: "INVOICE", Label: "По счёту"},
+	{Value: "OTHER", Label: "Другое"},
 }
 
-// RemainingTypeRefs — условия оплаты остатка.
+// RemainingTypeRefs — условия оплаты остатка (UPPERCASE).
 var RemainingTypeRefs = []RefItem{
-	{Value: "on_delivery", Label: "По факту выгрузки"},
-	{Value: "after_invoice", Label: "По счёту после выгрузки"},
-	{Value: "cash", Label: "Наличными при выгрузке"},
-	{Value: "deferred", Label: "Отсрочка платежа"},
-	{Value: "other", Label: "Другое"},
+	{Value: "ON_DELIVERY", Label: "По факту выгрузки"},
+	{Value: "AFTER_INVOICE", Label: "По счёту после выгрузки"},
+	{Value: "CASH", Label: "Наличными при выгрузке"},
+	{Value: "DEFERRED", Label: "Отсрочка платежа"},
+	{Value: "OTHER", Label: "Другое"},
 }
 
-// LoadingTypeRefs — способы погрузки (loading_types).
+// LoadingTypeRefs — способы погрузки (UPPERCASE).
 var LoadingTypeRefs = []RefItem{
-	{Value: "top", Label: "Верхняя"},
-	{Value: "side", Label: "Боковая"},
-	{Value: "rear", Label: "Задняя"},
-	{Value: "crane", Label: "Кран"},
-	{Value: "forklift", Label: "Погрузчик"},
-	{Value: "other", Label: "Другое"},
+	{Value: "TOP", Label: "Верхняя"},
+	{Value: "SIDE", Label: "Боковая"},
+	{Value: "REAR", Label: "Задняя"},
+	{Value: "CRANE", Label: "Кран"},
+	{Value: "FORKLIFT", Label: "Погрузчик"},
+	{Value: "OTHER", Label: "Другое"},
 }
 
-// AllowedValues возвращает слайс допустимых value в нижнем регистре (для валидации).
+// AllowedValues возвращает слайс допустимых value в ВЕРХНЕМ регистре (для валидации и хранения).
 func AllowedValues(items []RefItem) []string {
 	out := make([]string, 0, len(items))
 	for _, i := range items {
-		out = append(out, strings.ToLower(i.Value))
+		out = append(out, strings.ToUpper(strings.TrimSpace(i.Value)))
 	}
 	return out
 }
 
-// AllowedShipmentTypes возвращает допустимые shipment_type (нижний регистр).
+// AllowedShipmentTypes возвращает допустимые shipment_type (UPPERCASE).
 func AllowedShipmentTypes() []string { return AllowedValues(ShipmentTypeRefs) }
 
-// AllowedCurrencies возвращает допустимые валюты (нижний регистр).
+// AllowedCurrencies возвращает допустимые валюты (UPPERCASE).
 func AllowedCurrencies() []string { return AllowedValues(CurrencyRefs) }
 
-// AllowedPrepaymentTypes возвращает допустимые prepayment_type (нижний регистр).
+// AllowedPrepaymentTypes возвращает допустимые prepayment_type (UPPERCASE).
 func AllowedPrepaymentTypes() []string { return AllowedValues(PrepaymentTypeRefs) }
 
-// AllowedRemainingTypes возвращает допустимые remaining_type (нижний регистр).
+// AllowedRemainingTypes возвращает допустимые remaining_type (UPPERCASE).
 func AllowedRemainingTypes() []string { return AllowedValues(RemainingTypeRefs) }
 
-// AllowedLoadingTypes возвращает допустимые loading_types (нижний регистр).
+// AllowedLoadingTypes возвращает допустимые loading_types (UPPERCASE).
 func AllowedLoadingTypes() []string { return AllowedValues(LoadingTypeRefs) }
 
-// AllowedRoutePointTypes возвращает допустимые type точки маршрута (load, unload, customs, transit).
+// AllowedRoutePointTypes возвращает допустимые type точки маршрута (UPPERCASE).
 func AllowedRoutePointTypes() []string { return AllowedValues(RoutePointTypeRefs) }
 
-// AllowedTruckTypes возвращает допустимые truck_type (нижний регистр).
+// AllowedTruckTypes возвращает допустимые truck_type (UPPERCASE).
 func AllowedTruckTypes() []string { return AllowedValues(TruckTypeRefs) }
 
-// IsAllowed проверяет, что value есть в списке (сравнение без учёта регистра).
+// IsAllowed проверяет, что value есть в списке (приводит к верхнему регистру для сравнения).
 func IsAllowed(value string, allowed []string) bool {
-	v := strings.TrimSpace(strings.ToLower(value))
+	v := strings.ToUpper(strings.TrimSpace(value))
 	if v == "" {
 		return false
 	}

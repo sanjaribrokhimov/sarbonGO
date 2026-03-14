@@ -149,7 +149,7 @@ func (h *TripsHandler) DriverReject(c *gin.Context) {
 
 // PatchStatusReq body for PATCH /api/trips/:id/status (driver: loading, en_route, unloading, completed).
 type PatchStatusReq struct {
-	Status string `json:"status" binding:"required,oneof=loading en_route unloading completed cancelled"`
+	Status string `json:"status" binding:"required,oneof=LOADING EN_ROUTE UNLOADING COMPLETED CANCELLED"`
 }
 
 // PatchStatus updates trip status (driver only).

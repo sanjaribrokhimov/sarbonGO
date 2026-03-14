@@ -18,9 +18,9 @@ func NewRepo(pg *pgxpool.Pool) *Repo {
 	return &Repo{pg: pg}
 }
 
-const statusPending = "pending"
-const statusAccepted = "accepted"
-const statusDeclined = "declined"
+const statusPending = "PENDING"
+const statusAccepted = "ACCEPTED"
+const statusDeclined = "DECLINED"
 
 // Create creates a recommendation (dispatcher recommends cargo to driver). Unique (cargo_id, driver_id).
 func (r *Repo) Create(ctx context.Context, cargoID, driverID, dispatcherID uuid.UUID) error {

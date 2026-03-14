@@ -1,78 +1,183 @@
-# Поток Cargo: кто создаёт, какие API, как видят водители
-
-## 1. Кто создаёт груз и какие API использует
-
-### Кто создаёт груз
-Груз может создавать **любой клиент** с обязательными заголовками (`X-Device-Type`, `X-Language`, `X-Client-Token`). **Создатель записывается автоматически** в полях `created_by_type` и `created_by_id`:
-
-| Кто создаёт | Как определяется | Записывается |
-|-------------|-------------------|--------------|
-| **Админ** | Заголовок `X-User-Token` с JWT роли `admin` | `created_by_type=admin`, `created_by_id` = ID из таблицы `admins` |
-| **Диспетчер (freelance)** | Заголовок `X-User-Token` с JWT роли `dispatcher` | `created_by_type=dispatcher`, `created_by_id` = ID из таблицы `freelance_dispatchers` |
-| **Компания** | В теле запроса передан `company_id`, без JWT (или JWT не admin/dispatcher) | `created_by_type=company`, `created_by_id` = `company_id`, `company_id` = тот же UUID |
-
-Опционально в теле можно передать `company_id` — тогда груз привязывается к компании (при создании от диспетчера/админа). В ответах GET /api/cargo и GET /api/cargo/:id возвращаются поля `created_by_type`, `created_by_id`, `company_id`, `created_at`.
-
-### API для создания и управления грузом
-
-| Действие | Метод | Кто вызывает |
-|----------|--------|----------------|
-| Создать груз (с точками маршрута и оплатой) | `POST /api/cargo` | Диспетчер / компания / интеграция |
-| Список грузов (фильтры, пагинация) | `GET /api/cargo` | Диспетчер, компания, админка |
-| Открыть один груз | `GET /api/cargo/:id` | Любой из выше |
-| Редактировать груз | `PUT /api/cargo/:id` | Диспетчер/компания (до перехода в assigned) |
-| Удалить груз (soft) | `DELETE /api/cargo/:id` | Диспетчер/компания |
-| Выставить статус «ищем перевозчика» | `PATCH /api/cargo/:id/status` body: `{"status":"searching"}` | Диспетчер/компания |
-| Принять оффер (назначить перевозчика) | `POST /api/offers/:id/accept` | Диспетчер/компания |
-
-Все эти запросы идут на роут `/api/*` и проверяют только **базовые заголовки**, без JWT.
+# Cargo flow: логика, статусы и проверка через Swagger
 
 ---
 
-## 2. Как водители видят груз
+## 1. Статусы: что реально работает в коде
 
-### Текущая схема (без отдельной «водительской» авторизации для cargo)
+В API, в БД и в справочнике везде используются значения **только в ВЕРХНЕМ регистре** (UPPERCASE). Справочник `GET /v1/reference/cargo` и все ответы API отдают статусы и enum-поля (truck_type, route_point type, payment types и т.д.) в UPPERCASE.
 
-1. **Водитель** заходит в приложение и логинится по телефону (как сейчас: OTP → JWT водителя).
-2. Приложение запрашивает **доступные для заявок грузы**:
-   - `GET /api/cargo?status=searching&page=1&limit=20`
-   - Сейчас этот вызов **не требует JWT** — достаточно тех же базовых заголовков. То есть «видит грузы» любой клиент с заголовками, а не только водитель.
-3. В приложении водителю показывают список грузов (маршрут, вес, объём, оплата и т.д.).
-4. Водитель выбирает груз и **отправляет оффер** (свою цену/условия):
-   - `POST /api/cargo/:id/offers`  
-   - body: `{"carrier_id": "<uuid водителя>", "price": 1000, "currency": "USD", "comment": "..."}`  
-   - `carrier_id` здесь — ID водителя из таблицы `drivers` (тот же, что в JWT после логина). Его подставляет бэкенд или мобильное приложение из сессии водителя.
-5. Дальше диспетчер/компания видит офферы по грузу (`GET /api/cargo/:id/offers`), выбирает оффер и принимает его: `POST /api/offers/:id/accept`. Статус груза становится `assigned`, у груза появляется «назначенный» перевозчик (по принятому офферу).
+### 1.1 Статусы груза (cargo.status)
 
-Итого: **водители «видят» груз через тот же `GET /api/cargo`** (фильтр `status=searching` = грузы, по которым ещё ищут перевозчика). Отдельного «водительского» API для списка грузов пока нет — используется общий список.
+| Значение в API/БД | Кто выставляет | Описание |
+|-------------------|----------------|----------|
+| **PENDING_MODERATION** | Система при создании груза диспетчером | На модерации у админа |
+| **REJECTED** | Админ (reject с обязательным reason) | Отклонён модерацией |
+| **SEARCHING_ALL** | Админ (accept, search_visibility=all или по умолчанию) | Груз виден **всем** водителям; можно слать офферы |
+| **SEARCHING_COMPANY** | Админ (accept, search_visibility=company; только для грузов компании) | Груз виден **только водителям своей компании**; офферы только от них |
+| **ASSIGNED** | Система при принятии оффера или рекомендации | Перевозчик выбран, создан рейс |
+| **IN_PROGRESS** | Система при смене рейса на LOADING | Водитель грузит / в пути |
+| **COMPLETED** | Система при смене рейса на COMPLETED | Перевозка завершена |
+| **CANCELLED** | Диспетчер/админ через PATCH cargo status | Отменён |
+| **CREATED** | Не выставляется при текущем потоке | Оставлен для совместимости |
+| **IN_TRANSIT** | Не выставляется автоматически; допустим для ручного PATCH | В пути (зарезервирован) |
+| **DELIVERED** | Не выставляется автоматически; допустим для ручного PATCH | Доставлен (зарезервирован) |
+
+Допустимые переходы статусов груза заданы в `internal/cargo/repo.go` (SetStatus). Текущий автоматический сценарий:  
+`PENDING_MODERATION` → `SEARCHING_ALL` \| `SEARCHING_COMPANY` \| `REJECTED` → `SEARCHING_*` → `ASSIGNED` → (рейс LOADING) → `IN_PROGRESS` → (рейс COMPLETED) → `COMPLETED`.  
+**Видимость при приёме модерации:** для грузов **компании** админ может выбрать `search_visibility`: **all** (SEARCHING_ALL) или **company** (SEARCHING_COMPANY). Для грузов **фриланс-диспетчера** всегда только **all** (выбора нет).
+
+### 1.2 Статусы рейса (trip.status)
+
+| Значение в API/БД | Кто выставляет | Описание |
+|------------------|----------------|----------|
+| **PENDING_DRIVER** | Система при создании рейса и назначении водителя | Ожидание подтверждения водителем |
+| **ASSIGNED** | Водитель: POST .../trips/:id/confirm | Водитель принял рейс |
+| **LOADING** | Водитель: PATCH .../trips/:id/status | Погрузка (груз → IN_PROGRESS) |
+| **EN_ROUTE** | Водитель: PATCH .../trips/:id/status | В пути |
+| **UNLOADING** | Водитель: PATCH .../trips/:id/status | Выгрузка |
+| **COMPLETED** | Водитель: PATCH .../trips/:id/status | Рейс завершён (груз → COMPLETED) |
+| **CANCELLED** | Водитель: PATCH .../trips/:id/status | Рейс отменён |
+
+Водитель может передавать в PATCH только: `LOADING`, `EN_ROUTE`, `UNLOADING`, `COMPLETED`, `CANCELLED`.
+
+### 1.3 Статусы оффера (offer.status)
+
+| Значение в API/БД | Кто выставляет | Описание |
+|-------------------|----------------|----------|
+| **PENDING** | Система при создании оффера | На рассмотрении у диспетчера |
+| **ACCEPTED** | Диспетчер (accept) или система при accept рекомендации | Принят |
+| **REJECTED** | Диспетчер (reject) или система при принятии другого оффера | Отклонён |
+
+### 1.4 Статусы рекомендации (cargo_driver_recommendations.status)
+
+Внутренняя таблица, не в справочнике. Используются значения:
+
+| Значение | Когда |
+|----------|--------|
+| **PENDING** | Диспетчер отправил рекомендацию |
+| **ACCEPTED** | Водитель нажал «Принять» (после успешного создания оффера и принятия) |
+| **DECLINED** | Водитель нажал «Отказать» |
 
 ---
 
-## 3. Сводка по ролям и API
+## 2. Reference API (GET /v1/reference/cargo)
 
-```
-Диспетчер/Компания (создаёт и ведёт груз):
-  POST   /api/cargo              — создать груз
-  GET    /api/cargo              — список своих/всех грузов
-  GET    /api/cargo/:id          — карточка груза
-  PUT    /api/cargo/:id          — изменить (до assigned)
-  DELETE /api/cargo/:id          — удалить
-  PATCH  /api/cargo/:id/status   — сменить статус (например → searching)
-  GET    /api/cargo/:id/offers   — офферы по грузу
-  POST   /api/offers/:id/accept  — принять оффер
+- **cargo_status** — все 11 статусов груза (CREATED, PENDING_MODERATION, SEARCHING_ALL, SEARCHING_COMPANY, REJECTED, ASSIGNED, IN_PROGRESS, IN_TRANSIT, DELIVERED, COMPLETED, CANCELLED) с label и description на 5 языках (X-Language: en, ru, uz, tr, zh).
+- **trip_status** — PENDING_DRIVER, ASSIGNED, LOADING, EN_ROUTE, UNLOADING, COMPLETED, CANCELLED.
+- **offer_status** — PENDING, ACCEPTED, REJECTED.
 
-Водитель (смотрит грузы и подаёт оффер):
-  GET  /api/cargo?status=searching   — список грузов, по которым ищут перевозчика
-  GET  /api/cargo/:id                — детали груза перед оффером
-  POST /api/cargo/:id/offers         — отправить оффер (carrier_id = driver_id из JWT)
-```
+Справочник **полностью совпадает** с константами в коде (`internal/cargo/model.go`, `internal/trips/model.go`, офферы в БД). Менять reference не требуется.
 
 ---
 
-## 4. Статусы по умолчанию при создании
+## 3. Пошаговый поток (как работает сейчас)
 
-- **Компании (companies):** при создании через POST /admin/companies поле `status` по умолчанию **active** (далее можно сменить на inactive, blocked, pending).
-- **Фриланс-диспетчеры (freelance_dispatchers):** при регистрации `account_status` устанавливается в **active**, `work_status` — **available**.
-- **Грузы (cargo):** статус по умолчанию **created**; смена на searching, assigned и т.д. через PATCH /api/cargo/:id/status.
+### Шаг 1: Диспетчер создаёт груз
 
-Полное описание API — в Swagger (OpenAPI): см. раздел «Cargo» и схемы Cargo, CargoCreateRequest.
+- **Кто:** фриланс-диспетчер (X-User-Token, role=dispatcher).
+- **API:** `POST /api/cargo` (weight, volume, truck_type, route_points, payment и др.).
+- **Результат:** груз создаётся со статусом **pending_moderation**. Лимит грузов из env; валидация по справочникам.
+
+### Шаг 2: Админ модерирует
+
+- **Кто:** админ (X-User-Token, role=admin).
+- **API:**  
+  - `GET /v1/admin/cargo/moderation` — список грузов на модерации.  
+  - `POST /v1/admin/cargo/{id}/moderation/accept` — принять. Тело опционально: `{"search_visibility": "all" | "company"}`. По умолчанию **all**.  
+    - **all** → статус **SEARCHING_ALL** (груз виден всем водителям).  
+    - **company** → статус **SEARCHING_COMPANY** (груз виден только водителям компании). Для грузов, созданных **фриланс-диспетчером**, всегда применяется только **all**.  
+  - `POST /v1/admin/cargo/{id}/moderation/reject` — отклонить (body: `{"reason": "..."}` обязательно) → статус **rejected**.
+
+### Шаг 3: Водители видят грузы
+
+- Грузы в статусе **SEARCHING_ALL** видны **всем** водителям. Грузы **SEARCHING_COMPANY** видны только водителям **той же компании** (при запросе с X-User-Token водителя список автоматически фильтруется).
+- Фильтр: `GET /api/cargo?status=SEARCHING_ALL,SEARCHING_COMPANY` (с JWT водителя вернутся только доступные ему грузы).
+- Создание оффера разрешено по грузу в статусе **SEARCHING_ALL** или **SEARCHING_COMPANY**. Для **SEARCHING_COMPANY** оффер может отправить только водитель той же компании (иначе 403 `cargo_visible_only_to_company_drivers`).
+
+### Шаг 4: Назначение водителя — два варианта
+
+**Вариант A — Офферы**
+
+1. Водитель: `POST /api/cargo/{id}/offers` (carrier_id, price, currency, comment).
+2. Диспетчер: `GET /api/cargo/{id}/offers` → принять или отклонить.
+3. Принять: `POST /api/offers/{id}/accept` → создаётся рейс, груз → **assigned**, водитель привязывается к рейсу.
+4. Отклонить: `POST /v1/dispatchers/offers/{id}/reject` (body: reason — необязательно).
+
+**Вариант B — Рекомендации**
+
+1. Диспетчер: `POST /v1/dispatchers/cargo/{id}/recommend` (body: driver_id). Груз должен быть **searching** и принадлежать диспетчеру.
+2. Водитель: `GET /v1/driver/recommended-cargo` — список рекомендаций.
+3. Принять: `POST /v1/driver/recommended-cargo/{cargoId}/accept` → создаётся оффер по цене груза, оффер принимается, рейс создаётся, груз → **assigned**.
+4. Отказать: `POST /v1/driver/recommended-cargo/{cargoId}/decline`.
+
+### Шаг 5: Рейс и статус груза
+
+- После принятия оффера/рекомендации: груз **assigned**, рейс в статусе **pending_driver**.
+- Водитель подтверждает: `POST /v1/driver/trips/{id}/confirm` → рейс **assigned**.
+- Водитель меняет этап: `PATCH /v1/driver/trips/{id}/status` (body: `{"status": "loading" | "en_route" | "unloading" | "completed" | "cancelled"}`).
+- **Синхронизация с грузом:**  
+  - рейс **loading** → груз переводится в **in_progress**;  
+  - рейс **completed** → груз переводится в **completed**.
+
+---
+
+## 4. Как проверить в Swagger (разделы и API)
+
+| Шаг | Действие | Раздел в Swagger | API |
+|-----|----------|-------------------|-----|
+| 1 | Создать груз (диспетчер) | Freelance Dispatchers / Добавление груза, Cargo — Диспетчер | POST /api/cargo |
+| 2 | Список на модерации | Admin / Cargo moderation | GET /v1/admin/cargo/moderation |
+| 3 | Принять груз (админ) | Admin / Cargo moderation | POST /v1/admin/cargo/{id}/moderation/accept (body: search_visibility all \| company) |
+| 3' | Отклонить груз (админ) | Admin / Cargo moderation | POST /v1/admin/cargo/{id}/moderation/reject |
+| 4 | Список грузов для водителя | Cargo — Водитель | GET /api/cargo?status=SEARCHING_ALL,SEARCHING_COMPANY (с X-User-Token — только доступные) |
+| 5a | Водитель: оффер | Cargo — Водитель, Freelance Dispatchers / Добавление груза | POST /api/cargo/{id}/offers |
+| 5b | Диспетчер: офферы по грузу | Freelance Dispatchers / Добавление груза | GET /api/cargo/{id}/offers |
+| 5c | Диспетчер: принять оффер | Freelance Dispatchers / Добавление груза | POST /api/offers/{id}/accept |
+| 5d | Диспетчер: отклонить оффер | Freelance Dispatchers / Добавление груза | POST /v1/dispatchers/offers/{id}/reject |
+| 6a | Диспетчер: рекомендовать груз | Freelance Dispatchers / Добавление груза | POST /v1/dispatchers/cargo/{id}/recommend |
+| 6b | Водитель: рекомендованные грузы | Drivers / Trips, Cargo — Водитель | GET /v1/driver/recommended-cargo |
+| 6c | Водитель: принять рекомендацию | Drivers / Trips, Cargo — Водитель | POST /v1/driver/recommended-cargo/{cargoId}/accept |
+| 6d | Водитель: отказать | Drivers / Trips, Cargo — Водитель | POST /v1/driver/recommended-cargo/{cargoId}/decline |
+| 7 | Водитель: статус рейса | Drivers / Trips | PATCH /v1/driver/trips/{id}/status |
+| — | Справочник статусов (все значения) | Reference / Cargo | GET /v1/reference/cargo |
+
+---
+
+## 5. Отчёт: проверка статусов и reference
+
+- **Код:** В коде используются те же значения, что и в БД (UPPERCASE). Константы: `internal/cargo/model.go` (cargo: в т.ч. SEARCHING_ALL, SEARCHING_COMPANY), `internal/trips/model.go` (trip), офферы и рекомендации в соответствующих репозиториях.
+- **Reference API:** В `GET /v1/reference/cargo` возвращаются все актуальные cargo_status, trip_status, offer_status (в верхнем регистре для UI). Локализация (label, description) в `internal/reference/i18n.go` — все ключи для статусов груза/рейса/оффера присутствуют.
+- **Изменения в reference не требуются.** Текущий справочник соответствует коду и потоку.
+- **Уточнения в потоке:** В текущей реализации груз автоматически переходит только в **in_progress** (при loading) и **completed** (при completed рейса). Статусы **in_transit** и **delivered** допустимы в PATCH и в переходах, но системой не выставляются (зарезервированы на будущее или ручное управление).
+
+Ответы API поддерживают 5 языков (X-Language: en, ru, uz, tr, zh). Ключи ошибок — в `internal/server/resp/i18n.go`.
+
+---
+
+## 6. Два вида «поиска»: SEARCHING_ALL и SEARCHING_COMPANY
+
+- **SEARCHING_ALL** — груз виден **всем** водителям (как раньше SEARCHING). По умолчанию при приёме модерации и для грузов фриланс-диспетчера.
+- **SEARCHING_COMPANY** — груз виден **только водителям своей компании**. Доступен при приёме модерации для грузов, созданных компанией (body: `search_visibility: "company"`).
+- Водитель при запросе списка с X-User-Token видит только доступные ему грузы: все SEARCHING_ALL + SEARCHING_COMPANY своей компании. Оффер по грузу SEARCHING_COMPANY может отправить только водитель той же компании (иначе 403).
+
+---
+
+## 7. Что изменилось (миграции и запуск)
+
+### Запуск приложения
+
+- **Команда:** из корня репозитория `go run ./cmd/api` или из `cmd/api` — `go run main.go`.
+- **Миграции** выполняются **автоматически** при старте: поднимаются все неприменённые миграции из `migrations/`.
+- Если БД в состоянии **Dirty** (миграция когда-то упала), приложение само сбрасывает версию на предыдущую и повторяет `Up()` один раз (только для упавшей миграции).
+
+### Изменения в миграциях
+
+| Миграция | Что сделано |
+|----------|--------------|
+| **000035** (driver_powers / driver_trailers) | Идемпотентность: перенос данных из `drivers` и DROP колонок выполняются **только если** в `drivers` ещё есть колонка `power_plate_number`. Если схема уже разнесена или колонок не было — блок пропускается, ошибок нет. |
+| **000040** (status/refs UPPERCASE) | Для таблицы `cargo` перед UPDATE теперь снимаются **оба** check: и по `status`, и по `created_by_type`. После UPDATE заново вешаются `cargo_status_check` и `cargo_created_by_type_check` с значениями в UPPERCASE (`ADMIN`, `DISPATCHER`, `COMPANY`). Раньше падало на `cargo_created_by_type_check`, т.к. старый check допускал только lowercase. |
+| **000041** (SEARCHING_ALL / SEARCHING_COMPANY) | Статус `SEARCHING` заменён на два: `SEARCHING_ALL` (виден всем) и `SEARCHING_COMPANY` (только водителям компании). В БД существующие записи с `SEARCHING` обновляются на `SEARCHING_ALL`. |
+
+### Итог
+
+- Запуск одного `go run main.go` (или `go run ./cmd/api`) достаточен: миграции применяются сами, при единичном сбое — авто-повтор после сброса dirty-версии.

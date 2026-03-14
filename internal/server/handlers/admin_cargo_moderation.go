@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -55,19 +56,44 @@ func (h *AdminCargoModerationHandler) ListPending(c *gin.Context) {
 	resp.OKLang(c, "ok", gin.H{"items": items, "total": total})
 }
 
-// AcceptReq for POST /v1/admin/cargo/:id/moderation/accept (empty body).
-// Accept sets cargo status to searching (drivers can see and send offers).
+// AcceptReq for POST /v1/admin/cargo/:id/moderation/accept.
+// search_visibility: "all" (SEARCHING_ALL, default) or "company" (SEARCHING_COMPANY). For dispatcher-created cargo only "all" is applied.
 func (h *AdminCargoModerationHandler) Accept(c *gin.Context) {
 	cargoID, err := uuid.Parse(c.Param("id"))
 	if err != nil || cargoID == uuid.Nil {
 		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
 		return
 	}
-	if err := h.repo.ModerationAccept(c.Request.Context(), cargoID); err != nil {
+	obj, _ := h.repo.GetByID(c.Request.Context(), cargoID, false)
+	if obj == nil {
+		resp.ErrorLang(c, http.StatusNotFound, "cargo_not_found")
+		return
+	}
+	if obj.Status != cargo.StatusPendingModeration {
 		resp.ErrorLang(c, http.StatusBadRequest, "cargo_not_pending_moderation")
 		return
 	}
-	resp.OKLang(c, "ok", gin.H{"status": cargo.StatusSearching})
+	var req struct {
+		SearchVisibility string `json:"search_visibility"` // "all" | "company"; default "all"
+	}
+	_ = c.ShouldBindJSON(&req)
+	visibility := strings.TrimSpace(strings.ToLower(req.SearchVisibility))
+	if visibility != cargo.SearchVisibilityCompany {
+		visibility = cargo.SearchVisibilityAll
+	}
+	// Freelance dispatcher: only SEARCHING_ALL (no company to restrict to)
+	if obj.CreatedByType != nil && *obj.CreatedByType == "DISPATCHER" {
+		visibility = cargo.SearchVisibilityAll
+	}
+	if err := h.repo.ModerationAccept(c.Request.Context(), cargoID, visibility); err != nil {
+		resp.ErrorLang(c, http.StatusBadRequest, "cargo_not_pending_moderation")
+		return
+	}
+	status := cargo.StatusSearchingAll
+	if visibility == cargo.SearchVisibilityCompany {
+		status = cargo.StatusSearchingCompany
+	}
+	resp.OKLang(c, "ok", gin.H{"status": status})
 }
 
 // RejectReq body: reason (mandatory).

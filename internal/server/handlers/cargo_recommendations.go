@@ -48,11 +48,11 @@ func (h *CargoRecommendationsHandler) Recommend(c *gin.Context) {
 		resp.ErrorLang(c, http.StatusNotFound, "cargo_not_found")
 		return
 	}
-	if obj.Status != cargo.StatusSearching {
+	if !cargo.IsSearching(obj.Status) {
 		resp.ErrorLang(c, http.StatusBadRequest, "cargo_not_searching")
 		return
 	}
-	if obj.CreatedByType == nil || *obj.CreatedByType != "dispatcher" || obj.CreatedByID == nil || *obj.CreatedByID != dispatcherID {
+	if obj.CreatedByType == nil || *obj.CreatedByType != "DISPATCHER" || obj.CreatedByID == nil || *obj.CreatedByID != dispatcherID {
 		resp.ErrorLang(c, http.StatusForbidden, "not_your_cargo")
 		return
 	}
@@ -97,6 +97,7 @@ func (h *CargoRecommendationsHandler) ListRecommendedForDriver(c *gin.Context) {
 }
 
 // AcceptRecommendation driver accepts recommended cargo: create offer at cargo price and auto-accept, create trip.
+// Order: validate cargo (searching) and recommendation (pending), create offer, accept offer, then mark recommendation accepted.
 func (h *CargoRecommendationsHandler) AcceptRecommendation(c *gin.Context) {
 	driverID := c.MustGet(mw.CtxDriverID).(uuid.UUID)
 	cargoID, err := uuid.Parse(c.Param("cargoId"))
@@ -104,8 +105,8 @@ func (h *CargoRecommendationsHandler) AcceptRecommendation(c *gin.Context) {
 		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
 		return
 	}
-	ok, err := h.recRepo.Accept(c.Request.Context(), cargoID, driverID)
-	if err != nil || !ok {
+	rec, _ := h.recRepo.GetByCargoAndDriver(c.Request.Context(), cargoID, driverID)
+	if rec == nil || rec.Status != "PENDING" {
 		resp.ErrorLang(c, http.StatusBadRequest, "recommendation_not_found_or_not_pending")
 		return
 	}
@@ -114,7 +115,7 @@ func (h *CargoRecommendationsHandler) AcceptRecommendation(c *gin.Context) {
 		resp.ErrorLang(c, http.StatusNotFound, "cargo_not_found")
 		return
 	}
-	if obj.Status != cargo.StatusSearching {
+	if !cargo.IsSearching(obj.Status) {
 		resp.ErrorLang(c, http.StatusConflict, "cargo_already_assigned")
 		return
 	}
@@ -134,6 +135,7 @@ func (h *CargoRecommendationsHandler) AcceptRecommendation(c *gin.Context) {
 		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_accept")
 		return
 	}
+	_, _ = h.recRepo.Accept(c.Request.Context(), cargoID, driverID)
 	if h.tripsRepo != nil {
 		tripID, _ := h.tripsRepo.Create(c.Request.Context(), cargoID, offerID)
 		if tripID != uuid.Nil {

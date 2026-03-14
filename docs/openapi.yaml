@@ -105,7 +105,7 @@ tags:
     description: |
       **В первую очередь: добавление груза (фриланс-диспетчер).**
       Диспетчер не создаёт компанию — только аккаунт. Основной сценарий: создать груз, опубликовать, получать офферы, принять оффер, назначить водителя.
-      **API:** POST /api/cargo — создать груз (обязателен X-User-Token диспетчера → created_by_type=dispatcher). GET /api/cargo — список грузов. GET /api/cargo/:id — карточка. PUT /api/cargo/:id — изменить. PATCH /api/cargo/:id/status — сменить статус (например на searching). GET /api/cargo/:id/offers — список офферов. POST /api/offers/:id/accept — принять оффер (создаётся рейс). GET /api/trips?cargo_id=, GET /api/trips/:id — рейс по грузу.
+        **API:** POST /api/cargo — создать груз (обязателен X-User-Token диспетчера → created_by_type=DISPATCHER, status=PENDING_MODERATION). GET /api/cargo — список грузов (status=SEARCHING_ALL,SEARCHING_COMPANY). GET /api/cargo/:id — карточка. PUT /api/cargo/:id — изменить. PATCH /api/cargo/:id/status — сменить статус (SEARCHING_ALL, SEARCHING_COMPANY и др.). GET /api/cargo/:id/offers — список офферов. POST /api/offers/:id/accept — принять оффер (создаётся рейс). GET /api/trips?cargo_id=, GET /api/trips/:id — рейс по грузу.
   - name: "Freelance Dispatchers / Приглашения водителей"
     description: |
       **Отправка приглашений водителям (фриланс-диспетчер).**
@@ -121,11 +121,11 @@ tags:
       **Мои водители.** Найти: GET /v1/dispatchers/drivers/find?phone=... Пригласить без компании: POST /v1/dispatchers/driver-invitations (phone или driver_id). Список: GET /v1/dispatchers/drivers. В компании: POST .../companies/:companyId/driver-invitations.
   - name: Freelance Dispatchers / Trips
     description: |
-      **Назначение водителя на рейс.** PATCH /v1/dispatchers/trips/:id/assign-driver (driver_id). Водитель: POST /v1/driver/trips/:id/confirm или reject. Статусы: pending_driver → assigned → loading → en_route → unloading → completed.
+      **Назначение водителя на рейс.** PATCH /v1/dispatchers/trips/:id/assign-driver (driver_id). Водитель: POST /v1/driver/trips/:id/confirm или reject. Статусы: PENDING_DRIVER → ASSIGNED → LOADING → EN_ROUTE → UNLOADING → COMPLETED.
   - name: Drivers / Trips
     description: |
       **Рейсы водителя**
-      GET /v1/driver/trips — список рейсов, назначенных текущему водителю. POST /v1/driver/trips/:id/confirm — принять назначение (рейс → assigned). POST /v1/driver/trips/:id/reject — отклонить (диспетчер может назначить другого). PATCH /v1/driver/trips/:id/status — смена статуса водителем (loading, en_route, unloading, completed, cancelled). Требуется X-User-Token (driver).
+      GET /v1/driver/trips — список рейсов, назначенных текущему водителю. POST /v1/driver/trips/:id/confirm — принять назначение (рейс → ASSIGNED). POST /v1/driver/trips/:id/reject — отклонить (диспетчер может назначить другого). PATCH /v1/driver/trips/:id/status — смена статуса водителем (LOADING, EN_ROUTE, UNLOADING, COMPLETED, CANCELLED). Требуется X-User-Token (driver).
   - name: Drivers / Driver invitations
     description: |
       **Приглашения для водителя: получить список, принять или отказать.**
@@ -158,7 +158,7 @@ tags:
       **Поток (два шага):** 1) POST /v1/admin/companies — только создание компании (name обязательно, company_type, inn, address, phone, email, website, license_number, status, лимиты). Владелец не указывается. 2) GET /v1/admin/company-users/owners/search?q=... — поиск владельцев (только role=OWNER) по телефону, имени или фамилии; сортировка по релевантности. 3) PATCH /v1/admin/companies/:id/owner — привязать владельца (owner_id = UUID из company_users с **role=OWNER**). После назначения: у компании — owner_id и status=active, у пользователя в company_users — company_id (двусторонняя связь).
   - name: "Admin / Cargo moderation"
     description: |
-      **Модерация грузов.** Фрилансер создаёт груз → pending_moderation. Админ: GET /v1/admin/cargo/moderation — список; POST .../accept — принять (→ searching); POST .../reject — отклонить (reason обязателен). Ответы на 5 языках.
+        **Модерация грузов.** Фрилансер создаёт груз → PENDING_MODERATION. Админ: GET /v1/admin/cargo/moderation — список; POST .../accept (тело: search_visibility all|company) — принять (→ SEARCHING_ALL или SEARCHING_COMPANY); POST .../reject — отклонить (reason обязателен, → REJECTED). Ответы на 5 языках.
   - name: Reference
     description: |
       **Руководство: Справочники (общие)**
@@ -173,7 +173,7 @@ tags:
     description: |
       **Справочник для раздела Cargo (грузы).** Все статусы груза, точки маршрута, офферы, типы создателя, типы ТС.
 
-      **GET /v1/reference/cargo** — полный справочник для грузов. cargo_status (с description), route_point_type (load, unload, customs, transit), truck_type, shipment_type (FTL, LTL…), currency (USD, UZS…), prepayment_type (bank_transfer…), remaining_type (on_delivery…), loading_type (top, side…), offer_status, created_by_type, trip_status. Все переданные в API значения валидируются по этим справочникам.
+      **GET /v1/reference/cargo** — полный справочник для грузов (все value в UPPERCASE). cargo_status (с description), route_point_type (LOAD, UNLOAD, CUSTOMS, TRANSIT), truck_type (TENT, REFRIGERATOR...), shipment_type (FTL, LTL…), currency (USD, UZS…), prepayment_type (BANK_TRANSFER…), remaining_type (ON_DELIVERY…), loading_type (TOP, SIDE…), offer_status (PENDING/ACCEPTED/REJECTED), created_by_type (ADMIN/DISPATCHER/COMPANY), trip_status (PENDING_DRIVER, ASSIGNED, LOADING...). Все переданные в API значения валидируются по этим справочникам.
   - name: "Reference / Company"
     description: |
       **Справочник для раздела Company.** Типы компании, статусы компании, роли (с id и описанием) для приглашений и назначений.
@@ -197,14 +197,14 @@ tags:
 
       Водитель видит грузы, по которым ищут перевозчика, открывает карточку и отправляет оффер. JWT не обязателен для /api/cargo; в оффере передаётся carrier_id — ID водителя (из профиля/JWT).
 
-      **Методы:** Список грузов (GET /api/cargo, фильтр status=searching) → карточка груза (GET /api/cargo/:id) → отправить оффер (POST /api/cargo/:id/offers). Опционально: список офферов по грузу (GET /api/cargo/:id/offers) — чтобы видеть свои офферы.
+        **Методы:** Список грузов (GET /api/cargo, фильтр status=SEARCHING_ALL,SEARCHING_COMPANY; с X-User-Token водителя — видит только доступные ему грузы) → карточка груза (GET /api/cargo/:id) → отправить оффер (POST /api/cargo/:id/offers). Грузы со статусом SEARCHING_COMPANY принимают офферы только от водителей той же компании.
   - name: "Cargo — Диспетчер, компания, админ"
     description: |
       **Запросы для диспетчера, компании и админа**
 
       Создание грузов, редактирование, смена статусов, просмотр офферов, принятие/отклонение оффера. Заголовки: X-Device-Type, X-Language, X-Client-Token (JWT не обязателен).
 
-      **Поток груза:** Фрилансер создаёт груз (POST /api/cargo) → статус **pending_moderation**. Админ: GET /v1/admin/cargo/moderation → POST .../accept (статус **searching**) или POST .../reject (обязательная причина). После модерации водители видят грузы со статусом **searching**. Два варианта: 1) Водитель отправляет оффер (фикс. цена или своя цена) → диспетчер принимает (POST /api/offers/:id/accept) или отклоняет (POST /v1/dispatchers/offers/:id/reject, reason необязателен). 2) Диспетчер рекомендует груз водителю (POST /v1/dispatchers/cargo/:id/recommend) → водитель принимает (POST /v1/driver/recommended-cargo/:cargoId/accept) или отказывает (POST .../decline). После принятия оффера создаётся рейс, груз → **assigned**. Когда рейс переходит в loading → груз **in_progress**; когда рейс completed → груз **completed**.
+        **Поток груза:** Фрилансер создаёт груз (POST /api/cargo) → статус **PENDING_MODERATION**. Админ: GET /v1/admin/cargo/moderation → POST .../accept (тело опционально: search_visibility=all|company → статус **SEARCHING_ALL** или **SEARCHING_COMPANY**) или POST .../reject (статус **REJECTED**, обязательная причина). Для грузов компании админ может выбрать видимость: всем (SEARCHING_ALL) или только водителям компании (SEARCHING_COMPANY). Фриланс-диспетчеру доступен только вариант «всем». После модерации водители видят грузы по правилам видимости. Два варианта: 1) Водитель отправляет оффер → диспетчер принимает (POST /api/offers/:id/accept) или отклоняет (POST /v1/dispatchers/offers/:id/reject, reason необязателен). 2) Диспетчер рекомендует груз водителю (POST /v1/dispatchers/cargo/:id/recommend) → водитель принимает (POST /v1/driver/recommended-cargo/:cargoId/accept) или отказывает (POST .../decline). После принятия оффера создаётся рейс, груз → **ASSIGNED**. Когда рейс переходит в LOADING → груз **IN_PROGRESS**; когда рейс COMPLETED → груз **COMPLETED**.
   - name: Chat
     description: |
       **Универсальный чат (driver ↔ dispatcher и др.)**
@@ -419,9 +419,9 @@ components:
         trip_status: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" } }
         shipment_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" }, description: "Тип отправки: FTL, LTL, PACKAGE, OTHER" }
         currency: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" }, description: "Валюты для total_currency, prepayment_currency, remaining_currency: USD, UZS, EUR, RUB, KZT, AED, OTHER" }
-        prepayment_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" }, description: "Способ предоплаты: bank_transfer, cash, card, invoice, other" }
-        remaining_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" }, description: "Условия оплаты остатка: on_delivery, after_invoice, cash, deferred, other" }
-        loading_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" }, description: "Способы погрузки: top, side, rear, crane, forklift, other" }
+        prepayment_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" }, description: "Способ предоплаты: BANK_TRANSFER, CASH, CARD, INVOICE, OTHER" }
+        remaining_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" }, description: "Условия оплаты остатка: ON_DELIVERY, AFTER_INVOICE, CASH, DEFERRED, OTHER" }
+        loading_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" }, description: "Способы погрузки: TOP, SIDE, REAR, CRANE, FORKLIFT, OTHER" }
     ReferenceCompanyResponse:
       type: object
       properties:
@@ -443,11 +443,11 @@ components:
       description: |
         **Груз (запись в таблице cargo).** Возвращается в списке грузов (GET /api/cargo) и в карточке груза (GET /api/cargo/:id).
 
-        **Основные поля:** id — уникальный идентификатор; weight — вес в тоннах; volume — объём в м³; truck_type — тип кузова (tent, refrigerator, flatbed, tanker, other); status — жизненный цикл груза (created → searching → assigned → in_transit → delivered или cancelled).
+        **Основные поля:** id — уникальный идентификатор; weight — вес в тоннах; volume — объём в м³; truck_type — тип кузова (TENT, REFRIGERATOR, FLATBED, TANKER, OTHER); status — жизненный цикл груза (PENDING_MODERATION → SEARCHING → ASSIGNED → IN_PROGRESS → COMPLETED или CANCELLED).
 
         **Контакт:** contact_name, contact_phone — для связи с грузоотправителем/получателем.
 
-        **Кто создал:** created_by_type (admin / dispatcher / company) и created_by_id заполняются автоматически при создании по JWT или company_id.
+        **Кто создал:** created_by_type (ADMIN / DISPATCHER / COMPANY) и created_by_id заполняются автоматически при создании по JWT или company_id.
       properties:
         id: { type: string, format: uuid, description: "Уникальный идентификатор груза (UUID)" }
         weight: { type: number, description: "Вес груза в тоннах (обязательно > 0)" }
@@ -455,9 +455,9 @@ components:
         ready_enabled: { type: boolean, description: "Указана ли дата готовности груза к перевозке" }
         ready_at: { type: string, format: date-time, nullable: true, description: "Дата и время, когда груз будет готов к погрузке (обязательно при ready_enabled=true)" }
         load_comment: { type: string, nullable: true, description: "Комментарий к погрузке (особенности, условия)" }
-        truck_type: { type: string, description: "Тип кузова: tent (тент), refrigerator (рефрижератор), flatbed (борт), tanker (цистерна), other (другое). Справочник: GET /v1/reference/cargo → truck_type" }
-        temp_min: { type: number, nullable: true, description: "Минимальная температура (°C) для рефрижератора; допустимо только при truck_type=refrigerator" }
-        temp_max: { type: number, nullable: true, description: "Максимальная температура (°C) для рефрижератора; допустимо только при truck_type=refrigerator" }
+        truck_type: { type: string, description: "Тип кузова: TENT, REFRIGERATOR, FLATBED, TANKER, OTHER. Справочник: GET /v1/reference/cargo → truck_type" }
+        temp_min: { type: number, nullable: true, description: "Минимальная температура (°C) для рефрижератора; допустимо только при truck_type=REFRIGERATOR" }
+        temp_max: { type: number, nullable: true, description: "Максимальная температура (°C) для рефрижератора; допустимо только при truck_type=REFRIGERATOR" }
         adr_enabled: { type: boolean, description: "Является ли груз опасным (ADR); при true обязательно указать adr_class" }
         adr_class: { type: string, nullable: true, description: "Класс опасного груза (ADR); обязателен при adr_enabled=true" }
         loading_types: { type: array, items: { type: string }, description: "Способы погрузки (например верхняя, боковая)" }
@@ -467,10 +467,10 @@ components:
         documents: { type: object, nullable: true, description: "Требуемые документы: TIR, T1, CMR, Medbook, GLONASS, Seal, Permit (булевы флаги)" }
         contact_name: { type: string, nullable: true, description: "Имя контактного лица (грузоотправитель/получатель)" }
         contact_phone: { type: string, nullable: true, description: "Телефон контактного лица в формате +998XXXXXXXXX" }
-        status: { type: string, enum: [created, searching, assigned, in_transit, delivered, cancelled], description: "Статус: created — создан; searching — в поиске перевозчика; assigned — назначен; in_transit — в пути; delivered — доставлен; cancelled — отменён" }
+        status: { type: string, enum: [CREATED, PENDING_MODERATION, SEARCHING, REJECTED, ASSIGNED, IN_PROGRESS, IN_TRANSIT, DELIVERED, COMPLETED, CANCELLED], description: "Статус груза (UPPERCASE). Основной поток: PENDING_MODERATION → SEARCHING → ASSIGNED → IN_PROGRESS → COMPLETED; также возможны REJECTED и CANCELLED." }
         created_at: { type: string, format: date-time, description: "Дата и время создания записи" }
         updated_at: { type: string, format: date-time, description: "Дата и время последнего обновления" }
-        created_by_type: { type: string, enum: [admin, dispatcher, company], nullable: true, description: "Кто создал груз: admin, dispatcher или company (подставляется автоматически по JWT или company_id)" }
+        created_by_type: { type: string, enum: [ADMIN, DISPATCHER, COMPANY], nullable: true, description: "Кто создал груз: ADMIN, DISPATCHER или COMPANY (подставляется автоматически по JWT или company_id)" }
         created_by_id: { type: string, format: uuid, nullable: true, description: "UUID создателя (админ, диспетчер или компания)" }
         company_id: { type: string, format: uuid, nullable: true, description: "UUID компании, от которой груз (если создан от имени компании)" }
     RoutePoint:
@@ -478,13 +478,13 @@ components:
       description: |
         **Точка маршрута** (погрузка, выгрузка, таможня, транзит). В каждой точке указывается город (код из справочника городов), точный адрес и координаты.
 
-        **Типы:** load — погрузка; unload — выгрузка; customs — таможня; transit — транзитная точка. В маршруте обязательно минимум одна погрузка (load) и одна выгрузка (unload).
+        **Типы:** LOAD — погрузка; UNLOAD — выгрузка; CUSTOMS — таможня; TRANSIT — транзитная точка. В маршруте обязательно минимум одна погрузка (LOAD) и одна выгрузка (UNLOAD).
 
         **Город:** city_code берётся из GET /v1/reference/cities (например TAS — Ташкент, SAM — Самарканд, DXB — Дубай).
       properties:
         id: { type: string, format: uuid, description: "Уникальный идентификатор точки маршрута" }
         cargo_id: { type: string, format: uuid, description: "UUID груза, к которому относится точка" }
-        type: { type: string, enum: [load, unload, customs, transit], description: "Тип точки: load — погрузка, unload — выгрузка, customs — таможня, transit — транзит" }
+        type: { type: string, enum: [LOAD, UNLOAD, CUSTOMS, TRANSIT], description: "Тип точки (UPPERCASE): LOAD, UNLOAD, CUSTOMS, TRANSIT" }
         city_code: { type: string, description: "Код города из справочника GET /v1/reference/cities (TAS, SAM, DXB и т.д.)" }
         address: { type: string, description: "Полный адрес: улица, дом, склад, промзона" }
         orientir: { type: string, description: "Ориентир для водителя: как найти место (въезд, КПП, рядом с чем)" }
@@ -522,7 +522,7 @@ components:
       description: |
         **Оффер (предложение перевозчика)** по грузу. Водитель отправляет цену и комментарий; диспетчер/админ принимает или отклоняет оффер.
 
-        **Статусы:** pending — на рассмотрении; accepted — принят (груз переходит в assigned, создаётся рейс); rejected — отклонён. carrier_id — ID водителя из таблицы drivers.
+        **Статусы:** PENDING — на рассмотрении; ACCEPTED — принят (груз переходит в ASSIGNED, создаётся рейс); REJECTED — отклонён. carrier_id — ID водителя из таблицы drivers.
       properties:
         id: { type: string, format: uuid, description: "UUID оффера" }
         cargo_id: { type: string, format: uuid, description: "UUID груза" }
@@ -530,7 +530,7 @@ components:
         price: { type: number, description: "Предложенная цена" }
         currency: { type: string, description: "Валюта (USD, UZS и т.д.)" }
         comment: { type: string, nullable: true, description: "Комментарий перевозчика" }
-        status: { type: string, enum: [pending, accepted, rejected], description: "pending — на рассмотрении, accepted — принят, rejected — отклонён" }
+        status: { type: string, enum: [PENDING, ACCEPTED, REJECTED], description: "Статус оффера (UPPERCASE): PENDING, ACCEPTED, REJECTED" }
         created_at: { type: string, format: date-time, description: "Дата и время создания оффера" }
     CargoListResponse:
       type: object
@@ -544,13 +544,13 @@ components:
       description: |
         **Тело запроса POST /api/cargo** — создание груза с точками маршрута и условиями оплаты.
 
-        **Обязательные поля:** weight (вес в тоннах, > 0), volume (объём в м³, > 0), truck_type (тип кузова из справочника GET /v1/reference/cargo), route_points — массив точек маршрута. В route_points обязательно минимум одна точка с type=load (погрузка) и одна с type=unload (выгрузка). У каждой точки обязательны: type, city_code, address, lat, lng, point_order.
+        **Обязательные поля:** weight (вес в тоннах, > 0), volume (объём в м³, > 0), truck_type (тип кузова из справочника GET /v1/reference/cargo), route_points — массив точек маршрута. В route_points обязательно минимум одна точка с type=LOAD (погрузка) и одна с type=UNLOAD (выгрузка). У каждой точки обязательны: type, city_code, address, lat, lng, point_order.
 
         **Справочники:** города — GET /v1/reference/cities (коды TAS, SAM, DXB…); типы кузова — GET /v1/reference/cargo → truck_type.
 
         **Создатель:** при заголовке X-User-Token (JWT админа или диспетчера) создатель подставляется автоматически; при отсутствии JWT можно передать company_id — тогда создателем будет компания.
 
-        **Статус при создании:** всегда устанавливается автоматически в `created`. Чтобы перевести груз в поиск перевозчика, после создания вызовите PATCH /api/cargo/:id/status с телом { "status": "searching" }.
+        **Статус при создании:** всегда устанавливается автоматически в `PENDING_MODERATION` (модерация). Админ принимает груз и переводит в `SEARCHING`.
       properties:
         weight: { type: number, description: "Вес груза в тоннах; обязательно, число больше 0" }
         volume: { type: number, description: "Объём груза в кубических метрах (м³); обязательно, число больше 0" }
@@ -647,7 +647,7 @@ components:
       type: object
       description: Тело PATCH /api/cargo/:id/status — смена статуса с проверкой допустимых переходов.
       properties:
-        status: { type: string, enum: [created, searching, assigned, in_transit, delivered, cancelled], example: "searching" }
+        status: { type: string, enum: [CREATED, PENDING_MODERATION, SEARCHING_ALL, SEARCHING_COMPANY, REJECTED, ASSIGNED, IN_PROGRESS, IN_TRANSIT, DELIVERED, COMPLETED, CANCELLED], example: "SEARCHING_ALL" }
       required: [status]
     OfferCreateRequest:
       type: object
@@ -681,7 +681,7 @@ paths:
       tags: ["Freelance Dispatchers / Добавление груза", "Cargo — Диспетчер, компания, админ", "Cargo — Freelance dispatcher"]
       summary: "1. Создать груз (добавление груза — фриланс-диспетчер)"
       description: |
-        **Фриланс-диспетчер:** передайте X-User-Token (JWT после входа) — в груз запишется created_by_type=dispatcher.
+        **Фриланс-диспетчер:** передайте X-User-Token (JWT после входа) — в груз запишется created_by_type=DISPATCHER.
         **Назначение:** Создание нового груза с точками маршрута и блоком оплаты.
 
         **Логика:** В одной транзакции создаются запись в `cargo`, записи в `route_points` (все переданные точки), одна запись в `payments` (если передан блок payment). Валидация: weight > 0; минимум одна точка с type=load и одна с type=unload; у каждой точки обязательны city_code (код города из справочника городов), address, lat, lng, point_order; опционально orientir. Справочник городов: GET /v1/reference/cities (все города мира, коды TAS/SAM/DXB и т.д.). Если указаны temp_min/temp_max — truck_type должен быть refrigerator; если adr_enabled=true — обязателен adr_class; если ready_enabled=true — обязателен ready_at.
@@ -704,7 +704,7 @@ paths:
               ready_at: "2026-03-15T08:00:00Z"
               load_comment: "Погрузка сверху, склад сухой. Груз пшеница, мешки 50 кг."
               adr_enabled: false
-              loading_types: ["top", "side"]
+              loading_types: ["TOP", "SIDE"]
               requirements: ["Тент в хорошем состоянии", "Крепление ремнями"]
               shipment_type: "FTL"
               belts_count: 6
@@ -744,10 +744,10 @@ paths:
                 without_prepayment: false
                 prepayment_amount: 500
                 prepayment_currency: "USD"
-                prepayment_type: "bank_transfer"
+                prepayment_type: "BANK_TRANSFER"
                 remaining_amount: 1000
                 remaining_currency: "USD"
-                remaining_type: "on_delivery"
+                remaining_type: "ON_DELIVERY"
       responses:
         "201":
           description: "Груз создан. В data — полный объект груза (id, route_points, payment и все поля)."
@@ -768,8 +768,8 @@ paths:
       tags: ["Freelance Dispatchers / Добавление груза", "Cargo — Водитель", "Cargo — Диспетчер, компания, админ", "Cargo — Freelance dispatcher"]
       summary: "2. Список грузов (фильтры, пагинация)"
       description: |
-        **Кто вызывает:** Водитель (чаще всего с status=searching), диспетчер, компания, админ.
-        **Назначение:** Получение списка грузов. Водитель вызывает с фильтром status=searching, чтобы видеть грузы, по которым ищут перевозчика.
+        **Кто вызывает:** Водитель (чаще всего с status=SEARCHING), диспетчер, компания, админ.
+        **Назначение:** Получение списка грузов. Водитель вызывает с фильтром status=SEARCHING, чтобы видеть грузы, по которым ищут перевозчика.
 
         **Логика:** Удалённые (soft delete) не возвращаются. Применяются фильтры по query-параметрам. Сортировка по sort (например created_at:desc). Пагинация: page (с 1), limit (по умолчанию 20, макс. 100). В ответе data.items — массив грузов, data.total — общее количество записей.
 
@@ -778,8 +778,8 @@ paths:
       parameters:
         - name: status
           in: query
-          schema: { type: string, example: "searching" }
-          description: "Статусы через запятую (created, searching, assigned, in_transit, delivered, cancelled). Для теста: searching"
+          schema: { type: string, example: "SEARCHING_ALL,SEARCHING_COMPANY" }
+          description: "Статусы через запятую (SEARCHING_ALL, SEARCHING_COMPANY, ASSIGNED, ...). Для водителя с X-User-Token при фильтре по searching автоматически показываются грузы SEARCHING_ALL + SEARCHING_COMPANY (только своей компании)."
         - name: weight_min
           in: query
           schema: { type: number, example: 10 }
@@ -932,7 +932,7 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/CargoStatusRequest" }
             example:
-              status: "searching"
+              status: "SEARCHING"
       responses:
         "200":
           description: "Статус обновлён"
@@ -946,7 +946,7 @@ paths:
         **Кто вызывает:** Диспетчер, компания, админ (перед принятием оффера). Водитель может смотреть свои офферы через список грузов или отдельный экран.
         **Назначение:** Просмотр всех офферов по конкретному грузу.
 
-        **Логика:** Возвращаются все записи из offers с cargo_id = id, отсортированные по created_at (новые сверху). В каждом оффере: id, cargo_id, carrier_id (ID водителя), price, currency, comment, status (pending/accepted/rejected), created_at.
+        **Логика:** Возвращаются все записи из offers с cargo_id = id, отсортированные по created_at (новые сверху). В каждом оффере: id, cargo_id, carrier_id (ID водителя), price, currency, comment, status (PENDING/ACCEPTED/REJECTED), created_at.
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
       parameters:
         - name: id
@@ -973,9 +973,9 @@ paths:
       summary: "8. Создать оффер (от перевозчика)"
       description: |
         **Кто вызывает:** Водитель (мобильное приложение). Диспетчер/компания офферы не создают от своего имени.
-        **Назначение:** Перевозчик отправляет предложение по грузу: цена, валюта, комментарий. Вызывается после выбора груза из списка (GET /api/cargo?status=searching). В теле carrier_id — ID водителя (из JWT/профиля).
+        **Назначение:** Перевозчик отправляет предложение по грузу: цена, валюта, комментарий. Вызывается после выбора груза из списка (GET /api/cargo?status=SEARCHING_ALL,SEARCHING_COMPANY). Для грузов SEARCHING_COMPANY оффер могут отправить только водители той же компании. В теле carrier_id — ID водителя (из JWT/профиля).
 
-        **Логика:** Создаётся запись в offers с status=pending. carrier_id — это ID водителя из таблицы drivers (рекомендуется подставлять из JWT водителя на бэкенде/клиенте). В ответе data.id — UUID созданного оффера.
+        **Логика:** Создаётся запись в offers с status=PENDING. carrier_id — это ID водителя из таблицы drivers (рекомендуется подставлять из JWT водителя на бэкенде/клиенте). В ответе data.id — UUID созданного оффера.
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
       parameters:
         - name: id
@@ -1006,9 +1006,9 @@ paths:
       summary: "9. Принять оффер"
       description: |
         **Кто вызывает:** Диспетчер, компания, админ. Водитель офферы не принимает.
-        **Назначение:** Принять выбранный оффер. Статус груза → assigned, у принятого оффера status=accepted, остальные офферы по этому грузу → rejected.
+        **Назначение:** Принять выбранный оффер. Статус груза → ASSIGNED, у принятого оффера status=ACCEPTED, остальные офферы по этому грузу → REJECTED.
 
-        **Логика:** id в path — это ID оффера. Проверяется, что оффер существует и имеет status=pending. После принятия груз привязан к перевозчику (carrier_id принятого оффера).
+        **Логика:** id в path — это ID оффера. Проверяется, что оффер существует и имеет status=PENDING. После принятия груз привязан к перевозчику (carrier_id принятого оффера).
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
       parameters:
         - name: id
@@ -1018,7 +1018,7 @@ paths:
           description: "UUID оффера"
       responses:
         "200":
-          description: "data: cargo_id, offer_id, status=accepted"
+          description: "data: cargo_id, offer_id, status=ACCEPTED"
           content:
             application/json:
               schema:
@@ -1031,10 +1031,10 @@ paths:
                         properties:
                           cargo_id: { type: string, format: uuid }
                           offer_id: { type: string, format: uuid }
-                          trip_id: { type: string, format: uuid, description: "Созданный рейс (pending_driver)" }
-                          status: { type: string, example: "accepted" }
+                          trip_id: { type: string, format: uuid, description: "Созданный рейс (PENDING_DRIVER)" }
+                          status: { type: string, example: "ACCEPTED" }
         "400":
-          description: "Оффер не найден или уже не pending"
+          description: "Оффер не найден или уже не PENDING"
 
   /api/trips:
     get:
@@ -2651,7 +2651,7 @@ paths:
     patch:
       tags: ["Freelance Dispatchers / Trips"]
       summary: "Назначить водителя на рейс"
-      description: "Тело: driver_id (UUID). Рейс должен быть в статусе pending_driver. Водитель подтверждает через POST /v1/driver/trips/:id/confirm."
+      description: "Тело: driver_id (UUID). Рейс должен быть в статусе PENDING_DRIVER. Водитель подтверждает через POST /v1/driver/trips/:id/confirm."
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       parameters:
         - name: id
@@ -2670,8 +2670,8 @@ paths:
             example:
               driver_id: "c3d4e5f6-a7b8-9012-cdef-123456789012"
       responses:
-        "200": { description: status pending_driver, driver_id }
-        "404": { description: trip not found or not pending_driver }
+        "200": { description: status PENDING_DRIVER, driver_id }
+        "404": { description: trip not found or not PENDING_DRIVER }
 
   /v1/dispatchers/offers/{id}/reject:
     post:
@@ -2692,7 +2692,7 @@ paths:
               properties:
                 reason: { type: string }
       responses:
-        "200": { description: data.status = rejected }
+        "200": { description: data.status = REJECTED }
         "403": { description: not your cargo }
         "404": { description: offer not found }
   /v1/dispatchers/cargo/{id}/recommend:
@@ -2745,7 +2745,7 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         "200": { description: data.cargo_id, data.trip_id, data.driver_id }
-        "400": { description: recommendation not found or not pending }
+        "400": { description: recommendation not found or not PENDING }
         "409": { description: cargo already assigned }
   /v1/driver/recommended-cargo/{cargoId}/decline:
     post:
@@ -2758,8 +2758,8 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
-        "200": { description: data.status = declined }
-        "400": { description: recommendation not found or not pending }
+        "200": { description: data.status = DECLINED }
+        "400": { description: recommendation not found or not PENDING }
 
   /v1/driver/trips:
     get:
@@ -2778,7 +2778,7 @@ paths:
     post:
       tags: ["Drivers / Trips"]
       summary: "Принять назначение на рейс"
-      description: "Водитель подтверждает рейс; статус рейса → assigned. Рейс должен быть назначен этому водителю (driver_id = me)."
+      description: "Водитель подтверждает рейс; статус рейса → ASSIGNED. Рейс должен быть назначен этому водителю (driver_id = me)."
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       parameters:
         - name: id
@@ -2786,7 +2786,7 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
-        "200": { description: status assigned }
+        "200": { description: status ASSIGNED }
         "404": { description: trip not found or not assigned to you }
 
   /v1/driver/trips/{id}/reject:
@@ -2801,14 +2801,14 @@ paths:
           required: true
           schema: { type: string, format: uuid }
       responses:
-        "200": { description: status pending_driver }
+        "200": { description: status PENDING_DRIVER }
         "404": { description: trip not found }
 
   /v1/driver/trips/{id}/status:
     patch:
       tags: ["Drivers / Trips"]
       summary: "Сменить статус рейса (водитель)"
-      description: "Тело: status (loading | en_route | unloading | completed | cancelled). Допустимые переходы по ТЗ."
+      description: "Тело: status (LOADING | EN_ROUTE | UNLOADING | COMPLETED | CANCELLED). Допустимые переходы по ТЗ."
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       parameters:
         - name: id
@@ -2822,7 +2822,7 @@ paths:
             schema:
               type: object
               properties:
-                status: { type: string, enum: [loading, en_route, unloading, completed, cancelled] }
+                status: { type: string, enum: [LOADING, EN_ROUTE, UNLOADING, COMPLETED, CANCELLED] }
               required: [status]
       responses:
         "200": { description: status }
@@ -3227,7 +3227,7 @@ paths:
     get:
       tags: ["Admin / Cargo moderation"]
       summary: "Список грузов на модерации"
-      description: "Грузы со статусом pending_moderation. Админ принимает (accept) или отклоняет (reject с обязательной причиной). Ответы на 5 языках."
+      description: "Грузы со статусом PENDING_MODERATION. Админ принимает (accept → SEARCHING) или отклоняет (reject → REJECTED с обязательной причиной). Ответы на 5 языках."
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       parameters:
         - name: limit
@@ -3242,21 +3242,32 @@ paths:
     post:
       tags: ["Admin / Cargo moderation"]
       summary: "Принять груз (модерация)"
-      description: "Статус груза → searching. Водители видят груз и могут отправлять офферы."
+      description: |
+        Статус груза → **SEARCHING_ALL** (виден всем водителям) или **SEARCHING_COMPANY** (только водителям компании).
+        В теле опционально передаётся **search_visibility**: `"all"` (по умолчанию) или `"company"`.
+        Для грузов, созданных **фриланс-диспетчером** (created_by_type=DISPATCHER), всегда применяется только `"all"` (выбор company недоступен).
+        Для грузов **компании** (created_by_type=COMPANY) админ может выбрать — показывать груз всем или только водителям этой компании.
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       parameters:
         - name: id
           in: path
           required: true
           schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                search_visibility: { type: string, enum: [all, company], description: "all — груз виден всем (SEARCHING_ALL); company — только водителям компании (SEARCHING_COMPANY). Для диспетчера игнорируется." }
       responses:
-        "200": { description: "data.status = searching" }
+        "200": { description: "data.status = SEARCHING_ALL или SEARCHING_COMPANY" }
         "400": { description: cargo not pending moderation }
   /v1/admin/cargo/{id}/moderation/reject:
     post:
       tags: ["Admin / Cargo moderation"]
       summary: "Отклонить груз (модерация)"
-      description: "Статус → rejected. Причина отклонения обязательна (reason)."
+      description: "Статус → REJECTED. Причина отклонения обязательна (reason)."
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       parameters:
         - name: id
@@ -3273,7 +3284,7 @@ paths:
                 reason: { type: string }
               required: [reason]
       responses:
-        "200": { description: "data.status = rejected" }
+        "200": { description: "data.status = REJECTED" }
         "400": { description: reason required, or cargo not pending moderation }
 
   /v1/chat/conversations:

@@ -7,13 +7,13 @@ import (
 )
 
 const (
-	StatusPendingDriver = "pending_driver"
-	StatusAssigned      = "assigned"
-	StatusLoading       = "loading"
-	StatusEnRoute       = "en_route"
-	StatusUnloading     = "unloading"
-	StatusCompleted     = "completed"
-	StatusCancelled     = "cancelled"
+	StatusPendingDriver = "PENDING_DRIVER"
+	StatusAssigned      = "ASSIGNED"
+	StatusLoading       = "LOADING"
+	StatusEnRoute       = "EN_ROUTE"
+	StatusUnloading     = "UNLOADING"
+	StatusCompleted     = "COMPLETED"
+	StatusCancelled     = "CANCELLED"
 )
 
 type Trip struct {

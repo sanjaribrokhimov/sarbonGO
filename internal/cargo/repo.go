@@ -21,16 +21,17 @@ func NewRepo(pg *pgxpool.Pool) *Repo {
 
 // ListFilter for GET /api/cargo.
 type ListFilter struct {
-	Status      []string // status=created,searching
-	WeightMin   *float64
-	WeightMax   *float64
-	TruckType   string
-	CreatedFrom string // YYYY-MM-DD
-	CreatedTo   string
-	WithOffers  *bool   // only cargo that have at least one offer
-	Page        int
-	Limit       int
-	Sort        string // "created_at:desc" or "created_at:asc"
+	Status             []string   // status=SEARCHING_ALL,SEARCHING_COMPANY
+	ForDriverCompanyID *uuid.UUID // when set, "searching" filter shows SEARCHING_ALL + SEARCHING_COMPANY for this company only
+	WeightMin          *float64
+	WeightMax          *float64
+	TruckType          string
+	CreatedFrom        string // YYYY-MM-DD
+	CreatedTo          string
+	WithOffers         *bool   // only cargo that have at least one offer
+	Page               int
+	Limit              int
+	Sort               string // "created_at:desc" or "created_at:asc"
 }
 
 // ListResult for paginated list.
@@ -110,7 +111,7 @@ func (r *Repo) Create(ctx context.Context, p CreateParams) (uuid.UUID, error) {
 INSERT INTO cargo (weight, volume, ready_enabled, ready_at, load_comment, truck_type,
   temp_min, temp_max, adr_enabled, adr_class, loading_types, requirements, shipment_type, belts_count,
   documents, contact_name, contact_phone, status, created_at, updated_at, deleted_at, created_by_type, created_by_id, company_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, COALESCE(NULLIF($18,''), 'created'), now(), now(), NULL, $19, $20, $21)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, COALESCE(NULLIF(TRIM($18),''), 'PENDING_MODERATION'), now(), now(), NULL, $19, $20, $21)
 RETURNING id`
 	err = tx.QueryRow(ctx, q,
 		p.Weight, p.Volume, p.ReadyEnabled, p.ReadyAt, p.LoadComment, p.TruckType,
@@ -229,7 +230,12 @@ func (r *Repo) List(ctx context.Context, f ListFilter) (ListResult, error) {
 	argNum := 1
 	conds = append(conds, "deleted_at IS NULL")
 
-	if len(f.Status) > 0 {
+	// When driver lists "searching" cargo, show SEARCHING_ALL + SEARCHING_COMPANY (only his company)
+	if f.ForDriverCompanyID != nil && len(f.Status) > 0 && statusListContainsSearching(f.Status) {
+		conds = append(conds, "(status = 'SEARCHING_ALL' OR (status = 'SEARCHING_COMPANY' AND company_id = $"+strconv.Itoa(argNum)+"))")
+		args = append(args, *f.ForDriverCompanyID)
+		argNum++
+	} else if len(f.Status) > 0 {
 		conds = append(conds, "status = ANY($"+strconv.Itoa(argNum)+")")
 		args = append(args, f.Status)
 		argNum++
@@ -317,6 +323,16 @@ FROM cargo WHERE ` + where + ` ORDER BY ` + order + ` LIMIT $` + strconv.Itoa(ar
 		items = append(items, *c)
 	}
 	return ListResult{Items: items, Total: total}, rows.Err()
+}
+
+func statusListContainsSearching(statuses []string) bool {
+	for _, s := range statuses {
+		switch s {
+		case StatusSearchingAll, StatusSearchingCompany, "SEARCHING":
+			return true
+		}
+	}
+	return false
 }
 
 // nextArgNum returns placeholder number as string (1, 2, ...).
@@ -488,7 +504,7 @@ var ErrCannotEditAfterAssigned = errors.New("cargo: cannot edit route or payment
 func (r *Repo) CountByDispatcher(ctx context.Context, dispatcherID uuid.UUID) (int, error) {
 	var n int
 	err := r.pg.QueryRow(ctx,
-		"SELECT count(*) FROM cargo WHERE created_by_type = 'dispatcher' AND created_by_id = $1 AND deleted_at IS NULL",
+		"SELECT count(*) FROM cargo WHERE created_by_type = 'DISPATCHER' AND created_by_id = $1 AND deleted_at IS NULL",
 		dispatcherID).Scan(&n)
 	return n, err
 }
@@ -502,10 +518,11 @@ func (r *Repo) Delete(ctx context.Context, id uuid.UUID) error {
 // SetStatus updates cargo status with allowed transitions. Returns error if transition invalid.
 func (r *Repo) SetStatus(ctx context.Context, id uuid.UUID, newStatus string) error {
 	allowed := map[string][]string{
-		StatusCreated:           {StatusSearching, StatusCancelled},
-		StatusPendingModeration: {StatusSearching, StatusRejected},
-		StatusSearching:         {StatusAssigned, StatusCancelled},
-		StatusRejected:          nil,
+		StatusCreated:            {StatusSearchingAll, StatusSearchingCompany, StatusCancelled},
+		StatusPendingModeration:   {StatusSearchingAll, StatusSearchingCompany, StatusRejected},
+		StatusSearchingAll:       {StatusAssigned, StatusCancelled},
+		StatusSearchingCompany:   {StatusAssigned, StatusCancelled},
+		StatusRejected:           nil,
 		StatusAssigned:          {StatusInProgress, StatusCancelled},
 		StatusInProgress:        {StatusCompleted},
 		StatusInTransit:         {StatusDelivered},
@@ -579,7 +596,7 @@ func (r *Repo) CreateOffer(ctx context.Context, cargoID, carrierID uuid.UUID, pr
 	var id uuid.UUID
 	err := r.pg.QueryRow(ctx, `
 INSERT INTO offers (cargo_id, carrier_id, price, currency, comment, status, created_at)
-VALUES ($1, $2, $3, $4, $5, 'pending', now()) RETURNING id`,
+VALUES ($1, $2, $3, $4, $5, 'PENDING', now()) RETURNING id`,
 		cargoID, carrierID, price, currency, nullStr(comment)).Scan(&id)
 	return id, err
 }
@@ -598,14 +615,14 @@ func (r *Repo) AcceptOffer(ctx context.Context, offerID uuid.UUID) (cargoID, car
 		return uuid.Nil, uuid.Nil, err
 	}
 	defer tx.Rollback(ctx)
-	err = tx.QueryRow(ctx, "SELECT cargo_id, carrier_id FROM offers WHERE id = $1 AND status = 'pending'", offerID).Scan(&cargoID, &carrierID)
+	err = tx.QueryRow(ctx, "SELECT cargo_id, carrier_id FROM offers WHERE id = $1 AND status = 'PENDING'", offerID).Scan(&cargoID, &carrierID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return uuid.Nil, uuid.Nil, errors.New("cargo: offer not found or not pending")
 		}
 		return uuid.Nil, uuid.Nil, err
 	}
-	_, err = tx.Exec(ctx, "UPDATE offers SET status = 'accepted' WHERE id = $1", offerID)
+	_, err = tx.Exec(ctx, "UPDATE offers SET status = 'ACCEPTED' WHERE id = $1", offerID)
 	if err != nil {
 		return uuid.Nil, uuid.Nil, err
 	}
@@ -613,14 +630,14 @@ func (r *Repo) AcceptOffer(ctx context.Context, offerID uuid.UUID) (cargoID, car
 	if err != nil {
 		return uuid.Nil, uuid.Nil, err
 	}
-	_, _ = tx.Exec(ctx, "UPDATE offers SET status = 'rejected' WHERE cargo_id = $1 AND id != $2 AND status = 'pending'", cargoID, offerID)
+	_, _ = tx.Exec(ctx, "UPDATE offers SET status = 'REJECTED' WHERE cargo_id = $1 AND id != $2 AND status = 'PENDING'", cargoID, offerID)
 	return cargoID, carrierID, tx.Commit(ctx)
 }
 
 // RejectOffer sets offer status to rejected with optional reason (dispatcher).
 func (r *Repo) RejectOffer(ctx context.Context, offerID uuid.UUID, reason string) error {
 	res, err := r.pg.Exec(ctx,
-		"UPDATE offers SET status = 'rejected', rejection_reason = NULLIF(TRIM($2), '') WHERE id = $1 AND status = 'pending'",
+		"UPDATE offers SET status = 'REJECTED', rejection_reason = NULLIF(TRIM($2), '') WHERE id = $1 AND status = 'PENDING'",
 		offerID, reason)
 	if err != nil {
 		return err
@@ -631,11 +648,20 @@ func (r *Repo) RejectOffer(ctx context.Context, offerID uuid.UUID, reason string
 	return nil
 }
 
-// ModerationAccept sets cargo status to searching (admin approved).
-func (r *Repo) ModerationAccept(ctx context.Context, cargoID uuid.UUID) error {
+// SearchVisibility is the visibility when admin accepts moderation: "all" (SEARCHING_ALL) or "company" (SEARCHING_COMPANY).
+const SearchVisibilityAll = "all"
+const SearchVisibilityCompany = "company"
+
+// ModerationAccept sets cargo status to SEARCHING_ALL or SEARCHING_COMPANY (admin approved).
+// visibility: "all" or "company". For dispatcher-created cargo only "all" is valid (caller should pass "all").
+func (r *Repo) ModerationAccept(ctx context.Context, cargoID uuid.UUID, visibility string) error {
+	status := StatusSearchingAll
+	if visibility == SearchVisibilityCompany {
+		status = StatusSearchingCompany
+	}
 	res, err := r.pg.Exec(ctx,
 		"UPDATE cargo SET status = $1, updated_at = now(), moderation_rejection_reason = NULL WHERE id = $2 AND deleted_at IS NULL AND status = $3",
-		StatusSearching, cargoID, StatusPendingModeration)
+		status, cargoID, StatusPendingModeration)
 	if err != nil {
 		return err
 	}

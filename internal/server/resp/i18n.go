@@ -793,6 +793,13 @@ var apiMessages = map[string]map[string]string{
 		"tr": "Kargo arama durumunda değil",
 		"zh": "货物未处于搜索状态",
 	},
+	"cargo_visible_only_to_company_drivers": {
+		"en": "This cargo is visible only to company drivers",
+		"ru": "Груз виден только водителям компании",
+		"uz": "Yuk faqat kompaniya haydovchilariga ko'rinadi",
+		"tr": "Bu kargo yalnızca şirket sürücülerine görünür",
+		"zh": "该货物仅对公司司机可见",
+	},
 	"failed_to_create_recommendation": {
 		"en": "Failed to create recommendation",
 		"ru": "Не удалось создать рекомендацию",

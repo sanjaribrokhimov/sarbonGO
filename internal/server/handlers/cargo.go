@@ -12,6 +12,7 @@ import (
 
 	"sarbonNew/internal/cargo"
 	"sarbonNew/internal/config"
+	"sarbonNew/internal/drivers"
 	"sarbonNew/internal/reference"
 	"sarbonNew/internal/security"
 	"sarbonNew/internal/server/mw"
@@ -23,12 +24,13 @@ type CargoHandler struct {
 	logger    *zap.Logger
 	repo      *cargo.Repo
 	tripsRepo *trips.Repo
+	drivers   *drivers.Repo
 	jwtm      *security.JWTManager
 	cfg       config.Config
 }
 
-func NewCargoHandler(logger *zap.Logger, repo *cargo.Repo, tripsRepo *trips.Repo, jwtm *security.JWTManager, cfg config.Config) *CargoHandler {
-	return &CargoHandler{logger: logger, repo: repo, tripsRepo: tripsRepo, jwtm: jwtm, cfg: cfg}
+func NewCargoHandler(logger *zap.Logger, repo *cargo.Repo, tripsRepo *trips.Repo, driversRepo *drivers.Repo, jwtm *security.JWTManager, cfg config.Config) *CargoHandler {
+	return &CargoHandler{logger: logger, repo: repo, tripsRepo: tripsRepo, drivers: driversRepo, jwtm: jwtm, cfg: cfg}
 }
 
 // CreateCargoReq body for POST /api/cargo.
@@ -56,7 +58,7 @@ type CreateCargoReq struct {
 }
 
 type RoutePointReq struct {
-	Type         string   `json:"type" binding:"required,oneof=load unload customs transit"`
+	Type         string   `json:"type" binding:"required,oneof=LOAD UNLOAD CUSTOMS TRANSIT"`
 	CityCode     string   `json:"city_code" binding:"required"`   // код города (TAS, SAM, DXB) — из справочника
 	RegionCode   string   `json:"region_code"`                    // код региона/области (опционально)
 	Address      string   `json:"address" binding:"required"`      // адрес (улица, дом)
@@ -102,10 +104,10 @@ func (h *CargoHandler) Create(c *gin.Context) {
 		if userID, role, err := h.jwtm.ParseAccess(raw); err == nil {
 			switch role {
 			case "admin":
-				params.CreatedByType = strPtr("admin")
+				params.CreatedByType = strPtr("ADMIN")
 				params.CreatedByID = &userID
 			case "dispatcher":
-				params.CreatedByType = strPtr("dispatcher")
+				params.CreatedByType = strPtr("DISPATCHER")
 				params.CreatedByID = &userID
 				// Лимит грузов для фриланс-диспетчера (из env)
 				if h.cfg.FreelanceDispatcherCargoLimit > 0 {
@@ -128,7 +130,7 @@ func (h *CargoHandler) Create(c *gin.Context) {
 	}
 	// Если создатель не определён по JWT, но передан company_id — считаем создателем компанию
 	if params.CreatedByType == nil && req.CompanyID != nil {
-		params.CreatedByType = strPtr("company")
+		params.CreatedByType = strPtr("COMPANY")
 		params.CreatedByID = req.CompanyID
 		params.CompanyID = req.CompanyID
 	}
@@ -151,17 +153,29 @@ func (h *CargoHandler) Create(c *gin.Context) {
 
 func (h *CargoHandler) List(c *gin.Context) {
 	f := cargo.ListFilter{
-		Page:   getIntQuery(c, "page", 1),
-		Limit:  getIntQuery(c, "limit", 20),
-		Sort:   c.DefaultQuery("sort", "created_at:desc"),
-		TruckType: strings.TrimSpace(c.Query("truck_type")),
+		Page:        getIntQuery(c, "page", 1),
+		Limit:       getIntQuery(c, "limit", 20),
+		Sort:        c.DefaultQuery("sort", "created_at:desc"),
+		TruckType:   strings.TrimSpace(c.Query("truck_type")),
 		CreatedFrom: strings.TrimSpace(c.Query("created_from")),
 		CreatedTo:   strings.TrimSpace(c.Query("created_to")),
 	}
 	if v := c.Query("status"); v != "" {
 		f.Status = strings.Split(v, ",")
 		for i := range f.Status {
-			f.Status[i] = strings.TrimSpace(f.Status[i])
+			f.Status[i] = strings.TrimSpace(strings.ToUpper(f.Status[i]))
+		}
+	}
+	// When driver lists "searching" cargo, show only SEARCHING_ALL + SEARCHING_COMPANY (his company)
+	if h.jwtm != nil && h.drivers != nil {
+		if raw := strings.TrimSpace(c.GetHeader(mw.HeaderUserToken)); raw != "" {
+			if userID, role, _, _, err := h.jwtm.ParseAccessWithSID(raw); err == nil && role == "driver" && userID != uuid.Nil {
+				if drv, _ := h.drivers.FindByID(c.Request.Context(), userID); drv != nil && drv.CompanyID != nil && *drv.CompanyID != "" {
+					if cid, err := uuid.Parse(*drv.CompanyID); err == nil {
+						f.ForDriverCompanyID = &cid
+					}
+				}
+			}
 		}
 	}
 	if v := c.Query("weight_min"); v != "" {
@@ -259,7 +273,7 @@ func (h *CargoHandler) PatchStatus(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Status string `json:"status" binding:"required,oneof=created pending_moderation searching rejected assigned in_progress in_transit delivered completed cancelled"`
+		Status string `json:"status" binding:"required,oneof=CREATED PENDING_MODERATION SEARCHING_ALL SEARCHING_COMPANY REJECTED ASSIGNED IN_PROGRESS IN_TRANSIT DELIVERED COMPLETED CANCELLED"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
@@ -278,6 +292,15 @@ func (h *CargoHandler) CreateOffer(c *gin.Context) {
 		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
 		return
 	}
+	obj, _ := h.repo.GetByID(c.Request.Context(), id, false)
+	if obj == nil {
+		resp.ErrorLang(c, http.StatusNotFound, "cargo_not_found")
+		return
+	}
+	if !cargo.IsSearching(obj.Status) {
+		resp.ErrorLang(c, http.StatusBadRequest, "cargo_not_searching")
+		return
+	}
 	var req struct {
 		CarrierID uuid.UUID `json:"carrier_id" binding:"required"`
 		Price     float64   `json:"price" binding:"required"`
@@ -287,6 +310,18 @@ func (h *CargoHandler) CreateOffer(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
+	}
+	if obj.Status == cargo.StatusSearchingCompany {
+		if obj.CompanyID == nil {
+			resp.ErrorLang(c, http.StatusBadRequest, "cargo_not_searching")
+			return
+		}
+		if h.drivers != nil {
+			if drv, _ := h.drivers.FindByID(c.Request.Context(), req.CarrierID); drv == nil || drv.CompanyID == nil || *drv.CompanyID != obj.CompanyID.String() {
+				resp.ErrorLang(c, http.StatusForbidden, "cargo_visible_only_to_company_drivers")
+				return
+			}
+		}
 	}
 	offerID, err := h.repo.CreateOffer(c.Request.Context(), id, req.CarrierID, req.Price, req.Currency, req.Comment)
 	if err != nil {
@@ -357,7 +392,7 @@ func (h *CargoHandler) RejectOfferDispatcher(c *gin.Context) {
 		resp.ErrorLang(c, http.StatusNotFound, "cargo_not_found")
 		return
 	}
-	if cargoObj.CreatedByType == nil || *cargoObj.CreatedByType != "dispatcher" || cargoObj.CreatedByID == nil || *cargoObj.CreatedByID != dispatcherID {
+	if cargoObj.CreatedByType == nil || *cargoObj.CreatedByType != "DISPATCHER" || cargoObj.CreatedByID == nil || *cargoObj.CreatedByID != dispatcherID {
 		resp.ErrorLang(c, http.StatusForbidden, "not_your_cargo")
 		return
 	}
@@ -402,17 +437,17 @@ func validateCargoCreate(req CreateCargoReq) error {
 		if !reference.IsAllowed(rp.Type, reference.AllowedRoutePointTypes()) {
 			return errors.New("route_points[].type must be one of: load, unload, customs, transit")
 		}
-		if rp.Type == "load" {
+		if strings.ToUpper(strings.TrimSpace(rp.Type)) == "LOAD" {
 			hasLoad = true
 		}
-		if rp.Type == "unload" {
+		if strings.ToUpper(strings.TrimSpace(rp.Type)) == "UNLOAD" {
 			hasUnload = true
 		}
 	}
 	if !hasLoad || !hasUnload {
 		return errors.New("at least one load and one unload point required")
 	}
-	if (req.TempMin != nil || req.TempMax != nil) && req.TruckType != "refrigerator" {
+	if (req.TempMin != nil || req.TempMax != nil) && strings.ToUpper(strings.TrimSpace(req.TruckType)) != "REFRIGERATOR" {
 		return errors.New("temp_min/temp_max require truck_type refrigerator")
 	}
 	if req.ADREnabled && (req.ADRClass == nil || *req.ADRClass == "") {
@@ -460,7 +495,7 @@ func validateCargoUpdate(req UpdateCargoReq) error {
 		return errors.New("truck_type must be from reference GET /v1/reference/cargo → truck_type")
 	}
 	if req.TempMin != nil || req.TempMax != nil {
-		if req.TruckType == nil || *req.TruckType != "refrigerator" {
+		if req.TruckType == nil || strings.ToUpper(strings.TrimSpace(*req.TruckType)) != "REFRIGERATOR" {
 			return errors.New("temp_min/temp_max require truck_type refrigerator")
 		}
 	}
@@ -503,21 +538,34 @@ func validateCargoUpdate(req UpdateCargoReq) error {
 	return nil
 }
 
+func upperStr(s string) string { return strings.ToUpper(strings.TrimSpace(s)) }
+func strPtrUpper(s *string) *string {
+	if s == nil || *s == "" {
+		return s
+	}
+	u := upperStr(*s)
+	return &u
+}
+
 func toCreateParams(req CreateCargoReq) cargo.CreateParams {
+	loadingTypes := make([]string, 0, len(req.LoadingTypes))
+	for _, v := range req.LoadingTypes {
+		loadingTypes = append(loadingTypes, upperStr(v))
+	}
 	p := cargo.CreateParams{
 		Weight:        req.Weight,
 		Volume:        req.Volume,
 		ReadyEnabled:  req.ReadyEnabled,
 		ReadyAt:       req.ReadyAt,
 		LoadComment:   req.LoadComment,
-		TruckType:     req.TruckType,
+		TruckType:     upperStr(req.TruckType),
 		TempMin:       req.TempMin,
 		TempMax:       req.TempMax,
 		ADREnabled:    req.ADREnabled,
-		ADRClass:      req.ADRClass,
-		LoadingTypes:  req.LoadingTypes,
+		ADRClass:      strPtrUpper(req.ADRClass),
+		LoadingTypes:  loadingTypes,
 		Requirements:  req.Requirements,
-		ShipmentType:  req.ShipmentType,
+		ShipmentType:  strPtrUpper(req.ShipmentType),
 		BeltsCount:    req.BeltsCount,
 		Documents:     req.Documents,
 		ContactName:   req.ContactName,
@@ -526,7 +574,7 @@ func toCreateParams(req CreateCargoReq) cargo.CreateParams {
 	}
 	for _, rp := range req.RoutePoints {
 		p.RoutePoints = append(p.RoutePoints, cargo.RoutePointInput{
-			Type:         rp.Type,
+			Type:         upperStr(rp.Type),
 			CityCode:     rp.CityCode,
 			RegionCode:   rp.RegionCode,
 			Address:      rp.Address,
@@ -544,15 +592,15 @@ func toCreateParams(req CreateCargoReq) cargo.CreateParams {
 			IsNegotiable:       req.Payment.IsNegotiable,
 			PriceRequest:       req.Payment.PriceRequest,
 			TotalAmount:        req.Payment.TotalAmount,
-			TotalCurrency:      req.Payment.TotalCurrency,
+			TotalCurrency:      strPtrUpper(req.Payment.TotalCurrency),
 			WithPrepayment:     req.Payment.WithPrepayment,
 			WithoutPrepayment:  req.Payment.WithoutPrepayment,
 			PrepaymentAmount:   req.Payment.PrepaymentAmount,
-			PrepaymentCurrency: req.Payment.PrepaymentCurrency,
-			PrepaymentType:     req.Payment.PrepaymentType,
+			PrepaymentCurrency: strPtrUpper(req.Payment.PrepaymentCurrency),
+			PrepaymentType:     strPtrUpper(req.Payment.PrepaymentType),
 			RemainingAmount:    req.Payment.RemainingAmount,
-			RemainingCurrency:  req.Payment.RemainingCurrency,
-			RemainingType:      req.Payment.RemainingType,
+			RemainingCurrency:  strPtrUpper(req.Payment.RemainingCurrency),
+			RemainingType:      strPtrUpper(req.Payment.RemainingType),
 		}
 	}
 	return p
@@ -565,32 +613,41 @@ func toUpdateParams(req UpdateCargoReq) cargo.UpdateParams {
 	p.ReadyEnabled = req.ReadyEnabled
 	p.ReadyAt = req.ReadyAt
 	p.LoadComment = req.LoadComment
-	p.TruckType = req.TruckType
+	if req.TruckType != nil {
+		u := upperStr(*req.TruckType)
+		p.TruckType = &u
+	}
 	p.TempMin = req.TempMin
 	p.TempMax = req.TempMax
 	p.ADREnabled = req.ADREnabled
 	p.ADRClass = req.ADRClass
-	p.LoadingTypes = req.LoadingTypes
+	if len(req.LoadingTypes) > 0 {
+		loadingTypes := make([]string, 0, len(req.LoadingTypes))
+		for _, v := range req.LoadingTypes {
+			loadingTypes = append(loadingTypes, upperStr(v))
+		}
+		p.LoadingTypes = loadingTypes
+	}
 	p.Requirements = req.Requirements
-	p.ShipmentType = req.ShipmentType
+	p.ShipmentType = strPtrUpper(req.ShipmentType)
 	p.BeltsCount = req.BeltsCount
 	p.Documents = req.Documents
 	p.ContactName = req.ContactName
 	p.ContactPhone = req.ContactPhone
 	for _, rp := range req.RoutePoints {
 		p.RoutePoints = append(p.RoutePoints, cargo.RoutePointInput{
-			Type: rp.Type, CityCode: rp.CityCode, RegionCode: rp.RegionCode, Address: rp.Address, Orientir: rp.Orientir,
+			Type: upperStr(rp.Type), CityCode: rp.CityCode, RegionCode: rp.RegionCode, Address: rp.Address, Orientir: rp.Orientir,
 			Lat: rp.Lat, Lng: rp.Lng, Comment: rp.Comment, PointOrder: rp.PointOrder, IsMainLoad: rp.IsMainLoad, IsMainUnload: rp.IsMainUnload,
 		})
 	}
 	if req.Payment != nil {
 		p.Payment = &cargo.PaymentInput{
 			IsNegotiable: req.Payment.IsNegotiable, PriceRequest: req.Payment.PriceRequest,
-			TotalAmount: req.Payment.TotalAmount, TotalCurrency: req.Payment.TotalCurrency,
+			TotalAmount: req.Payment.TotalAmount, TotalCurrency: strPtrUpper(req.Payment.TotalCurrency),
 			WithPrepayment: req.Payment.WithPrepayment, WithoutPrepayment: req.Payment.WithoutPrepayment,
-			PrepaymentAmount: req.Payment.PrepaymentAmount, PrepaymentCurrency: req.Payment.PrepaymentCurrency,
-			PrepaymentType: req.Payment.PrepaymentType, RemainingAmount: req.Payment.RemainingAmount,
-			RemainingCurrency: req.Payment.RemainingCurrency, RemainingType: req.Payment.RemainingType,
+			PrepaymentAmount: req.Payment.PrepaymentAmount, PrepaymentCurrency: strPtrUpper(req.Payment.PrepaymentCurrency),
+			PrepaymentType: strPtrUpper(req.Payment.PrepaymentType), RemainingAmount: req.Payment.RemainingAmount,
+			RemainingCurrency: strPtrUpper(req.Payment.RemainingCurrency), RemainingType: strPtrUpper(req.Payment.RemainingType),
 		}
 	}
 	return p
