@@ -56,6 +56,16 @@ func (h *DriverInvitationsHandler) Create(c *gin.Context) {
 		resp.ErrorLang(c, http.StatusBadRequest, "phone_required")
 		return
 	}
+	drv, err := h.drv.FindByPhoneNormalized(c.Request.Context(), phone)
+	if err != nil {
+		h.logger.Error("driver invitation create check", zap.Error(err))
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_create_invitation")
+		return
+	}
+	if drv != nil && drv.CompanyID != nil && *drv.CompanyID == companyID.String() {
+		resp.ErrorLang(c, http.StatusConflict, "driver_already_in_company")
+		return
+	}
 	token, err := h.repo.Create(c.Request.Context(), companyID, phone, dispatcherID, 7*24*time.Hour)
 	if err != nil {
 		h.logger.Error("driver invitation create", zap.Error(err))
@@ -90,6 +100,16 @@ func (h *DriverInvitationsHandler) CreateForFreelance(c *gin.Context) {
 	}
 	if phone == "" {
 		resp.ErrorLang(c, http.StatusBadRequest, "phone_or_driver_id_required")
+		return
+	}
+	drv, err := h.drv.FindByPhoneNormalized(c.Request.Context(), phone)
+	if err != nil {
+		h.logger.Error("driver invitation create freelance check", zap.Error(err))
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_create_invitation")
+		return
+	}
+	if drv != nil && drv.FreelancerID != nil && *drv.FreelancerID == dispatcherID.String() {
+		resp.ErrorLang(c, http.StatusConflict, "driver_already_accepted_your_invitation")
 		return
 	}
 	token, err := h.repo.CreateForFreelance(c.Request.Context(), dispatcherID, phone, 7*24*time.Hour)

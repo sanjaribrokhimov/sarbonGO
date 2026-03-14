@@ -8,18 +8,20 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
+	"sarbonNew/internal/cargo"
 	"sarbonNew/internal/server/mw"
 	"sarbonNew/internal/server/resp"
 	"sarbonNew/internal/trips"
 )
 
 type TripsHandler struct {
-	logger *zap.Logger
-	repo   *trips.Repo
+	logger    *zap.Logger
+	repo      *trips.Repo
+	cargoRepo *cargo.Repo
 }
 
-func NewTripsHandler(logger *zap.Logger, repo *trips.Repo) *TripsHandler {
-	return &TripsHandler{logger: logger, repo: repo}
+func NewTripsHandler(logger *zap.Logger, repo *trips.Repo, cargoRepo *cargo.Repo) *TripsHandler {
+	return &TripsHandler{logger: logger, repo: repo, cargoRepo: cargoRepo}
 }
 
 // Get returns trip by id.
@@ -175,6 +177,13 @@ func (h *TripsHandler) PatchStatus(c *gin.Context) {
 		}
 		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
+	}
+	if h.cargoRepo != nil {
+		if req.Status == trips.StatusLoading {
+			_ = h.cargoRepo.SetCargoStatusInProgress(c.Request.Context(), t.CargoID)
+		} else if req.Status == trips.StatusCompleted {
+			_ = h.cargoRepo.SetCargoStatusCompleted(c.Request.Context(), t.CargoID)
+		}
 	}
 	resp.OKLang(c, "updated", gin.H{"status": req.Status})
 }

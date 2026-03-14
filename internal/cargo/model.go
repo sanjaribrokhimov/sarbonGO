@@ -9,12 +9,16 @@ import (
 
 // CargoStatus values.
 const (
-	StatusCreated    = "created"
-	StatusSearching  = "searching"
-	StatusAssigned   = "assigned"
-	StatusInTransit  = "in_transit"
-	StatusDelivered  = "delivered"
-	StatusCancelled  = "cancelled"
+	StatusCreated          = "created"
+	StatusPendingModeration = "pending_moderation"
+	StatusSearching        = "searching"
+	StatusRejected         = "rejected"
+	StatusAssigned         = "assigned"
+	StatusInProgress       = "in_progress"
+	StatusInTransit        = "in_transit"
+	StatusDelivered        = "delivered"
+	StatusCompleted        = "completed"
+	StatusCancelled        = "cancelled"
 )
 
 // Documents is the JSON object for cargo.documents (TIR, T1, CMR, etc.).
@@ -52,6 +56,8 @@ type Cargo struct {
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 	DeletedAt     *time.Time
+	// Moderation: admin reject reason (mandatory when status = rejected)
+	ModerationRejectionReason *string
 	// Кто создал: admin, dispatcher или company (admins, freelance_dispatchers или companies)
 	CreatedByType *string   // "admin" | "dispatcher" | "company"
 	CreatedByID   *uuid.UUID
@@ -96,14 +102,15 @@ type Payment struct {
 
 // Offer model (table offers).
 type Offer struct {
-	ID        uuid.UUID
-	CargoID   uuid.UUID
-	CarrierID uuid.UUID
-	Price     float64
-	Currency  string
-	Comment   *string
-	Status    string // pending, accepted, rejected
-	CreatedAt time.Time
+	ID             uuid.UUID
+	CargoID        uuid.UUID
+	CarrierID      uuid.UUID
+	Price          float64
+	Currency       string
+	Comment        *string
+	Status         string // pending, accepted, rejected
+	RejectionReason *string // optional, when dispatcher rejects
+	CreatedAt      time.Time
 }
 
 // DocumentsToJSON returns JSON bytes for DB insert/update.

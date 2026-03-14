@@ -152,7 +152,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 func (r *Repo) GetByID(ctx context.Context, id uuid.UUID, includeDeleted bool) (*Cargo, error) {
 	q := `SELECT id, weight, volume, ready_enabled, ready_at, load_comment, truck_type,
   temp_min, temp_max, adr_enabled, adr_class, loading_types, requirements, shipment_type, belts_count,
-  documents, contact_name, contact_phone, status, created_at, updated_at, deleted_at, created_by_type, created_by_id, company_id
+  documents, contact_name, contact_phone, status, created_at, updated_at, deleted_at, moderation_rejection_reason, created_by_type, created_by_id, company_id
 FROM cargo WHERE id = $1`
 	if !includeDeleted {
 		q += ` AND deleted_at IS NULL`
@@ -209,7 +209,7 @@ func scanCargo(row pgx.Row) (*Cargo, error) {
 		&c.ID, &c.Weight, &c.Volume, &c.ReadyEnabled, &c.ReadyAt, &c.LoadComment, &c.TruckType,
 		&c.TempMin, &c.TempMax, &c.ADREnabled, &c.ADRClass, &loadingTypes, &requirements, &c.ShipmentType, &c.BeltsCount,
 		&docBytes, &c.ContactName, &c.ContactPhone, &c.Status, &c.CreatedAt, &c.UpdatedAt, &c.DeletedAt,
-		&c.CreatedByType, &c.CreatedByID, &c.CompanyID,
+		&c.ModerationRejectionReason, &c.CreatedByType, &c.CreatedByID, &c.CompanyID,
 	)
 	if err != nil {
 		return nil, err
@@ -300,7 +300,7 @@ func (r *Repo) List(ctx context.Context, f ListFilter) (ListResult, error) {
 	args = append(args, limit, offset)
 	q := `SELECT id, weight, volume, ready_enabled, ready_at, load_comment, truck_type,
   temp_min, temp_max, adr_enabled, adr_class, loading_types, requirements, shipment_type, belts_count,
-  documents, contact_name, contact_phone, status, created_at, updated_at, deleted_at, created_by_type, created_by_id, company_id
+  documents, contact_name, contact_phone, status, created_at, updated_at, deleted_at, moderation_rejection_reason, created_by_type, created_by_id, company_id
 FROM cargo WHERE ` + where + ` ORDER BY ` + order + ` LIMIT $` + strconv.Itoa(argNum) + ` OFFSET $` + strconv.Itoa(argNum+1)
 
 	rows, err := r.pg.Query(ctx, q, args...)
@@ -502,12 +502,16 @@ func (r *Repo) Delete(ctx context.Context, id uuid.UUID) error {
 // SetStatus updates cargo status with allowed transitions. Returns error if transition invalid.
 func (r *Repo) SetStatus(ctx context.Context, id uuid.UUID, newStatus string) error {
 	allowed := map[string][]string{
-		StatusCreated:   {StatusSearching, StatusCancelled},
-		StatusSearching:  {StatusAssigned, StatusCancelled},
-		StatusAssigned:   {StatusInTransit, StatusCancelled},
-		StatusInTransit:  {StatusDelivered},
-		StatusDelivered: nil,
-		StatusCancelled:  nil,
+		StatusCreated:           {StatusSearching, StatusCancelled},
+		StatusPendingModeration: {StatusSearching, StatusRejected},
+		StatusSearching:         {StatusAssigned, StatusCancelled},
+		StatusRejected:          nil,
+		StatusAssigned:          {StatusInProgress, StatusCancelled},
+		StatusInProgress:        {StatusCompleted},
+		StatusInTransit:         {StatusDelivered},
+		StatusDelivered:         nil,
+		StatusCompleted:         nil,
+		StatusCancelled:         nil,
 	}
 	cur, err := r.GetByID(ctx, id, false)
 	if err != nil || cur == nil {
@@ -526,10 +530,29 @@ func (r *Repo) SetStatus(ctx context.Context, id uuid.UUID, newStatus string) er
 	return errors.New("cargo: status transition not allowed")
 }
 
+// GetOfferByID returns one offer by id (nil if not found).
+func (r *Repo) GetOfferByID(ctx context.Context, offerID uuid.UUID) (*Offer, error) {
+	var o Offer
+	var rejReason string
+	err := r.pg.QueryRow(ctx, `
+SELECT id, cargo_id, carrier_id, price, currency, comment, status, COALESCE(rejection_reason, ''), created_at
+FROM offers WHERE id = $1`, offerID).Scan(&o.ID, &o.CargoID, &o.CarrierID, &o.Price, &o.Currency, &o.Comment, &o.Status, &rejReason, &o.CreatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if rejReason != "" {
+		o.RejectionReason = &rejReason
+	}
+	return &o, nil
+}
+
 // GetOffers returns all offers for a cargo.
 func (r *Repo) GetOffers(ctx context.Context, cargoID uuid.UUID) ([]Offer, error) {
 	rows, err := r.pg.Query(ctx, `
-SELECT id, cargo_id, carrier_id, price, currency, comment, status, created_at
+SELECT id, cargo_id, carrier_id, price, currency, comment, status, COALESCE(rejection_reason, ''), created_at
 FROM offers WHERE cargo_id = $1 ORDER BY created_at DESC`, cargoID)
 	if err != nil {
 		return nil, err
@@ -538,9 +561,13 @@ FROM offers WHERE cargo_id = $1 ORDER BY created_at DESC`, cargoID)
 	var list []Offer
 	for rows.Next() {
 		var o Offer
-		err := rows.Scan(&o.ID, &o.CargoID, &o.CarrierID, &o.Price, &o.Currency, &o.Comment, &o.Status, &o.CreatedAt)
+		var rejReason string
+		err := rows.Scan(&o.ID, &o.CargoID, &o.CarrierID, &o.Price, &o.Currency, &o.Comment, &o.Status, &rejReason, &o.CreatedAt)
 		if err != nil {
 			return nil, err
+		}
+		if rejReason != "" {
+			o.RejectionReason = &rejReason
 		}
 		list = append(list, o)
 	}
@@ -564,31 +591,121 @@ func nullStr(s string) *string {
 	return &s
 }
 
-// AcceptOffer sets offer status to accepted and cargo status to assigned. Returns error if offer not found or not pending.
-func (r *Repo) AcceptOffer(ctx context.Context, offerID uuid.UUID) (cargoID uuid.UUID, err error) {
+// AcceptOffer sets offer status to accepted and cargo status to assigned. Returns cargoID and carrierID (driver).
+func (r *Repo) AcceptOffer(ctx context.Context, offerID uuid.UUID) (cargoID, carrierID uuid.UUID, err error) {
 	tx, err := r.pg.Begin(ctx)
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, uuid.Nil, err
 	}
 	defer tx.Rollback(ctx)
-	err = tx.QueryRow(ctx, "SELECT cargo_id FROM offers WHERE id = $1 AND status = 'pending'", offerID).Scan(&cargoID)
+	err = tx.QueryRow(ctx, "SELECT cargo_id, carrier_id FROM offers WHERE id = $1 AND status = 'pending'", offerID).Scan(&cargoID, &carrierID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return uuid.Nil, errors.New("cargo: offer not found or not pending")
+			return uuid.Nil, uuid.Nil, errors.New("cargo: offer not found or not pending")
 		}
-		return uuid.Nil, err
+		return uuid.Nil, uuid.Nil, err
 	}
 	_, err = tx.Exec(ctx, "UPDATE offers SET status = 'accepted' WHERE id = $1", offerID)
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, uuid.Nil, err
 	}
 	_, err = tx.Exec(ctx, "UPDATE cargo SET status = $1, updated_at = now() WHERE id = $2 AND deleted_at IS NULL", StatusAssigned, cargoID)
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, uuid.Nil, err
 	}
-	// Reject other pending offers for this cargo
 	_, _ = tx.Exec(ctx, "UPDATE offers SET status = 'rejected' WHERE cargo_id = $1 AND id != $2 AND status = 'pending'", cargoID, offerID)
-	return cargoID, tx.Commit(ctx)
+	return cargoID, carrierID, tx.Commit(ctx)
+}
+
+// RejectOffer sets offer status to rejected with optional reason (dispatcher).
+func (r *Repo) RejectOffer(ctx context.Context, offerID uuid.UUID, reason string) error {
+	res, err := r.pg.Exec(ctx,
+		"UPDATE offers SET status = 'rejected', rejection_reason = NULLIF(TRIM($2), '') WHERE id = $1 AND status = 'pending'",
+		offerID, reason)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return errors.New("cargo: offer not found or not pending")
+	}
+	return nil
+}
+
+// ModerationAccept sets cargo status to searching (admin approved).
+func (r *Repo) ModerationAccept(ctx context.Context, cargoID uuid.UUID) error {
+	res, err := r.pg.Exec(ctx,
+		"UPDATE cargo SET status = $1, updated_at = now(), moderation_rejection_reason = NULL WHERE id = $2 AND deleted_at IS NULL AND status = $3",
+		StatusSearching, cargoID, StatusPendingModeration)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return errors.New("cargo: not found or not pending_moderation")
+	}
+	return nil
+}
+
+// ModerationReject sets cargo status to rejected with mandatory reason (admin).
+func (r *Repo) ModerationReject(ctx context.Context, cargoID uuid.UUID, reason string) error {
+	if strings.TrimSpace(reason) == "" {
+		return errors.New("cargo: moderation rejection reason is required")
+	}
+	res, err := r.pg.Exec(ctx,
+		"UPDATE cargo SET status = $1, moderation_rejection_reason = $2, updated_at = now() WHERE id = $3 AND deleted_at IS NULL AND status = $4",
+		StatusRejected, strings.TrimSpace(reason), cargoID, StatusPendingModeration)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return errors.New("cargo: not found or not pending_moderation")
+	}
+	return nil
+}
+
+// ListPendingModeration returns cargo list with status pending_moderation (for admin).
+func (r *Repo) ListPendingModeration(ctx context.Context, limit, offset int) ([]Cargo, int, error) {
+	var total int
+	_ = r.pg.QueryRow(ctx, "SELECT count(*) FROM cargo WHERE deleted_at IS NULL AND status = $1", StatusPendingModeration).Scan(&total)
+	q := `SELECT id, weight, volume, ready_enabled, ready_at, load_comment, truck_type,
+  temp_min, temp_max, adr_enabled, adr_class, loading_types, requirements, shipment_type, belts_count,
+  documents, contact_name, contact_phone, status, created_at, updated_at, deleted_at, moderation_rejection_reason, created_by_type, created_by_id, company_id
+FROM cargo WHERE deleted_at IS NULL AND status = $1 ORDER BY created_at ASC LIMIT $2 OFFSET $3`
+	rows, err := r.pg.Query(ctx, q, StatusPendingModeration, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var list []Cargo
+	for rows.Next() {
+		c, err := scanCargo(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		list = append(list, *c)
+	}
+	return list, total, rows.Err()
+}
+
+// SetCargoStatusInProgress sets cargo status to in_progress (when trip execution starts).
+func (r *Repo) SetCargoStatusInProgress(ctx context.Context, cargoID uuid.UUID) error {
+	res, err := r.pg.Exec(ctx,
+		"UPDATE cargo SET status = $1, updated_at = now() WHERE id = $2 AND deleted_at IS NULL AND status = $3",
+		StatusInProgress, cargoID, StatusAssigned)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return nil // already in progress or other status, idempotent
+	}
+	return nil
+}
+
+// SetCargoStatusCompleted sets cargo status to completed (when trip is completed).
+func (r *Repo) SetCargoStatusCompleted(ctx context.Context, cargoID uuid.UUID) error {
+	_, err := r.pg.Exec(ctx,
+		"UPDATE cargo SET status = $1, updated_at = now() WHERE id = $2 AND deleted_at IS NULL AND (status = $3 OR status = $4)",
+		StatusCompleted, cargoID, StatusInProgress, StatusInTransit)
+	return err
 }
 
 // emptyToNil returns nil for empty string (for NULL in DB), else the string.

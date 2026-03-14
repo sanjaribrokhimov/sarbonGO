@@ -12,6 +12,7 @@ import (
 	"sarbonNew/internal/approles"
 	"sarbonNew/internal/appusers"
 	"sarbonNew/internal/cargo"
+	"sarbonNew/internal/cargorecommendations"
 	"sarbonNew/internal/chat"
 	"sarbonNew/internal/companies"
 	"sarbonNew/internal/companytz"
@@ -21,6 +22,7 @@ import (
 	"sarbonNew/internal/dispatchers"
 	"sarbonNew/internal/driverinvitations"
 	"sarbonNew/internal/drivers"
+	"sarbonNew/internal/drivertodispatcherinvitations"
 	"sarbonNew/internal/goadmin"
 	"sarbonNew/internal/infra"
 	"sarbonNew/internal/security"
@@ -133,10 +135,16 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	adminAuthH := handlers.NewAdminAuthHandler(logger, adminsRepo, jwtm, refreshStore)
 	adminCompaniesH := handlers.NewAdminCompaniesHandler(logger, companiesRepo, appusersRepo)
 	cargoH := handlers.NewCargoHandler(logger, cargoRepo, tripsRepo, jwtm, cfg)
+	adminCargoModH := handlers.NewAdminCargoModerationHandler(logger, cargoRepo)
 	dispCompaniesH := handlers.NewDispatcherCompaniesHandler(logger, companiesRepo, dcrRepo, jwtm)
 	dispInvH := handlers.NewDispatcherInvitationsHandler(logger, dispInvRepo, dcrRepo, dispatchersRepo)
 	driverInvH := handlers.NewDriverInvitationsHandler(logger, driverInvRepo, dcrRepo, driversRepo)
-	tripsH := handlers.NewTripsHandler(logger, tripsRepo)
+	driverDispH := handlers.NewDriverDispatchersHandler(logger, driversRepo, dispatchersRepo, dcrRepo)
+	d2dInvRepo := drivertodispatcherinvitations.NewRepo(deps.PG)
+	d2dInvH := handlers.NewDriverToDispatcherInvitationsHandler(logger, d2dInvRepo, driversRepo, dispatchersRepo)
+	tripsH := handlers.NewTripsHandler(logger, tripsRepo, cargoRepo)
+	cargoRecRepo := cargorecommendations.NewRepo(deps.PG)
+	cargoRecH := handlers.NewCargoRecommendationsHandler(logger, cargoRecRepo, cargoRepo, tripsRepo)
 
 	chatRepo := chat.NewRepo(deps.PG)
 	chatPresence := chat.NewPresenceStore(deps.Redis)
@@ -207,6 +215,9 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	adminAuthed.POST("/companies", adminCompaniesH.Create)
 	adminAuthed.PATCH("/companies/:id/owner", adminCompaniesH.SetOwner)
 	adminAuthed.GET("/company-users/owners/search", adminCompaniesH.SearchOwners)
+	adminAuthed.GET("/cargo/moderation", adminCargoModH.ListPending)
+	adminAuthed.POST("/cargo/:id/moderation/accept", adminCargoModH.Accept)
+	adminAuthed.POST("/cargo/:id/moderation/reject", adminCargoModH.Reject)
 
 	driverAuthed := v1.Group("/driver")
 	driverAuthed.Use(mw.RequireDriver(jwtm, refreshStore))
@@ -232,6 +243,14 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	driverAuthed.GET("/driver-invitations", driverInvH.ListInvitations)
 	driverAuthed.POST("/driver-invitations/accept", driverInvH.Accept)
 	driverAuthed.POST("/driver-invitations/decline", driverInvH.Decline)
+	driverAuthed.GET("/dispatchers", driverDispH.ListMyDispatchers)
+	driverAuthed.DELETE("/dispatchers/:dispatcherId", driverDispH.UnlinkDispatcher)
+	driverAuthed.GET("/dispatcher-invitations", d2dInvH.ListSentByDriver)
+	driverAuthed.POST("/dispatcher-invitations", d2dInvH.CreateFromDriver)
+	driverAuthed.DELETE("/dispatcher-invitations/:token", d2dInvH.CancelByDriver)
+	driverAuthed.GET("/recommended-cargo", cargoRecH.ListRecommendedForDriver)
+	driverAuthed.POST("/recommended-cargo/:cargoId/accept", cargoRecH.AcceptRecommendation)
+	driverAuthed.POST("/recommended-cargo/:cargoId/decline", cargoRecH.DeclineRecommendation)
 
 	// Dispatchers: только API диспетчера
 	dispAuthed := v1.Group("/dispatchers")
@@ -258,9 +277,14 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	dispAuthed.GET("/drivers/find", driverInvH.FindDrivers)
 	dispAuthed.GET("/drivers", driverInvH.ListMyDrivers)
 	dispAuthed.DELETE("/drivers/:driverId", driverInvH.UnlinkDriver)
+	dispAuthed.GET("/invitations-from-drivers", d2dInvH.ListReceivedByDispatcher)
+	dispAuthed.POST("/invitations-from-drivers/accept", d2dInvH.AcceptByDispatcher)
+	dispAuthed.POST("/invitations-from-drivers/decline", d2dInvH.DeclineByDispatcher)
 	dispAuthed.PUT("/drivers/:driverId/power", driverInvH.SetDriverPower)
 	dispAuthed.PUT("/drivers/:driverId/trailer", driverInvH.SetDriverTrailer)
 	dispAuthed.PATCH("/trips/:id/assign-driver", tripsH.AssignDriver)
+	dispAuthed.POST("/offers/:id/reject", cargoH.RejectOfferDispatcher)
+	dispAuthed.POST("/cargo/:id/recommend", cargoRecH.Recommend)
 
 	// Company users (company_users): OTP auth, companies, invitations
 	appUserAuthed := v1.Group("")

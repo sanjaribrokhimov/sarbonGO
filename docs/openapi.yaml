@@ -130,6 +130,16 @@ tags:
     description: |
       **Приглашения для водителя: получить список, принять или отказать.**
       **Поток:** 1) GET /v1/driver/driver-invitations — список приглашений (token, type, company_id/dispatcher_id, expires_at). 2) Принять: POST /v1/driver/driver-invitations/accept (body: token). 3) Отказать: POST /v1/driver/driver-invitations/decline (body: token). X-User-Token (driver). Телефон водителя должен совпадать с приглашением. От компании → driver.company_id; от фриланс-диспетчера → driver.freelancer_id.
+  - name: "Drivers / My dispatchers"
+    description: |
+      **Мои диспетчеры: просмотр и управление.**
+      **Кто вызывает:** Водитель (X-User-Token). GET /v1/driver/dispatchers — список диспетчеров, с которыми связан водитель: фриланс-диспетчер (type=freelance, если водитель принял приглашение) и диспетчеры компании (type=company, company_role), если водитель в компании. DELETE /v1/driver/dispatchers/:dispatcherId — отвязаться от фриланс-диспетчера (только если driver.freelancer_id = dispatcherId). Ответы на 5 языках (X-Language: en, ru, uz, tr, zh).
+  - name: "Drivers / Invite dispatcher"
+    description: |
+      **Водитель приглашает диспетчера.** Водитель отправляет приглашение по номеру телефона диспетчера. GET /v1/driver/dispatcher-invitations — список отправленных приглашений. POST /v1/driver/dispatcher-invitations (body: phone) — создать приглашение. DELETE /v1/driver/dispatcher-invitations/:token — отменить. Диспетчер видит приглашения в GET /v1/dispatchers/invitations-from-drivers и принимает или отказывает.
+  - name: "Freelance Dispatchers / Invitations from drivers"
+    description: |
+      **Приглашения от водителей.** Диспетчер получает приглашения, которые водители отправили на его номер. GET /v1/dispatchers/invitations-from-drivers — список. POST .../accept (body: token) — принять (у водителя freelancer_id = я). POST .../decline (body: token) — отказать. Ответы на 5 языках (X-Language).
   - name: Admin / Auth
     description: |
       **Руководство: Авторизация админа (оператор)**
@@ -146,6 +156,9 @@ tags:
       **Безопасность:** Все методы этого раздела доступны **только админам**. Сервер проверяет оба токена: **X-Client-Token** (обязателен для всех /v1) и **X-User-Token** (JWT после /v1/admin/auth/login/password с role=admin). При отсутствии или неверном X-User-Token или при JWT с другой ролью возвращается 401.
 
       **Поток (два шага):** 1) POST /v1/admin/companies — только создание компании (name обязательно, company_type, inn, address, phone, email, website, license_number, status, лимиты). Владелец не указывается. 2) GET /v1/admin/company-users/owners/search?q=... — поиск владельцев (только role=OWNER) по телефону, имени или фамилии; сортировка по релевантности. 3) PATCH /v1/admin/companies/:id/owner — привязать владельца (owner_id = UUID из company_users с **role=OWNER**). После назначения: у компании — owner_id и status=active, у пользователя в company_users — company_id (двусторонняя связь).
+  - name: "Admin / Cargo moderation"
+    description: |
+      **Модерация грузов.** Фрилансер создаёт груз → pending_moderation. Админ: GET /v1/admin/cargo/moderation — список; POST .../accept — принять (→ searching); POST .../reject — отклонить (reason обязателен). Ответы на 5 языках.
   - name: Reference
     description: |
       **Руководство: Справочники (общие)**
@@ -189,9 +202,9 @@ tags:
     description: |
       **Запросы для диспетчера, компании и админа**
 
-      Создание грузов, редактирование, смена статусов, просмотр офферов, принятие оффера. Заголовки: X-Device-Type, X-Language, X-Client-Token (JWT не обязателен).
+      Создание грузов, редактирование, смена статусов, просмотр офферов, принятие/отклонение оффера. Заголовки: X-Device-Type, X-Language, X-Client-Token (JWT не обязателен).
 
-      **Методы:** Создать груз (POST /api/cargo) → список и карточка (GET) → редактировать (PUT), удалить (DELETE), сменить статус (PATCH .../status) → список офферов (GET .../offers) → принять оффер (POST /api/offers/:id/accept). Жизненный цикл: created → searching → assigned → in_transit → delivered; отмена из created/searching/assigned.
+      **Поток груза:** Фрилансер создаёт груз (POST /api/cargo) → статус **pending_moderation**. Админ: GET /v1/admin/cargo/moderation → POST .../accept (статус **searching**) или POST .../reject (обязательная причина). После модерации водители видят грузы со статусом **searching**. Два варианта: 1) Водитель отправляет оффер (фикс. цена или своя цена) → диспетчер принимает (POST /api/offers/:id/accept) или отклоняет (POST /v1/dispatchers/offers/:id/reject, reason необязателен). 2) Диспетчер рекомендует груз водителю (POST /v1/dispatchers/cargo/:id/recommend) → водитель принимает (POST /v1/driver/recommended-cargo/:cargoId/accept) или отказывает (POST .../decline). После принятия оффера создаётся рейс, груз → **assigned**. Когда рейс переходит в loading → груз **in_progress**; когда рейс completed → груз **completed**.
   - name: Chat
     description: |
       **Универсальный чат (driver ↔ dispatcher и др.)**
@@ -2660,6 +2673,94 @@ paths:
         "200": { description: status pending_driver, driver_id }
         "404": { description: trip not found or not pending_driver }
 
+  /v1/dispatchers/offers/{id}/reject:
+    post:
+      tags: ["Freelance Dispatchers / Добавление груза", "Cargo — Диспетчер, компания, админ"]
+      summary: "Отклонить оффер (диспетчер)"
+      description: "Диспетчер отклоняет оффер по грузу (только свой груз). Тело: reason (необязательно). Ответы на 5 языках."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+      responses:
+        "200": { description: data.status = rejected }
+        "403": { description: not your cargo }
+        "404": { description: offer not found }
+  /v1/dispatchers/cargo/{id}/recommend:
+    post:
+      tags: ["Freelance Dispatchers / Добавление груза"]
+      summary: "Рекомендовать груз водителю"
+      description: "Диспетчер отправляет груз водителю (driver_id). Водитель видит в GET /v1/driver/recommended-cargo и может принять или отказать."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                driver_id: { type: string, format: uuid }
+              required: [driver_id]
+      responses:
+        "201": { description: created }
+        "403": { description: not your cargo }
+        "404": { description: cargo not found }
+
+  /v1/driver/recommended-cargo:
+    get:
+      tags: ["Drivers / Trips", "Cargo — Водитель"]
+      summary: "Грузы, рекомендованные мне диспетчером"
+      description: "Список грузов, которые диспетчер рекомендовал текущему водителю. Принять: POST .../accept; отказать: POST .../decline. Ответы на 5 языках."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 30 }
+      responses:
+        "200": { description: "data.items — cargo_id, cargo, status, created_at" }
+  /v1/driver/recommended-cargo/{cargoId}/accept:
+    post:
+      tags: ["Drivers / Trips", "Cargo — Водитель"]
+      summary: "Принять рекомендованный груз"
+      description: "Водитель принимает груз; создаётся оффер по цене груза и автоматически принимается, создаётся рейс. data.trip_id, data.driver_id."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: cargoId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: data.cargo_id, data.trip_id, data.driver_id }
+        "400": { description: recommendation not found or not pending }
+        "409": { description: cargo already assigned }
+  /v1/driver/recommended-cargo/{cargoId}/decline:
+    post:
+      tags: ["Drivers / Trips", "Cargo — Водитель"]
+      summary: "Отказаться от рекомендованного груза"
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: cargoId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: data.status = declined }
+        "400": { description: recommendation not found or not pending }
+
   /v1/driver/trips:
     get:
       tags: ["Drivers / Trips"]
@@ -2788,6 +2889,164 @@ paths:
       tags: ["Drivers / Driver invitations", "Freelance Dispatchers / Приглашения водителей"]
       summary: "Отказаться от приглашения (водитель)"
       description: "Тело: token. Приглашение должно быть на номер текущего водителя. Приглашение удаляется."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token: { type: string }
+              required: [token]
+      responses:
+        "200": { description: data.status = declined }
+        "400": { description: invitation not found or expired }
+        "403": { description: invitation was sent to another phone }
+
+  /v1/driver/dispatchers:
+    get:
+      tags: ["Drivers / My dispatchers"]
+      summary: "Список моих диспетчеров (водитель)"
+      description: |
+        **Водитель:** диспетчеры, с которыми связан: 1) фриланс-диспетчер (type=freelance), если принял его приглашение; 2) диспетчеры компании (type=company, company_role), если водитель в компании. В ответе data.items: id, name, phone (полный номер), work_status, has_photo, type, company_role (для type=company). Язык ответа по X-Language (en, ru, uz, tr, zh).
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      responses:
+        "200":
+          description: "data.items — массив диспетчеров (id, name, phone, work_status, has_photo, type, company_role)"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "ok" }
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: string, format: uuid }
+                            name: { type: string }
+                            phone: { type: string, description: "Номер телефона диспетчера полностью, например +998901234567" }
+                            work_status: { type: string }
+                            has_photo: { type: boolean }
+                            type: { type: string, enum: [freelance, company] }
+                            company_role: { type: string, description: "Только для type=company (owner, dispatcher и т.д.)" }
+        "401": { description: driver not found }
+  /v1/driver/dispatchers/{dispatcherId}:
+    delete:
+      tags: ["Drivers / My dispatchers"]
+      summary: "Отвязаться от фриланс-диспетчера (водитель)"
+      description: |
+        **Водитель:** отвязаться от диспетчера (прекратить сотрудничество). Разрешено только если текущий водитель привязан к этому диспетчеру (driver.freelancer_id = dispatcherId). После успеха freelancer_id = null. Для диспетчеров компании отвязка через этот метод недоступна. Ответы на 5 языках (X-Language).
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: dispatcherId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+          description: "UUID диспетчера, от которого отвязываемся"
+      responses:
+        "200":
+          description: "data.status = unlinked"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "ok" }
+                  data:
+                    type: object
+                    properties:
+                      status: { type: string, example: "unlinked" }
+        "400": { description: invalid dispatcher id }
+        "403": { description: this dispatcher is not linked to you }
+
+  /v1/driver/dispatcher-invitations:
+    get:
+      tags: ["Drivers / Invite dispatcher", "Freelance Dispatchers / Приглашения водителей"]
+      summary: "Список приглашений диспетчерам (отправил водитель)"
+      description: |
+        **Водитель:** список приглашений, которые **я отправил** диспетчерам (по номеру телефона). В ответе data.items: token, dispatcher_phone, expires_at, created_at.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      responses:
+        "200":
+          description: "data.items — приглашения (token, dispatcher_phone, expires_at, created_at)"
+        "401": { description: driver not found }
+    post:
+      tags: ["Drivers / Invite dispatcher", "Freelance Dispatchers / Приглашения водителей"]
+      summary: "Пригласить диспетчера (водитель)"
+      description: |
+        **Водитель:** отправить приглашение диспетчеру по номеру телефона. Диспетчер увидит приглашение в GET /v1/dispatchers/invitations-from-drivers и может принять или отказать. Тело: phone (обязательно). В ответе — token (передать диспетчеру). Если водитель уже привязан к этому диспетчеру — 409 already_linked_to_this_dispatcher.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone: { type: string, example: "+998901234567" }
+              required: [phone]
+      responses:
+        "201": { description: "data.token, data.expires_in_hours" }
+        "400": { description: phone required, invalid payload }
+        "409": { description: already linked to this dispatcher }
+  /v1/driver/dispatcher-invitations/{token}:
+    delete:
+      tags: ["Drivers / Invite dispatcher"]
+      summary: "Отменить приглашение диспетчеру (водитель)"
+      description: "Водитель отменяет отправленное приглашение. Только своё приглашение."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: ok }
+        "403": { description: not your invitation }
+        "404": { description: invitation not found or expired }
+
+  /v1/dispatchers/invitations-from-drivers:
+    get:
+      tags: ["Freelance Dispatchers / Invitations from drivers", "Freelance Dispatchers / Приглашения водителей"]
+      summary: "Приглашения от водителей (диспетчер)"
+      description: |
+        **Диспетчер:** список приглашений, которые **водители отправили мне** (на мой номер телефона). В ответе data.items: token, driver_id, driver_name, driver_phone, dispatcher_phone, expires_at, created_at. По token принять (POST .../accept) или отказать (POST .../decline).
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      responses:
+        "200":
+          description: "data.items — приглашения от водителей (token, driver_id, driver_name, driver_phone, expires_at)"
+        "401": { description: dispatcher not found }
+  /v1/dispatchers/invitations-from-drivers/accept:
+    post:
+      tags: ["Freelance Dispatchers / Invitations from drivers", "Freelance Dispatchers / Приглашения водителей"]
+      summary: "Принять приглашение от водителя (диспетчер)"
+      description: |
+        **Диспетчер:** принять приглашение от водителя. Тело: token. Приглашение должно быть на мой номер. После принятия у водителя устанавливается freelancer_id = я; водитель появится в GET /v1/dispatchers/drivers.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token: { type: string }
+              required: [token]
+      responses:
+        "200": { description: "data.driver_id" }
+        "400": { description: invitation not found or expired }
+        "403": { description: invitation was sent to another phone }
+  /v1/dispatchers/invitations-from-drivers/decline:
+    post:
+      tags: ["Freelance Dispatchers / Invitations from drivers", "Freelance Dispatchers / Приглашения водителей"]
+      summary: "Отказать от приглашения водителя (диспетчер)"
+      description: "Тело: token. Приглашение должно быть на мой номер. Приглашение удаляется."
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
@@ -2963,6 +3222,59 @@ paths:
                         created_at: { type: string, format: date-time }
                         updated_at: { type: string, format: date-time }
         "401": { description: unauthorized }
+
+  /v1/admin/cargo/moderation:
+    get:
+      tags: ["Admin / Cargo moderation"]
+      summary: "Список грузов на модерации"
+      description: "Грузы со статусом pending_moderation. Админ принимает (accept) или отклоняет (reject с обязательной причиной). Ответы на 5 языках."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        "200": { description: "data.items, data.total" }
+  /v1/admin/cargo/{id}/moderation/accept:
+    post:
+      tags: ["Admin / Cargo moderation"]
+      summary: "Принять груз (модерация)"
+      description: "Статус груза → searching. Водители видят груз и могут отправлять офферы."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: "data.status = searching" }
+        "400": { description: cargo not pending moderation }
+  /v1/admin/cargo/{id}/moderation/reject:
+    post:
+      tags: ["Admin / Cargo moderation"]
+      summary: "Отклонить груз (модерация)"
+      description: "Статус → rejected. Причина отклонения обязательна (reason)."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+              required: [reason]
+      responses:
+        "200": { description: "data.status = rejected" }
+        "400": { description: reason required, or cargo not pending moderation }
 
   /v1/chat/conversations:
     get:

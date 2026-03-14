@@ -259,7 +259,7 @@ func (h *CargoHandler) PatchStatus(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Status string `json:"status" binding:"required,oneof=created searching assigned in_transit delivered cancelled"`
+		Status string `json:"status" binding:"required,oneof=created pending_moderation searching rejected assigned in_progress in_transit delivered completed cancelled"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
@@ -318,7 +318,7 @@ func (h *CargoHandler) AcceptOffer(c *gin.Context) {
 		resp.ErrorLang(c, http.StatusBadRequest, "invalid offer id")
 		return
 	}
-	cargoID, err := h.repo.AcceptOffer(c.Request.Context(), offerID)
+	cargoID, carrierID, err := h.repo.AcceptOffer(c.Request.Context(), offerID)
 	if err != nil {
 		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
 		return
@@ -326,11 +326,48 @@ func (h *CargoHandler) AcceptOffer(c *gin.Context) {
 	if h.tripsRepo != nil {
 		tripID, _ := h.tripsRepo.Create(c.Request.Context(), cargoID, offerID)
 		if tripID != uuid.Nil {
-			resp.OKLang(c, "ok", gin.H{"cargo_id": cargoID.String(), "offer_id": offerID.String(), "trip_id": tripID.String(), "status": "accepted"})
+			_ = h.tripsRepo.AssignDriver(c.Request.Context(), tripID, carrierID)
+			resp.OKLang(c, "ok", gin.H{"cargo_id": cargoID.String(), "offer_id": offerID.String(), "trip_id": tripID.String(), "driver_id": carrierID.String(), "status": "accepted"})
 			return
 		}
 	}
 	resp.OKLang(c, "ok", gin.H{"cargo_id": cargoID.String(), "offer_id": offerID.String(), "status": "accepted"})
+}
+
+// RejectOfferReq body for POST /v1/dispatchers/offers/:id/reject (reason optional).
+type RejectOfferReq struct {
+	Reason string `json:"reason"`
+}
+
+// RejectOfferDispatcher rejects an offer (dispatcher only; cargo must be created by this dispatcher). Reason optional.
+func (h *CargoHandler) RejectOfferDispatcher(c *gin.Context) {
+	dispatcherID := c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
+	offerID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
+		return
+	}
+	offer, err := h.repo.GetOfferByID(c.Request.Context(), offerID)
+	if err != nil || offer == nil {
+		resp.ErrorLang(c, http.StatusNotFound, "offer_not_found")
+		return
+	}
+	cargoObj, _ := h.repo.GetByID(c.Request.Context(), offer.CargoID, false)
+	if cargoObj == nil {
+		resp.ErrorLang(c, http.StatusNotFound, "cargo_not_found")
+		return
+	}
+	if cargoObj.CreatedByType == nil || *cargoObj.CreatedByType != "dispatcher" || cargoObj.CreatedByID == nil || *cargoObj.CreatedByID != dispatcherID {
+		resp.ErrorLang(c, http.StatusForbidden, "not_your_cargo")
+		return
+	}
+	var req RejectOfferReq
+	_ = c.ShouldBindJSON(&req)
+	if err := h.repo.RejectOffer(c.Request.Context(), offerID, req.Reason); err != nil {
+		resp.ErrorLang(c, http.StatusBadRequest, "offer_not_found_or_not_pending")
+		return
+	}
+	resp.OKLang(c, "ok", gin.H{"status": "rejected"})
 }
 
 // UpdateCargoReq for PUT /api/cargo/:id (all optional).
@@ -485,7 +522,7 @@ func toCreateParams(req CreateCargoReq) cargo.CreateParams {
 		Documents:     req.Documents,
 		ContactName:   req.ContactName,
 		ContactPhone:  req.ContactPhone,
-		Status:        cargo.StatusCreated, // при создании всегда created; смена на searching — через PATCH .../status
+		Status:        cargo.StatusPendingModeration, // фрилансер создаёт → модерация; админ принимает (searching) или отклоняет (rejected)
 	}
 	for _, rp := range req.RoutePoints {
 		p.RoutePoints = append(p.RoutePoints, cargo.RoutePointInput{

@@ -47,6 +47,30 @@ func (r *Repo) FindByPhone(ctx context.Context, phone string) (*Driver, error) {
 	return d, nil
 }
 
+// NormalizePhone removes spaces, dashes and leading + for consistent comparison.
+func NormalizePhone(s string) string {
+	s = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(s, " ", ""), "-", ""))
+	return strings.TrimPrefix(s, "+")
+}
+
+// FindByPhoneNormalized returns driver by phone (normalized: trim, no spaces/dashes/+). Use when inviting to avoid duplicate invites to same driver.
+func (r *Repo) FindByPhoneNormalized(ctx context.Context, phone string) (*Driver, error) {
+	norm := NormalizePhone(phone)
+	if norm == "" {
+		return nil, nil
+	}
+	const q = `SELECT ` + driverSelectCols + driverJoinTables + `
+WHERE replace(replace(replace(trim(d.phone), ' ', ''), '-', ''), '+', '') = $1 LIMIT 1`
+	d, err := scanDriver(r.pg.QueryRow(ctx, q, norm))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return d, nil
+}
+
 func (r *Repo) FindByID(ctx context.Context, id uuid.UUID) (*Driver, error) {
 	const q = `SELECT ` + driverSelectCols + driverJoinTables + ` WHERE d.id = $1 LIMIT 1`
 	d, err := scanDriver(r.pg.QueryRow(ctx, q, id))

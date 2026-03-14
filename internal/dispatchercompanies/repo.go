@@ -42,3 +42,36 @@ WHERE c.id = $2 AND c.deleted_at IS NULL AND (c.owner_dispatcher_id = $1 OR EXIS
 	}
 	return true, nil
 }
+
+// DispatcherInCompany is a dispatcher linked to a company (for driver's "my dispatchers" list).
+type DispatcherInCompany struct {
+	DispatcherID uuid.UUID
+	Role         string
+}
+
+// ListDispatchersByCompany returns all dispatchers that have access to the company (owner + roles). For driver to see "my company dispatchers".
+func (r *Repo) ListDispatchersByCompany(ctx context.Context, companyID uuid.UUID) ([]DispatcherInCompany, error) {
+	const q = `
+SELECT c.owner_dispatcher_id AS dispatcher_id, 'owner' AS role FROM companies c WHERE c.id = $1 AND c.deleted_at IS NULL AND c.owner_dispatcher_id IS NOT NULL
+UNION ALL
+SELECT dcr.dispatcher_id, COALESCE(dcr.role, 'dispatcher') AS role FROM dispatcher_company_roles dcr WHERE dcr.company_id = $1`
+	rows, err := r.pg.Query(ctx, q, companyID, companyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []DispatcherInCompany
+	seen := make(map[uuid.UUID]bool)
+	for rows.Next() {
+		var row DispatcherInCompany
+		if err := rows.Scan(&row.DispatcherID, &row.Role); err != nil {
+			return nil, err
+		}
+		if seen[row.DispatcherID] {
+			continue
+		}
+		seen[row.DispatcherID] = true
+		list = append(list, row)
+	}
+	return list, rows.Err()
+}
