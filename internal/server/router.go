@@ -180,6 +180,7 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	v1.GET("/reference/dispatchers", handlers.GetReferenceDispatchers)
 	v1.GET("/reference/cities", handlers.GetReferenceCities())
 	v1.GET("/reference/countries", handlers.GetReferenceCountries())
+	v1.GET("/reference/cargo-types/hint", handlers.HintCargoTypes(deps.PG))
 
 	// API /api/cargo (same base headers as v1)
 	api := r.Group("/api")
@@ -276,6 +277,7 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	dispAuthed.POST("/companies/:companyId/driver-invitations", driverInvH.Create)
 	dispAuthed.GET("/drivers/find", driverInvH.FindDrivers)
 	dispAuthed.GET("/drivers", driverInvH.ListMyDrivers)
+	dispAuthed.GET("/drivers/all", driverInvH.ListAllDriversForFreelance)
 	dispAuthed.DELETE("/drivers/:driverId", driverInvH.UnlinkDriver)
 	dispAuthed.GET("/invitations-from-drivers", d2dInvH.ListReceivedByDispatcher)
 	dispAuthed.POST("/invitations-from-drivers/accept", d2dInvH.AcceptByDispatcher)

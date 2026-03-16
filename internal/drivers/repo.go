@@ -3,6 +3,7 @@ package drivers
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,8 +29,8 @@ const driverSelectCols = `
   d.registration_step, d.registration_status, d.name, d.driver_type, d.rating, d.work_status,
   d.freelancer_id, d.company_id, d.account_status,
   d.driver_passport_series, d.driver_passport_number, d.driver_pinfl, d.driver_scan_status,
-  p.power_plate_type, p.power_plate_number, p.power_tech_series, p.power_tech_number, p.power_owner_id, p.power_owner_name, p.power_scan_status,
-  t.trailer_plate_type, t.trailer_plate_number, t.trailer_tech_series, t.trailer_tech_number, t.trailer_owner_id, t.trailer_owner_name, t.trailer_scan_status,
+  p.power_plate_type, p.power_plate_number, p.power_tech_series, p.power_tech_number, p.power_owner_name, p.power_scan_status,
+  t.trailer_plate_type, t.trailer_plate_number, t.trailer_tech_series, t.trailer_tech_number, t.trailer_owner_name, t.trailer_scan_status,
   d.driver_owner, d.kyc_status,
   (d.photo_data IS NOT NULL) AS has_photo`
 
@@ -87,8 +88,8 @@ func scanDriver(row pgx.Row) (*Driver, error) {
 		&d.RegistrationStep, &d.RegistrationStatus, &d.Name, &d.DriverType, &d.Rating, &d.WorkStatus,
 		&d.FreelancerID, &d.CompanyID, &d.AccountStatus,
 		&d.DriverPassportSeries, &d.DriverPassportNumber, &d.DriverPINFL, &d.DriverScanStatus,
-		&d.PowerPlateType, &d.PowerPlateNumber, &d.PowerTechSeries, &d.PowerTechNumber, &d.PowerOwnerID, &d.PowerOwnerName, &d.PowerScanStatus,
-		&d.TrailerPlateType, &d.TrailerPlateNumber, &d.TrailerTechSeries, &d.TrailerTechNumber, &d.TrailerOwnerID, &d.TrailerOwnerName, &d.TrailerScanStatus,
+		&d.PowerPlateType, &d.PowerPlateNumber, &d.PowerTechSeries, &d.PowerTechNumber, &d.PowerOwnerName, &d.PowerScanStatus,
+		&d.TrailerPlateType, &d.TrailerPlateNumber, &d.TrailerTechSeries, &d.TrailerTechNumber, &d.TrailerOwnerName, &d.TrailerScanStatus,
 		&d.DriverOwner, &d.KYCStatus,
 		&d.HasPhoto,
 	)
@@ -205,26 +206,184 @@ LIMIT $3`
 	return list, rows.Err()
 }
 
-// ListByFreelancerID returns drivers linked to this freelance dispatcher (freelancer_id = dispatcherID).
-func (r *Repo) ListByFreelancerID(ctx context.Context, freelancerID uuid.UUID, limit int) ([]*Driver, error) {
+// ListDriversFilter for GET /v1/dispatchers/drivers (freelance dispatcher's driver list with filters).
+type ListDriversFilter struct {
+	Phone      string // search by phone (partial match)
+	WorkStatus string // filter by work_status (e.g. available, busy)
+	TruckType  string // filter by power_plate_type (e.g. TENT, REFRIGERATOR)
+	Page       int
+	Limit      int
+	Sort       string // "updated_at:desc" (default), "name:asc", "last_online_at:desc"
+}
+
+// ListByFreelancerIDFilter returns drivers linked to this freelance dispatcher with optional filters and pagination.
+func (r *Repo) ListByFreelancerIDFilter(ctx context.Context, freelancerID uuid.UUID, f ListDriversFilter) ([]*Driver, int, error) {
+	var args []interface{}
+	argNum := 1
+	conds := []string{"d.freelancer_id = $" + strconv.Itoa(argNum)}
+	args = append(args, freelancerID)
+	argNum++
+
+	phoneTerm := strings.TrimSpace(f.Phone)
+	if phoneTerm != "" {
+		conds = append(conds, "replace(replace(trim(d.phone), ' ', ''), '-', '') LIKE $"+strconv.Itoa(argNum))
+		args = append(args, "%"+strings.ReplaceAll(strings.ReplaceAll(phoneTerm, " ", ""), "-", "")+"%")
+		argNum++
+	}
+	if strings.TrimSpace(f.WorkStatus) != "" {
+		conds = append(conds, "d.work_status = $"+strconv.Itoa(argNum))
+		args = append(args, strings.TrimSpace(f.WorkStatus))
+		argNum++
+	}
+	if strings.TrimSpace(f.TruckType) != "" {
+		conds = append(conds, "p.power_plate_type = $"+strconv.Itoa(argNum))
+		args = append(args, strings.TrimSpace(strings.ToUpper(f.TruckType)))
+		argNum++
+	}
+
+	where := strings.Join(conds, " AND ")
+
+	var total int
+	if err := r.pg.QueryRow(ctx, "SELECT COUNT(*) FROM drivers d LEFT JOIN driver_powers p ON p.driver_id = d.id WHERE "+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	order := "d.updated_at DESC"
+	if f.Sort != "" {
+		parts := strings.SplitN(f.Sort, ":", 2)
+		if len(parts) == 2 {
+			col := strings.TrimSpace(strings.ToLower(parts[0]))
+			dir := strings.TrimSpace(strings.ToUpper(parts[1]))
+			if dir != "ASC" && dir != "DESC" {
+				dir = "DESC"
+			}
+			switch col {
+			case "name":
+				order = "d.name " + dir + " NULLS LAST"
+			case "last_online_at":
+				order = "d.last_online_at " + dir + " NULLS LAST"
+			case "work_status":
+				order = "d.work_status " + dir + " NULLS LAST"
+			default:
+				order = "d.updated_at " + dir
+			}
+		}
+	}
+
+	limit := f.Limit
 	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
 		limit = 100
 	}
-	const q = `SELECT ` + driverSelectCols + driverJoinTables + ` WHERE d.freelancer_id = $1 ORDER BY d.updated_at DESC LIMIT $2`
-	rows, err := r.pg.Query(ctx, q, freelancerID, limit)
+	offset := (f.Page - 1) * limit
+	if offset < 0 {
+		offset = 0
+	}
+	args = append(args, limit, offset)
+	q := `SELECT ` + driverSelectCols + driverJoinTables + ` WHERE ` + where + ` ORDER BY ` + order + ` LIMIT $` + strconv.Itoa(argNum) + ` OFFSET $` + strconv.Itoa(argNum+1)
+	rows, err := r.pg.Query(ctx, q, args...)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 	var list []*Driver
 	for rows.Next() {
 		d, err := scanDriver(rows)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		list = append(list, d)
 	}
-	return list, rows.Err()
+	return list, total, rows.Err()
+}
+
+// ListAllForFreelancerFilter returns all drivers (without freelancer_id filter) for dispatcher browsing, with the same filters and pagination.
+func (r *Repo) ListAllForFreelancerFilter(ctx context.Context, f ListDriversFilter) ([]*Driver, int, error) {
+	var args []interface{}
+	argNum := 1
+	conds := []string{"TRUE"}
+
+	phoneTerm := strings.TrimSpace(f.Phone)
+	if phoneTerm != "" {
+		conds = append(conds, "replace(replace(trim(d.phone), ' ', ''), '-', '') LIKE $"+strconv.Itoa(argNum))
+		args = append(args, "%"+strings.ReplaceAll(strings.ReplaceAll(phoneTerm, " ", ""), "-", "")+"%")
+		argNum++
+	}
+	if strings.TrimSpace(f.WorkStatus) != "" {
+		conds = append(conds, "d.work_status = $"+strconv.Itoa(argNum))
+		args = append(args, strings.TrimSpace(f.WorkStatus))
+		argNum++
+	}
+	if strings.TrimSpace(f.TruckType) != "" {
+		conds = append(conds, "p.power_plate_type = $"+strconv.Itoa(argNum))
+		args = append(args, strings.TrimSpace(strings.ToUpper(f.TruckType)))
+		argNum++
+	}
+
+	where := strings.Join(conds, " AND ")
+
+	var total int
+	if err := r.pg.QueryRow(ctx, "SELECT COUNT(*) FROM drivers d LEFT JOIN driver_powers p ON p.driver_id = d.id WHERE "+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	order := "d.updated_at DESC"
+	if f.Sort != "" {
+		parts := strings.SplitN(f.Sort, ":", 2)
+		if len(parts) == 2 {
+			col := strings.TrimSpace(strings.ToLower(parts[0]))
+			dir := strings.TrimSpace(strings.ToUpper(parts[1]))
+			if dir != "ASC" && dir != "DESC" {
+				dir = "DESC"
+			}
+			switch col {
+			case "name":
+				order = "d.name " + dir + " NULLS LAST"
+			case "last_online_at":
+				order = "d.last_online_at " + dir + " NULLS LAST"
+			case "work_status":
+				order = "d.work_status " + dir + " NULLS LAST"
+			default:
+				order = "d.updated_at " + dir
+			}
+		}
+	}
+
+	limit := f.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := (f.Page - 1) * limit
+	if offset < 0 {
+		offset = 0
+	}
+	args = append(args, limit, offset)
+	q := `SELECT ` + driverSelectCols + driverJoinTables + ` WHERE ` + where + ` ORDER BY ` + order + ` LIMIT $` + strconv.Itoa(argNum) + ` OFFSET $` + strconv.Itoa(argNum+1)
+	rows, err := r.pg.Query(ctx, q, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var list []*Driver
+	for rows.Next() {
+		d, err := scanDriver(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		list = append(list, d)
+	}
+	return list, total, rows.Err()
+}
+
+// ListByFreelancerID returns drivers linked to this freelance dispatcher (freelancer_id = dispatcherID).
+func (r *Repo) ListByFreelancerID(ctx context.Context, freelancerID uuid.UUID, limit int) ([]*Driver, error) {
+	list, _, err := r.ListByFreelancerIDFilter(ctx, freelancerID, ListDriversFilter{Limit: limit})
+	return list, err
 }
 
 func (r *Repo) UpdateHeartbeat(ctx context.Context, id uuid.UUID, lat, lon float64, lastOnlineAt time.Time) error {
@@ -261,25 +420,23 @@ type UpdatePowerProfile struct {
 	PowerPlateNumber *string
 	PowerTechSeries  *string
 	PowerTechNumber  *string
-	PowerOwnerID     *string
 	PowerOwnerName   *string
 	PowerScanStatus  *bool
 }
 
 func (r *Repo) UpdatePowerProfile(ctx context.Context, id uuid.UUID, u UpdatePowerProfile) error {
 	const q = `
-INSERT INTO driver_powers (driver_id, power_plate_type, power_plate_number, power_tech_series, power_tech_number, power_owner_id, power_owner_name, power_scan_status, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+INSERT INTO driver_powers (driver_id, power_plate_type, power_plate_number, power_tech_series, power_tech_number, power_owner_name, power_scan_status, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, now())
 ON CONFLICT (driver_id) DO UPDATE SET
   power_plate_type = COALESCE(EXCLUDED.power_plate_type, driver_powers.power_plate_type),
   power_plate_number = COALESCE(EXCLUDED.power_plate_number, driver_powers.power_plate_number),
   power_tech_series = COALESCE(EXCLUDED.power_tech_series, driver_powers.power_tech_series),
   power_tech_number = COALESCE(EXCLUDED.power_tech_number, driver_powers.power_tech_number),
-  power_owner_id = COALESCE(EXCLUDED.power_owner_id, driver_powers.power_owner_id),
   power_owner_name = COALESCE(EXCLUDED.power_owner_name, driver_powers.power_owner_name),
   power_scan_status = COALESCE(EXCLUDED.power_scan_status, driver_powers.power_scan_status),
   updated_at = now()`
-	_, err := r.pg.Exec(ctx, q, id, u.PowerPlateType, u.PowerPlateNumber, u.PowerTechSeries, u.PowerTechNumber, u.PowerOwnerID, u.PowerOwnerName, u.PowerScanStatus)
+	_, err := r.pg.Exec(ctx, q, id, u.PowerPlateType, u.PowerPlateNumber, u.PowerTechSeries, u.PowerTechNumber, u.PowerOwnerName, u.PowerScanStatus)
 	if err != nil {
 		return err
 	}
@@ -292,25 +449,23 @@ type UpdateTrailerProfile struct {
 	TrailerPlateNumber *string
 	TrailerTechSeries  *string
 	TrailerTechNumber  *string
-	TrailerOwnerID     *string
 	TrailerOwnerName   *string
 	TrailerScanStatus  *bool
 }
 
 func (r *Repo) UpdateTrailerProfile(ctx context.Context, id uuid.UUID, u UpdateTrailerProfile) error {
 	const q = `
-INSERT INTO driver_trailers (driver_id, trailer_plate_type, trailer_plate_number, trailer_tech_series, trailer_tech_number, trailer_owner_id, trailer_owner_name, trailer_scan_status, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+INSERT INTO driver_trailers (driver_id, trailer_plate_type, trailer_plate_number, trailer_tech_series, trailer_tech_number, trailer_owner_name, trailer_scan_status, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, now())
 ON CONFLICT (driver_id) DO UPDATE SET
   trailer_plate_type = COALESCE(EXCLUDED.trailer_plate_type, driver_trailers.trailer_plate_type),
   trailer_plate_number = COALESCE(EXCLUDED.trailer_plate_number, driver_trailers.trailer_plate_number),
   trailer_tech_series = COALESCE(EXCLUDED.trailer_tech_series, driver_trailers.trailer_tech_series),
   trailer_tech_number = COALESCE(EXCLUDED.trailer_tech_number, driver_trailers.trailer_tech_number),
-  trailer_owner_id = COALESCE(EXCLUDED.trailer_owner_id, driver_trailers.trailer_owner_id),
   trailer_owner_name = COALESCE(EXCLUDED.trailer_owner_name, driver_trailers.trailer_owner_name),
   trailer_scan_status = COALESCE(EXCLUDED.trailer_scan_status, driver_trailers.trailer_scan_status),
   updated_at = now()`
-	_, err := r.pg.Exec(ctx, q, id, u.TrailerPlateType, u.TrailerPlateNumber, u.TrailerTechSeries, u.TrailerTechNumber, u.TrailerOwnerID, u.TrailerOwnerName, u.TrailerScanStatus)
+	_, err := r.pg.Exec(ctx, q, id, u.TrailerPlateType, u.TrailerPlateNumber, u.TrailerTechSeries, u.TrailerTechNumber, u.TrailerOwnerName, u.TrailerScanStatus)
 	if err != nil {
 		return err
 	}
@@ -397,14 +552,12 @@ type KYCUpdate struct {
 	PowerPlateNumber   string
 	PowerTechSeries    string
 	PowerTechNumber    string
-	PowerOwnerID       string
 	PowerOwnerName     string
 	PowerScanStatus    *bool
 
 	TrailerPlateNumber string
 	TrailerTechSeries  string
 	TrailerTechNumber  string
-	TrailerOwnerID     string
 	TrailerOwnerName   string
 	TrailerScanStatus  *bool
 
@@ -429,33 +582,31 @@ WHERE id = $1`,
 		return err
 	}
 	_, err = r.pg.Exec(ctx, `
-INSERT INTO driver_powers (driver_id, power_plate_number, power_tech_series, power_tech_number, power_owner_id, power_owner_name, power_scan_status, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+INSERT INTO driver_powers (driver_id, power_plate_number, power_tech_series, power_tech_number, power_owner_name, power_scan_status, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, now())
 ON CONFLICT (driver_id) DO UPDATE SET
   power_plate_number = EXCLUDED.power_plate_number,
   power_tech_series = EXCLUDED.power_tech_series,
   power_tech_number = EXCLUDED.power_tech_number,
-  power_owner_id = EXCLUDED.power_owner_id,
   power_owner_name = EXCLUDED.power_owner_name,
   power_scan_status = EXCLUDED.power_scan_status,
   updated_at = now()`,
-		id, u.PowerPlateNumber, u.PowerTechSeries, u.PowerTechNumber, u.PowerOwnerID, u.PowerOwnerName, u.PowerScanStatus,
+		id, u.PowerPlateNumber, u.PowerTechSeries, u.PowerTechNumber, u.PowerOwnerName, u.PowerScanStatus,
 	)
 	if err != nil {
 		return err
 	}
 	_, err = r.pg.Exec(ctx, `
-INSERT INTO driver_trailers (driver_id, trailer_plate_number, trailer_tech_series, trailer_tech_number, trailer_owner_id, trailer_owner_name, trailer_scan_status, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+INSERT INTO driver_trailers (driver_id, trailer_plate_number, trailer_tech_series, trailer_tech_number, trailer_owner_name, trailer_scan_status, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, now())
 ON CONFLICT (driver_id) DO UPDATE SET
   trailer_plate_number = EXCLUDED.trailer_plate_number,
   trailer_tech_series = EXCLUDED.trailer_tech_series,
   trailer_tech_number = EXCLUDED.trailer_tech_number,
-  trailer_owner_id = EXCLUDED.trailer_owner_id,
   trailer_owner_name = EXCLUDED.trailer_owner_name,
   trailer_scan_status = EXCLUDED.trailer_scan_status,
   updated_at = now()`,
-		id, u.TrailerPlateNumber, u.TrailerTechSeries, u.TrailerTechNumber, u.TrailerOwnerID, u.TrailerOwnerName, u.TrailerScanStatus,
+		id, u.TrailerPlateNumber, u.TrailerTechSeries, u.TrailerTechNumber, u.TrailerOwnerName, u.TrailerScanStatus,
 	)
 	return err
 }

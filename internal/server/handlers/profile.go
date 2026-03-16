@@ -237,7 +237,6 @@ type patchPowerReq struct {
 	PowerPlateNumber *string `json:"power_plate_number,omitempty"`
 	PowerTechSeries  *string `json:"power_tech_series,omitempty"`
 	PowerTechNumber  *string `json:"power_tech_number,omitempty"`
-	PowerOwnerID     *string `json:"power_owner_id,omitempty"`
 	PowerOwnerName   *string `json:"power_owner_name,omitempty"`
 	PowerScanStatus  *bool   `json:"power_scan_status,omitempty"`
 }
@@ -265,14 +264,12 @@ func (h *ProfileHandler) PatchPower(c *gin.Context) {
 	trimPtr(&req.PowerPlateNumber)
 	trimPtr(&req.PowerTechSeries)
 	trimPtr(&req.PowerTechNumber)
-	trimPtr(&req.PowerOwnerID)
 	trimPtr(&req.PowerOwnerName)
 
 	if err := h.drivers.UpdatePowerProfile(c.Request.Context(), driverID, drivers.UpdatePowerProfile{
 		PowerPlateNumber: req.PowerPlateNumber,
 		PowerTechSeries:  req.PowerTechSeries,
 		PowerTechNumber:  req.PowerTechNumber,
-		PowerOwnerID:     req.PowerOwnerID,
 		PowerOwnerName:   req.PowerOwnerName,
 		PowerScanStatus:  req.PowerScanStatus,
 	}); err != nil {
@@ -288,7 +285,6 @@ type patchTrailerReq struct {
 	TrailerPlateNumber *string `json:"trailer_plate_number,omitempty"`
 	TrailerTechSeries  *string `json:"trailer_tech_series,omitempty"`
 	TrailerTechNumber  *string `json:"trailer_tech_number,omitempty"`
-	TrailerOwnerID     *string `json:"trailer_owner_id,omitempty"`
 	TrailerOwnerName   *string `json:"trailer_owner_name,omitempty"`
 	TrailerScanStatus  *bool   `json:"trailer_scan_status,omitempty"`
 }
@@ -316,14 +312,12 @@ func (h *ProfileHandler) PatchTrailer(c *gin.Context) {
 	trimPtr(&req.TrailerPlateNumber)
 	trimPtr(&req.TrailerTechSeries)
 	trimPtr(&req.TrailerTechNumber)
-	trimPtr(&req.TrailerOwnerID)
 	trimPtr(&req.TrailerOwnerName)
 
 	if err := h.drivers.UpdateTrailerProfile(c.Request.Context(), driverID, drivers.UpdateTrailerProfile{
 		TrailerPlateNumber: req.TrailerPlateNumber,
 		TrailerTechSeries:  req.TrailerTechSeries,
 		TrailerTechNumber:  req.TrailerTechNumber,
-		TrailerOwnerID:     req.TrailerOwnerID,
 		TrailerOwnerName:   req.TrailerOwnerName,
 		TrailerScanStatus:  req.TrailerScanStatus,
 	}); err != nil {

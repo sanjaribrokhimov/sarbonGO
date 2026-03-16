@@ -17,6 +17,7 @@ func EnsureCargoTables(ctx context.Context, pg *pgxpool.Pool) error {
 	_, err := pg.Exec(ctx, `
 CREATE TABLE IF NOT EXISTS cargo (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name VARCHAR(255) NULL,
   weight DOUBLE PRECISION NOT NULL,
   volume DOUBLE PRECISION NOT NULL,
   ready_enabled BOOLEAN NOT NULL DEFAULT false,
@@ -46,6 +47,7 @@ CREATE TABLE IF NOT EXISTS cargo (
 
 	_, err = pg.Exec(ctx, `
 ALTER TABLE cargo
+  ADD COLUMN IF NOT EXISTS name VARCHAR(255) NULL,
   ADD COLUMN IF NOT EXISTS weight DOUBLE PRECISION,
   ADD COLUMN IF NOT EXISTS volume DOUBLE PRECISION,
   ADD COLUMN IF NOT EXISTS ready_enabled BOOLEAN NOT NULL DEFAULT false,
@@ -69,7 +71,8 @@ ALTER TABLE cargo
   ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL,
   ADD COLUMN IF NOT EXISTS created_by_type VARCHAR NULL,
   ADD COLUMN IF NOT EXISTS created_by_id UUID NULL,
-  ADD COLUMN IF NOT EXISTS company_id UUID NULL;
+  ADD COLUMN IF NOT EXISTS company_id UUID NULL,
+  ADD COLUMN IF NOT EXISTS cargo_type_id UUID NULL;
 `)
 	if err != nil {
 		return err
@@ -246,6 +249,24 @@ DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_cargo_company_id') AND to_regclass('public.companies') IS NOT NULL THEN
     ALTER TABLE cargo ADD CONSTRAINT fk_cargo_company_id FOREIGN KEY (company_id) REFERENCES companies(id);
+  END IF;
+END$$;
+
+CREATE TABLE IF NOT EXISTS cargo_types (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  code VARCHAR(128) NOT NULL UNIQUE,
+  name_ru VARCHAR(255) NOT NULL,
+  name_uz VARCHAR(255) NOT NULL,
+  name_en VARCHAR(255) NOT NULL,
+  name_tr VARCHAR(255) NOT NULL,
+  name_zh VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_cargo_cargo_type') THEN
+    ALTER TABLE cargo ADD CONSTRAINT fk_cargo_cargo_type FOREIGN KEY (cargo_type_id) REFERENCES cargo_types(id);
   END IF;
 END$$;
 `)

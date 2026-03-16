@@ -72,6 +72,8 @@
 
 ## 3. Пошаговый поток (как работает сейчас)
 
+**Фриланс-диспетчер универсален:** может и добавить на себя водителей (и подбирать им грузы), и добавить груз (и искать ему водителя). Порядок не фиксирован.
+
 ### Шаг 1: Диспетчер создаёт груз
 
 - **Кто:** фриланс-диспетчер (X-User-Token, role=dispatcher).
@@ -94,25 +96,40 @@
 - Фильтр: `GET /api/cargo?status=SEARCHING_ALL,SEARCHING_COMPANY` (с JWT водителя вернутся только доступные ему грузы).
 - Создание оффера разрешено по грузу в статусе **SEARCHING_ALL** или **SEARCHING_COMPANY**. Для **SEARCHING_COMPANY** оффер может отправить только водитель той же компании (иначе 403 `cargo_visible_only_to_company_drivers`).
 
-### Шаг 4: Назначение водителя — два варианта
+### Шаг 3.1: Фриланс-диспетчер — универсальный сценарий
 
-**Вариант A — Офферы**
+Фриланс-диспетчер может работать **в обе стороны**:
 
-1. Водитель: `POST /api/cargo/{id}/offers` (carrier_id, price, currency, comment).
+- **Добавить на себя водителя и подбирать ему грузы:** диспетчер приглашает водителя (`POST /v1/dispatchers/driver-invitations`, phone или driver_id). Водитель принимает → попадает в «мои водители». Список водителей с фильтрами: `GET /v1/dispatchers/drivers` (query: phone, work_status, truck_type, page, limit, sort). Дальше диспетчер отправляет **таклиф** (приглашение на груз) выбранному водителю: `POST /v1/dispatchers/cargo/{id}/recommend` (body: driver_id). Водитель видит детали груза в `GET /v1/driver/recommended-cargo` и принимает или отказывает.
+- **Добавить груз и искать ему водителя:** диспетчер создаёт груз (`POST /api/cargo`), после модерации груз в поиске. Водители сами присылают офферы (`POST /api/cargo/{id}/offers`), либо диспетчер отправляет приглашение конкретному водителю (recommend). Диспетчер принимает оффер или водитель принимает рекомендацию — рейс создаётся.
+
+Связку можно начать и с водителя: водитель «добавляет на себя» диспетчера (`POST /v1/driver/dispatcher-invitations`, body: phone). Диспетчер принимает (`POST /v1/dispatchers/invitations-from-drivers/accept`) — у водителя проставляется freelancer_id, диспетчер видит его в своих водителях и может подбирать ему грузы.
+
+### Шаг 4: Назначение водителя — только через приглашения (офферы и рекомендации)
+
+**Диспетчер не назначает (assign) водителя** — он только отправляет приглашения. Водитель назначается на груз только путём **принятия оффера** или **принятия рекомендации**. Для грузов фриланс-диспетчера вызов `PATCH /v1/dispatchers/trips/:id/assign-driver` запрещён (400).
+
+**Два вида приглашений (в обе стороны можно отправить «пустое» приглашение — готов везти на указанную сумму — или приглашение с другой суммой):**
+
+**Вариант A — Оффер от водителя (приглашение везти груз на сумму)**
+
+1. Водитель: `POST /api/cargo/{id}/offers` (carrier_id, price, currency, comment) — приглашение перевезти груз на указанную сумму (или с комментарием «цена договорная»).
 2. Диспетчер: `GET /api/cargo/{id}/offers` → принять или отклонить.
 3. Принять: `POST /api/offers/{id}/accept` → создаётся рейс, груз → **assigned**, водитель привязывается к рейсу.
 4. Отклонить: `POST /v1/dispatchers/offers/{id}/reject` (body: reason — необязательно).
 
-**Вариант B — Рекомендации**
+**Вариант B — Рекомендация от диспетчера (приглашение водителю везти груз)**
 
-1. Диспетчер: `POST /v1/dispatchers/cargo/{id}/recommend` (body: driver_id). Груз должен быть **searching** и принадлежать диспетчеру.
-2. Водитель: `GET /v1/driver/recommended-cargo` — список рекомендаций.
+1. Диспетчер: `POST /v1/dispatchers/cargo/{id}/recommend` (body: driver_id). Груз должен быть в статусе **searching** и принадлежать диспетчеру. Это приглашение водителю перевезти груз (по умолчанию на сумму из условий груза).
+2. Водитель: `GET /v1/driver/recommended-cargo` — список приглашений.
 3. Принять: `POST /v1/driver/recommended-cargo/{cargoId}/accept` → создаётся оффер по цене груза, оффер принимается, рейс создаётся, груз → **assigned**.
 4. Отказать: `POST /v1/driver/recommended-cargo/{cargoId}/decline`.
 
+В обоих вариантах можно отправить приглашение «на указанную сумму» (из груза или явно) или с другой суммой (водитель в оффере указывает свою цену; при рекомендации по умолчанию берётся сумма из груза).
+
 ### Шаг 5: Рейс и статус груза
 
-- После принятия оффера/рекомендации: груз **assigned**, рейс в статусе **pending_driver**.
+- После принятия оффера или рекомендации: груз **assigned**, рейс создаётся в статусе **pending_driver**, водитель уже привязан к рейсу.
 - Водитель подтверждает: `POST /v1/driver/trips/{id}/confirm` → рейс **assigned**.
 - Водитель меняет этап: `PATCH /v1/driver/trips/{id}/status` (body: `{"status": "loading" | "en_route" | "unloading" | "completed" | "cancelled"}`).
 - **Синхронизация с грузом:**  
@@ -125,6 +142,10 @@
 
 | Шаг | Действие | Раздел в Swagger | API |
 |-----|----------|-------------------|-----|
+| 0a | Водитель: пригласить диспетчера (добавить на себя) | Drivers / Invite dispatcher | POST /v1/driver/dispatcher-invitations (body: phone) |
+| 0b | Диспетчер: принять приглашение от водителя | Freelance Dispatchers / Invitations from drivers | POST /v1/dispatchers/invitations-from-drivers/accept (body: token) |
+| 0c | Диспетчер: пригласить водителя | Freelance Dispatchers / Приглашения водителей | POST /v1/dispatchers/driver-invitations (phone или driver_id) |
+| 0d | Водитель: принять приглашение диспетчера | Drivers / Driver invitations | POST /v1/driver/driver-invitations/accept (body: token) |
 | 1 | Создать груз (диспетчер) | Freelance Dispatchers / Добавление груза, Cargo — Диспетчер | POST /api/cargo |
 | 2 | Список на модерации | Admin / Cargo moderation | GET /v1/admin/cargo/moderation |
 | 3 | Принять груз (админ) | Admin / Cargo moderation | POST /v1/admin/cargo/{id}/moderation/accept (body: search_visibility all \| company) |

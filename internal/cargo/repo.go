@@ -42,44 +42,67 @@ type ListResult struct {
 
 // CreateParams for creating cargo with route points and payment.
 type CreateParams struct {
-	Weight        float64
-	Volume        float64
-	ReadyEnabled  bool
-	ReadyAt       *string
-	LoadComment   *string
-	TruckType     string
-	TempMin       *float64
-	TempMax       *float64
-	ADREnabled    bool
-	ADRClass      *string
-	LoadingTypes  []string
-	Requirements  []string
-	ShipmentType  *string
-	BeltsCount    *int
-	Documents     *Documents
-	ContactName   *string
-	ContactPhone  *string
-	Status        string
-	RoutePoints   []RoutePointInput
-	Payment       *PaymentInput
-	// Кто создал (admin/dispatcher) — заполняется из JWT при создании
+	// Шаг 1 — Груз
+	Name       *string
+	Weight     float64  `validate:"required,gt=0"`
+	Volume     float64
+	Packaging  *string  // Упаковка
+	Dimensions *string  // Габариты
+	Photos     []string // Фото (max 5, каждая ≤10MB)
+
+	// Шаг 2 — Готовность
+	ReadyEnabled bool
+	ReadyAt      *string
+	LoadComment  *string
+
+	// Шаг 3 — Транспорт
+	TruckType        string        `validate:"required"`
+	CapacityRequired float64       `validate:"required,gt=0"` // Грузоподъёмность
+	TempMin          *float64
+	TempMax          *float64
+	ADREnabled       bool
+	ADRClass         *string       `validate:"required_if=ADREnabled true"`
+	LoadingTypes     []string
+	Requirements     []string
+	ShipmentType     *ShipmentType
+	BeltsCount       *int
+	Documents        *Documents // TIR, T1, CMR, Medbook, GLONASS, Seal, Permit
+
+	// Контакты
+	ContactName  *string `validate:"required"`
+	ContactPhone *string `validate:"required"`
+
+	// Статус
+	Status CargoStatus
+
+	// Маршрут
+	RoutePoints []RoutePointInput `validate:"min=2,dive"` // минимум 2 точки
+
+	// Оплата
+	Payment *PaymentInput
+
+	// Системные (из JWT)
 	CreatedByType *string
 	CreatedByID   *uuid.UUID
 	CompanyID     *uuid.UUID
+
+	// Тип груза
+	CargoTypeID *uuid.UUID
 }
 
 type RoutePointInput struct {
-	Type         string
+	Type         string  `validate:"required,oneof=load unload customs transit"`
 	CityCode     string
 	RegionCode   string
-	Address      string
+	Address      string  `validate:"required"`
 	Orientir     string
-	Lat          float64
-	Lng          float64
+	Lat          float64 `validate:"required_with=Address"`
+	Lng          float64 `validate:"required_with=Address"`
+	PlaceID      *string // ID от карт для автокомплита
 	Comment      *string
-	PointOrder   int
-	IsMainLoad   bool
-	IsMainUnload bool
+	PointOrder   int  `validate:"required,min=1"`
+	IsMainLoad   bool // Первая точка load?
+	IsMainUnload bool // Последняя точка unload?
 }
 
 type PaymentInput struct {
@@ -108,16 +131,17 @@ func (r *Repo) Create(ctx context.Context, p CreateParams) (uuid.UUID, error) {
 	docJSON, _ := DocumentsToJSON(p.Documents)
 	var id uuid.UUID
 	q := `
-INSERT INTO cargo (weight, volume, ready_enabled, ready_at, load_comment, truck_type,
+INSERT INTO cargo (name, weight, volume, ready_enabled, ready_at, load_comment, truck_type,
   temp_min, temp_max, adr_enabled, adr_class, loading_types, requirements, shipment_type, belts_count,
-  documents, contact_name, contact_phone, status, created_at, updated_at, deleted_at, created_by_type, created_by_id, company_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, COALESCE(NULLIF(TRIM($18),''), 'PENDING_MODERATION'), now(), now(), NULL, $19, $20, $21)
+  documents, contact_name, contact_phone, status, created_at, updated_at, deleted_at, created_by_type, created_by_id, company_id, cargo_type_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, COALESCE(NULLIF(TRIM($19),''), 'PENDING_MODERATION'), now(), now(), NULL, $20, $21, $22, $23)
 RETURNING id`
 	err = tx.QueryRow(ctx, q,
+		p.Name,
 		p.Weight, p.Volume, p.ReadyEnabled, p.ReadyAt, p.LoadComment, p.TruckType,
 		p.TempMin, p.TempMax, p.ADREnabled, p.ADRClass, p.LoadingTypes, p.Requirements, p.ShipmentType, p.BeltsCount,
 		docJSON, p.ContactName, p.ContactPhone, p.Status,
-		p.CreatedByType, p.CreatedByID, p.CompanyID,
+		p.CreatedByType, p.CreatedByID, p.CompanyID, p.CargoTypeID,
 	).Scan(&id)
 	if err != nil {
 		return uuid.Nil, err
@@ -151,9 +175,9 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 
 // GetByID returns cargo by id (excluding soft-deleted if needAll=false).
 func (r *Repo) GetByID(ctx context.Context, id uuid.UUID, includeDeleted bool) (*Cargo, error) {
-	q := `SELECT id, weight, volume, ready_enabled, ready_at, load_comment, truck_type,
+	q := `SELECT id, name, weight, volume, ready_enabled, ready_at, load_comment, truck_type,
   temp_min, temp_max, adr_enabled, adr_class, loading_types, requirements, shipment_type, belts_count,
-  documents, contact_name, contact_phone, status, created_at, updated_at, deleted_at, moderation_rejection_reason, created_by_type, created_by_id, company_id
+  documents, contact_name, contact_phone, status, created_at, updated_at, deleted_at, moderation_rejection_reason, created_by_type, created_by_id, company_id, cargo_type_id
 FROM cargo WHERE id = $1`
 	if !includeDeleted {
 		q += ` AND deleted_at IS NULL`
@@ -207,10 +231,10 @@ func scanCargo(row pgx.Row) (*Cargo, error) {
 	var docBytes []byte
 	var loadingTypes, requirements []string
 	err := row.Scan(
-		&c.ID, &c.Weight, &c.Volume, &c.ReadyEnabled, &c.ReadyAt, &c.LoadComment, &c.TruckType,
+		&c.ID, &c.Name, &c.Weight, &c.Volume, &c.ReadyEnabled, &c.ReadyAt, &c.LoadComment, &c.TruckType,
 		&c.TempMin, &c.TempMax, &c.ADREnabled, &c.ADRClass, &loadingTypes, &requirements, &c.ShipmentType, &c.BeltsCount,
 		&docBytes, &c.ContactName, &c.ContactPhone, &c.Status, &c.CreatedAt, &c.UpdatedAt, &c.DeletedAt,
-		&c.ModerationRejectionReason, &c.CreatedByType, &c.CreatedByID, &c.CompanyID,
+		&c.ModerationRejectionReason, &c.CreatedByType, &c.CreatedByID, &c.CompanyID, &c.CargoTypeID,
 	)
 	if err != nil {
 		return nil, err
@@ -328,7 +352,7 @@ FROM cargo WHERE ` + where + ` ORDER BY ` + order + ` LIMIT $` + strconv.Itoa(ar
 func statusListContainsSearching(statuses []string) bool {
 	for _, s := range statuses {
 		switch s {
-		case StatusSearchingAll, StatusSearchingCompany, "SEARCHING":
+		case string(StatusSearchingAll), string(StatusSearchingCompany), "SEARCHING":
 			return true
 		}
 	}
@@ -344,25 +368,30 @@ func nextArgNum(n *int) string {
 
 // UpdateParams for PUT /api/cargo/:id (partial; only non-nil fields updated where applicable).
 type UpdateParams struct {
-	Weight        *float64
-	Volume        *float64
-	ReadyEnabled  *bool
-	ReadyAt       *string
-	LoadComment   *string
-	TruckType     *string
-	TempMin       *float64
-	TempMax       *float64
-	ADREnabled    *bool
-	ADRClass      *string
-	LoadingTypes  []string
-	Requirements  []string
-	ShipmentType  *string
-	BeltsCount    *int
-	Documents     *Documents
-	ContactName   *string
-	ContactPhone  *string
-	RoutePoints   []RoutePointInput
-	Payment       *PaymentInput
+	Name             *string
+	Weight           *float64
+	Volume           *float64
+	Packaging        *string
+	Dimensions       *string
+	Photos           []string
+	ReadyEnabled     *bool
+	ReadyAt          *string
+	LoadComment      *string
+	TruckType        *string
+	CapacityRequired *float64
+	TempMin          *float64
+	TempMax          *float64
+	ADREnabled       *bool
+	ADRClass         *string
+	LoadingTypes     []string
+	Requirements     []string
+	ShipmentType     *ShipmentType
+	BeltsCount       *int
+	Documents        *Documents
+	ContactName      *string
+	ContactPhone     *string
+	RoutePoints      []RoutePointInput
+	Payment          *PaymentInput
 }
 
 // Update updates cargo and optionally replaces route_points and payment. Returns error if cargo not found or deleted.
@@ -392,6 +421,9 @@ func (r *Repo) Update(ctx context.Context, id uuid.UUID, p UpdateParams) error {
 	add := func(col string, v any) {
 		setCols = append(setCols, col+" = $"+nextArgNum(&argN))
 		args = append(args, v)
+	}
+	if p.Name != nil {
+		add("name", *p.Name)
 	}
 	if p.Weight != nil {
 		add("weight", *p.Weight)
@@ -517,7 +549,7 @@ func (r *Repo) Delete(ctx context.Context, id uuid.UUID) error {
 
 // SetStatus updates cargo status with allowed transitions. Returns error if transition invalid.
 func (r *Repo) SetStatus(ctx context.Context, id uuid.UUID, newStatus string) error {
-	allowed := map[string][]string{
+	allowed := map[CargoStatus][]CargoStatus{
 		StatusCreated:            {StatusSearchingAll, StatusSearchingCompany, StatusCancelled},
 		StatusPendingModeration:   {StatusSearchingAll, StatusSearchingCompany, StatusRejected},
 		StatusSearchingAll:       {StatusAssigned, StatusCancelled},
@@ -539,7 +571,7 @@ func (r *Repo) SetStatus(ctx context.Context, id uuid.UUID, newStatus string) er
 		return errors.New("cargo: invalid current status")
 	}
 	for _, s := range next {
-		if s == newStatus {
+		if s == CargoStatus(newStatus) {
 			_, err = r.pg.Exec(ctx, "UPDATE cargo SET status = $1, updated_at = now() WHERE id = $2 AND deleted_at IS NULL", newStatus, id)
 			return err
 		}

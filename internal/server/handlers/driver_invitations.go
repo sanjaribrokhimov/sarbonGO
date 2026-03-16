@@ -216,7 +216,6 @@ type SetDriverPowerReq struct {
 	PowerPlateNumber *string `json:"power_plate_number,omitempty"`
 	PowerTechSeries  *string `json:"power_tech_series,omitempty"`
 	PowerTechNumber  *string `json:"power_tech_number,omitempty"`
-	PowerOwnerID     *string `json:"power_owner_id,omitempty"`
 	PowerOwnerName   *string `json:"power_owner_name,omitempty"`
 	PowerScanStatus  *bool   `json:"power_scan_status,omitempty"`
 }
@@ -258,14 +257,12 @@ func (h *DriverInvitationsHandler) SetDriverPower(c *gin.Context) {
 	trimPtr(&req.PowerPlateNumber)
 	trimPtr(&req.PowerTechSeries)
 	trimPtr(&req.PowerTechNumber)
-	trimPtr(&req.PowerOwnerID)
 	trimPtr(&req.PowerOwnerName)
 	if err := h.drv.UpdatePowerProfile(c.Request.Context(), driverID, drivers.UpdatePowerProfile{
 		PowerPlateType:   req.PowerPlateType,
 		PowerPlateNumber: req.PowerPlateNumber,
 		PowerTechSeries:  req.PowerTechSeries,
 		PowerTechNumber:  req.PowerTechNumber,
-		PowerOwnerID:     req.PowerOwnerID,
 		PowerOwnerName:   req.PowerOwnerName,
 		PowerScanStatus:  req.PowerScanStatus,
 	}); err != nil {
@@ -283,7 +280,6 @@ type SetDriverTrailerReq struct {
 	TrailerPlateNumber *string `json:"trailer_plate_number,omitempty"`
 	TrailerTechSeries  *string `json:"trailer_tech_series,omitempty"`
 	TrailerTechNumber  *string `json:"trailer_tech_number,omitempty"`
-	TrailerOwnerID     *string `json:"trailer_owner_id,omitempty"`
 	TrailerOwnerName   *string `json:"trailer_owner_name,omitempty"`
 	TrailerScanStatus  *bool   `json:"trailer_scan_status,omitempty"`
 }
@@ -325,14 +321,12 @@ func (h *DriverInvitationsHandler) SetDriverTrailer(c *gin.Context) {
 	trimPtr(&req.TrailerPlateNumber)
 	trimPtr(&req.TrailerTechSeries)
 	trimPtr(&req.TrailerTechNumber)
-	trimPtr(&req.TrailerOwnerID)
 	trimPtr(&req.TrailerOwnerName)
 	if err := h.drv.UpdateTrailerProfile(c.Request.Context(), driverID, drivers.UpdateTrailerProfile{
 		TrailerPlateType:   req.TrailerPlateType,
 		TrailerPlateNumber: req.TrailerPlateNumber,
 		TrailerTechSeries:  req.TrailerTechSeries,
 		TrailerTechNumber:  req.TrailerTechNumber,
-		TrailerOwnerID:     req.TrailerOwnerID,
 		TrailerOwnerName:   req.TrailerOwnerName,
 		TrailerScanStatus:  req.TrailerScanStatus,
 	}); err != nil {
@@ -490,16 +484,29 @@ func (h *DriverInvitationsHandler) Decline(c *gin.Context) {
 	resp.OKLang(c, "declined", gin.H{"status": "declined"})
 }
 
-// ListMyDrivers returns drivers linked to the current freelance dispatcher (freelancer_id = me).
+// ListMyDrivers returns drivers linked to the current freelance dispatcher (freelancer_id = me) with filters and pagination.
+// Query: phone (search), work_status, truck_type (power_plate_type), page, limit, sort (e.g. updated_at:desc, name:asc, last_online_at:desc).
 func (h *DriverInvitationsHandler) ListMyDrivers(c *gin.Context) {
 	dispatcherID := c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
-	limit := 100
-	if l := c.Query("limit"); l != "" {
-		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 200 {
-			limit = n
+	f := drivers.ListDriversFilter{
+		Phone:      strings.TrimSpace(c.Query("phone")),
+		WorkStatus: strings.TrimSpace(c.Query("work_status")),
+		TruckType:  strings.TrimSpace(c.Query("truck_type")),
+		Page:       1,
+		Limit:      20,
+		Sort:       strings.TrimSpace(c.DefaultQuery("sort", "updated_at:desc")),
+	}
+	if p := c.Query("page"); p != "" {
+		if n, err := strconv.Atoi(p); err == nil && n > 0 {
+			f.Page = n
 		}
 	}
-	list, err := h.drv.ListByFreelancerID(c.Request.Context(), dispatcherID, limit)
+	if l := c.Query("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 100 {
+			f.Limit = n
+		}
+	}
+	list, total, err := h.drv.ListByFreelancerIDFilter(c.Request.Context(), dispatcherID, f)
 	if err != nil {
 		h.logger.Error("list my drivers", zap.Error(err))
 		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_list_drivers")
@@ -508,5 +515,39 @@ func (h *DriverInvitationsHandler) ListMyDrivers(c *gin.Context) {
 	if list == nil {
 		list = []*drivers.Driver{}
 	}
-	resp.OKLang(c, "ok", gin.H{"items": list})
+	resp.OKLang(c, "ok", gin.H{"items": list, "total": total})
+}
+
+// ListAllDriversForFreelance returns all drivers in the system (not only linked ones) with filters and pagination.
+// Query: phone (search), work_status, truck_type (power_plate_type), page, limit, sort (e.g. updated_at:desc, name:asc, last_online_at:desc, work_status:asc).
+func (h *DriverInvitationsHandler) ListAllDriversForFreelance(c *gin.Context) {
+	_ = c.MustGet(mw.CtxDispatcherID).(uuid.UUID)
+	f := drivers.ListDriversFilter{
+		Phone:      strings.TrimSpace(c.Query("phone")),
+		WorkStatus: strings.TrimSpace(c.Query("work_status")),
+		TruckType:  strings.TrimSpace(c.Query("truck_type")),
+		Page:       1,
+		Limit:      20,
+		Sort:       strings.TrimSpace(c.DefaultQuery("sort", "updated_at:desc")),
+	}
+	if p := c.Query("page"); p != "" {
+		if n, err := strconv.Atoi(p); err == nil && n > 0 {
+			f.Page = n
+		}
+	}
+	if l := c.Query("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 100 {
+			f.Limit = n
+		}
+	}
+	list, total, err := h.drv.ListAllForFreelancerFilter(c.Request.Context(), f)
+	if err != nil {
+		h.logger.Error("list all drivers for freelance dispatcher", zap.Error(err))
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_list_drivers")
+		return
+	}
+	if list == nil {
+		list = []*drivers.Driver{}
+	}
+	resp.OKLang(c, "ok", gin.H{"items": list, "total": total})
 }

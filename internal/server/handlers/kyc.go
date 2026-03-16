@@ -42,7 +42,6 @@ type powerData struct {
 	PlateNumber string `json:"power_plate_number" binding:"required"`
 	TechSeries  string `json:"power_tech_series" binding:"required"`
 	TechNumber  string `json:"power_tech_number" binding:"required"`
-	OwnerID     string `json:"power_owner_id" binding:"required"`     // INN or PINFL (value)
 	OwnerName   string `json:"power_owner_name" binding:"required"`   // name or organization
 	ScanStatus  *bool  `json:"power_scan_status" binding:"required"`  // required (true/false)
 }
@@ -51,7 +50,6 @@ type trailerData struct {
 	PlateNumber string `json:"trailer_plate_number" binding:"required"`
 	TechSeries  string `json:"trailer_tech_series" binding:"required"`
 	TechNumber  string `json:"trailer_tech_number" binding:"required"`
-	OwnerID     string `json:"trailer_owner_id" binding:"required"`   // INN or PINFL (value)
 	OwnerName   string `json:"trailer_owner_name" binding:"required"` // name or organization
 	ScanStatus  *bool  `json:"trailer_scan_status" binding:"required"`// required (true/false)
 }
@@ -72,12 +70,10 @@ func (h *KYCHandler) Submit(c *gin.Context) {
 	req.PowerData.PlateNumber = trim(req.PowerData.PlateNumber)
 	req.PowerData.TechSeries = trim(req.PowerData.TechSeries)
 	req.PowerData.TechNumber = trim(req.PowerData.TechNumber)
-	req.PowerData.OwnerID = trim(req.PowerData.OwnerID)
 	req.PowerData.OwnerName = trim(req.PowerData.OwnerName)
 	req.TrailerData.PlateNumber = trim(req.TrailerData.PlateNumber)
 	req.TrailerData.TechSeries = trim(req.TrailerData.TechSeries)
 	req.TrailerData.TechNumber = trim(req.TrailerData.TechNumber)
-	req.TrailerData.OwnerID = trim(req.TrailerData.OwnerID)
 	req.TrailerData.OwnerName = trim(req.TrailerData.OwnerName)
 
 	// Completion rules (for StatusFull): all required fields are present + scan statuses are true.
@@ -85,11 +81,11 @@ func (h *KYCHandler) Submit(c *gin.Context) {
 		req.DriverData.ScanStatus != nil && *req.DriverData.ScanStatus
 
 	powerOK := req.PowerData.PlateNumber != "" && req.PowerData.TechSeries != "" && req.PowerData.TechNumber != "" &&
-		req.PowerData.OwnerID != "" && req.PowerData.OwnerName != "" &&
+		req.PowerData.OwnerName != "" &&
 		req.PowerData.ScanStatus != nil && *req.PowerData.ScanStatus
 
 	trailerOK := req.TrailerData.PlateNumber != "" && req.TrailerData.TechSeries != "" && req.TrailerData.TechNumber != "" &&
-		req.TrailerData.OwnerID != "" && req.TrailerData.OwnerName != "" &&
+		req.TrailerData.OwnerName != "" &&
 		req.TrailerData.ScanStatus != nil && *req.TrailerData.ScanStatus
 
 	driverOwnerOK := req.DriverOwner != nil
@@ -102,16 +98,16 @@ func (h *KYCHandler) Submit(c *gin.Context) {
 		resp.ErrorLang(c, http.StatusUnauthorized, "driver_not_found")
 		return
 	}
-	nextStatus := current.RegistrationStatus
-	regStatus := ""
-	if isFull {
-		regStatus = string(domain.StatusFull)
-	} else if nextStatus != nil && *nextStatus != "" {
-		regStatus = *nextStatus
-	} else {
+	regStatus := func() string {
+		if isFull {
+			return string(domain.StatusFull)
+		}
+		if current.RegistrationStatus != nil && *current.RegistrationStatus != "" {
+			return *current.RegistrationStatus
+		}
 		// If registration isn't started properly, keep it as-is.
-		regStatus = string(domain.StatusBasic)
-	}
+		return string(domain.StatusBasic)
+	}()
 
 	kycStatus := "pending"
 	if isFull {
@@ -126,13 +122,11 @@ func (h *KYCHandler) Submit(c *gin.Context) {
 		PowerPlateNumber:     req.PowerData.PlateNumber,
 		PowerTechSeries:      req.PowerData.TechSeries,
 		PowerTechNumber:      req.PowerData.TechNumber,
-		PowerOwnerID:         req.PowerData.OwnerID,
 		PowerOwnerName:       req.PowerData.OwnerName,
 		PowerScanStatus:      req.PowerData.ScanStatus,
 		TrailerPlateNumber:   req.TrailerData.PlateNumber,
 		TrailerTechSeries:    req.TrailerData.TechSeries,
 		TrailerTechNumber:    req.TrailerData.TechNumber,
-		TrailerOwnerID:       req.TrailerData.OwnerID,
 		TrailerOwnerName:     req.TrailerData.OwnerName,
 		TrailerScanStatus:    req.TrailerData.ScanStatus,
 		DriverOwner:          req.DriverOwner,

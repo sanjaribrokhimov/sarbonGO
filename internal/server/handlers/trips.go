@@ -82,11 +82,24 @@ type AssignDriverReq struct {
 }
 
 // AssignDriver sets driver on trip (dispatcher). Trip must be pending_driver.
+// For freelance dispatcher's cargo, assigning is forbidden — driver is set only via accept offer or accept recommendation (invitation flow).
 func (h *TripsHandler) AssignDriver(c *gin.Context) {
 	tripID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
 		return
+	}
+	t, err := h.repo.GetByID(c.Request.Context(), tripID)
+	if err != nil || t == nil {
+		resp.ErrorLang(c, http.StatusNotFound, "trip_not_found_or_not_pending_driver")
+		return
+	}
+	if h.cargoRepo != nil {
+		cargoObj, _ := h.cargoRepo.GetByID(c.Request.Context(), t.CargoID, false)
+		if cargoObj != nil && cargoObj.CreatedByType != nil && *cargoObj.CreatedByType == "DISPATCHER" {
+			resp.ErrorLang(c, http.StatusBadRequest, "freelance_cargo_assign_via_offer_or_recommendation")
+			return
+		}
 	}
 	var req AssignDriverReq
 	if err := c.ShouldBindJSON(&req); err != nil {

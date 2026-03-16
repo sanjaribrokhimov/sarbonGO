@@ -35,36 +35,43 @@ func NewCargoHandler(logger *zap.Logger, repo *cargo.Repo, tripsRepo *trips.Repo
 
 // CreateCargoReq body for POST /api/cargo.
 type CreateCargoReq struct {
-	Weight       float64                `json:"weight" binding:"required,gt=0"`
-	Volume       float64                `json:"volume" binding:"required,gt=0"` // объём груза (м³)
-	ReadyEnabled bool                   `json:"ready_enabled"`
-	ReadyAt      *string                `json:"ready_at"`
-	LoadComment  *string                `json:"load_comment"`
-	TruckType    string                 `json:"truck_type" binding:"required"`
-	TempMin      *float64               `json:"temp_min"`
-	TempMax      *float64               `json:"temp_max"`
-	ADREnabled   bool                   `json:"adr_enabled"`
-	ADRClass     *string                `json:"adr_class"`
-	LoadingTypes []string               `json:"loading_types"`
-	Requirements []string               `json:"requirements"`
-	ShipmentType *string                `json:"shipment_type"`
-	BeltsCount   *int                   `json:"belts_count"`
-	Documents    *cargo.Documents        `json:"documents"`
-	ContactName  *string                `json:"contact_name"`
-	ContactPhone *string                `json:"contact_phone"`
-	RoutePoints  []RoutePointReq        `json:"route_points" binding:"required,dive"`
-	Payment      *PaymentReq            `json:"payment"`
-	CompanyID    *uuid.UUID             `json:"company_id"`
+	Name             *string        `json:"name"`
+	Weight           float64        `json:"weight" binding:"required,gt=0"`
+	Volume           float64        `json:"volume" binding:"required,gt=0"` // объём груза (м³)
+	Packaging        *string        `json:"packaging"`
+	Dimensions       *string        `json:"dimensions"`
+	Photos           []string       `json:"photos"` // 1–5 ссылок/ID файлов
+	ReadyEnabled     bool           `json:"ready_enabled"`
+	ReadyAt          *string        `json:"ready_at"`
+	LoadComment      *string        `json:"load_comment"`
+	TruckType        string         `json:"truck_type" binding:"required"`
+	CapacityRequired float64        `json:"capacity_required" binding:"required,gt=0"`
+	TempMin          *float64       `json:"temp_min"`
+	TempMax          *float64       `json:"temp_max"`
+	ADREnabled       bool           `json:"adr_enabled"`
+	ADRClass         *string        `json:"adr_class"`
+	LoadingTypes     []string       `json:"loading_types"`
+	Requirements     []string       `json:"requirements"`
+	ShipmentType     *string        `json:"shipment_type"`
+	BeltsCount       *int           `json:"belts_count"`
+	Documents        *cargo.Documents `json:"documents"`
+	ContactName      *string        `json:"contact_name"`
+	ContactPhone     *string        `json:"contact_phone"`
+	CargoTypeID      *uuid.UUID     `json:"cargo_type_id"`
+	RoutePoints      []RoutePointReq `json:"route_points" binding:"required,dive"`
+	Payment          *PaymentReq    `json:"payment"`
+	CompanyID        *uuid.UUID     `json:"company_id"`
 }
 
 type RoutePointReq struct {
 	Type         string   `json:"type" binding:"required,oneof=LOAD UNLOAD CUSTOMS TRANSIT"`
-	CityCode     string   `json:"city_code" binding:"required"`   // код города (TAS, SAM, DXB) — из справочника
-	RegionCode   string   `json:"region_code"`                    // код региона/области (опционально)
-	Address      string   `json:"address" binding:"required"`      // адрес (улица, дом)
-	Orientir     string   `json:"orientir"`                      // ориентир для водителя
+	CityCode     string   `json:"city_code" binding:"required"`  // код города (TAS, SAM, DXB) — из справочника
+	RegionCode   string   `json:"region_code"`                   // код региона/области (опционально)
+	Address      string   `json:"address" binding:"required"`    // адрес (улица, дом)
+	Orientir     string   `json:"orientir"`                     // ориентир для водителя
 	Lat          float64  `json:"lat" binding:"required"`
 	Lng          float64  `json:"lng" binding:"required"`
+	PlaceID      *string  `json:"place_id"` // ID от карт для автокомплита
 	Comment      *string  `json:"comment"`
 	PointOrder   int      `json:"point_order" binding:"required"`
 	IsMainLoad   bool     `json:"is_main_load"`
@@ -407,25 +414,30 @@ func (h *CargoHandler) RejectOfferDispatcher(c *gin.Context) {
 
 // UpdateCargoReq for PUT /api/cargo/:id (all optional).
 type UpdateCargoReq struct {
-	Weight       *float64         `json:"weight"`
-	Volume       *float64         `json:"volume"`
-	ReadyEnabled *bool            `json:"ready_enabled"`
-	ReadyAt      *string          `json:"ready_at"`
-	LoadComment  *string          `json:"load_comment"`
-	TruckType    *string          `json:"truck_type"`
-	TempMin      *float64         `json:"temp_min"`
-	TempMax      *float64         `json:"temp_max"`
-	ADREnabled   *bool            `json:"adr_enabled"`
-	ADRClass     *string          `json:"adr_class"`
-	LoadingTypes []string         `json:"loading_types"`
-	Requirements []string         `json:"requirements"`
-	ShipmentType *string          `json:"shipment_type"`
-	BeltsCount   *int             `json:"belts_count"`
-	Documents    *cargo.Documents  `json:"documents"`
-	ContactName  *string          `json:"contact_name"`
-	ContactPhone *string          `json:"contact_phone"`
-	RoutePoints  []RoutePointReq  `json:"route_points"`
-	Payment      *PaymentReq      `json:"payment"`
+	Name             *string          `json:"name"`
+	Weight           *float64         `json:"weight"`
+	Volume           *float64         `json:"volume"`
+	Packaging        *string          `json:"packaging"`
+	Dimensions       *string          `json:"dimensions"`
+	Photos           []string         `json:"photos"`
+	ReadyEnabled     *bool            `json:"ready_enabled"`
+	ReadyAt          *string          `json:"ready_at"`
+	LoadComment      *string          `json:"load_comment"`
+	TruckType        *string          `json:"truck_type"`
+	CapacityRequired *float64         `json:"capacity_required"`
+	TempMin          *float64         `json:"temp_min"`
+	TempMax          *float64         `json:"temp_max"`
+	ADREnabled       *bool            `json:"adr_enabled"`
+	ADRClass         *string          `json:"adr_class"`
+	LoadingTypes     []string         `json:"loading_types"`
+	Requirements     []string         `json:"requirements"`
+	ShipmentType     *string          `json:"shipment_type"`
+	BeltsCount       *int             `json:"belts_count"`
+	Documents        *cargo.Documents `json:"documents"`
+	ContactName      *string          `json:"contact_name"`
+	ContactPhone     *string          `json:"contact_phone"`
+	RoutePoints      []RoutePointReq  `json:"route_points"`
+	Payment          *PaymentReq      `json:"payment"`
 }
 
 func validateCargoCreate(req CreateCargoReq) error {
@@ -547,30 +559,43 @@ func strPtrUpper(s *string) *string {
 	return &u
 }
 
+func shipmentTypePtrUpper(s *string) *cargo.ShipmentType {
+	if s == nil || *s == "" {
+		return nil
+	}
+	u := cargo.ShipmentType(upperStr(*s))
+	return &u
+}
+
 func toCreateParams(req CreateCargoReq) cargo.CreateParams {
 	loadingTypes := make([]string, 0, len(req.LoadingTypes))
 	for _, v := range req.LoadingTypes {
 		loadingTypes = append(loadingTypes, upperStr(v))
 	}
 	p := cargo.CreateParams{
-		Weight:        req.Weight,
-		Volume:        req.Volume,
-		ReadyEnabled:  req.ReadyEnabled,
-		ReadyAt:       req.ReadyAt,
-		LoadComment:   req.LoadComment,
-		TruckType:     upperStr(req.TruckType),
-		TempMin:       req.TempMin,
-		TempMax:       req.TempMax,
-		ADREnabled:    req.ADREnabled,
-		ADRClass:      strPtrUpper(req.ADRClass),
-		LoadingTypes:  loadingTypes,
-		Requirements:  req.Requirements,
-		ShipmentType:  strPtrUpper(req.ShipmentType),
-		BeltsCount:    req.BeltsCount,
-		Documents:     req.Documents,
-		ContactName:   req.ContactName,
-		ContactPhone:  req.ContactPhone,
-		Status:        cargo.StatusPendingModeration, // фрилансер создаёт → модерация; админ принимает (searching) или отклоняет (rejected)
+		Name:             req.Name,
+		Weight:           req.Weight,
+		Volume:           req.Volume,
+		Packaging:        req.Packaging,
+		Dimensions:       req.Dimensions,
+		Photos:           req.Photos,
+		ReadyEnabled:     req.ReadyEnabled,
+		ReadyAt:          req.ReadyAt,
+		LoadComment:      req.LoadComment,
+		TruckType:        upperStr(req.TruckType),
+		CapacityRequired: req.CapacityRequired,
+		TempMin:          req.TempMin,
+		TempMax:          req.TempMax,
+		ADREnabled:       req.ADREnabled,
+		ADRClass:         strPtrUpper(req.ADRClass),
+		LoadingTypes:     loadingTypes,
+		Requirements:     req.Requirements,
+		ShipmentType:     shipmentTypePtrUpper(req.ShipmentType),
+		BeltsCount:       req.BeltsCount,
+		Documents:        req.Documents,
+		ContactName:      req.ContactName,
+		ContactPhone:     req.ContactPhone,
+		Status:           cargo.StatusPendingModeration, // фрилансер создаёт → модерация; админ принимает (searching) или отклоняет (rejected)
 	}
 	for _, rp := range req.RoutePoints {
 		p.RoutePoints = append(p.RoutePoints, cargo.RoutePointInput{
@@ -581,6 +606,7 @@ func toCreateParams(req CreateCargoReq) cargo.CreateParams {
 			Orientir:     rp.Orientir,
 			Lat:          rp.Lat,
 			Lng:          rp.Lng,
+			PlaceID:      rp.PlaceID,
 			Comment:      rp.Comment,
 			PointOrder:   rp.PointOrder,
 			IsMainLoad:   rp.IsMainLoad,
@@ -608,8 +634,12 @@ func toCreateParams(req CreateCargoReq) cargo.CreateParams {
 
 func toUpdateParams(req UpdateCargoReq) cargo.UpdateParams {
 	p := cargo.UpdateParams{}
+	p.Name = req.Name
 	p.Weight = req.Weight
 	p.Volume = req.Volume
+	p.Packaging = req.Packaging
+	p.Dimensions = req.Dimensions
+	p.Photos = req.Photos
 	p.ReadyEnabled = req.ReadyEnabled
 	p.ReadyAt = req.ReadyAt
 	p.LoadComment = req.LoadComment
@@ -617,6 +647,7 @@ func toUpdateParams(req UpdateCargoReq) cargo.UpdateParams {
 		u := upperStr(*req.TruckType)
 		p.TruckType = &u
 	}
+	p.CapacityRequired = req.CapacityRequired
 	p.TempMin = req.TempMin
 	p.TempMax = req.TempMax
 	p.ADREnabled = req.ADREnabled
@@ -629,7 +660,7 @@ func toUpdateParams(req UpdateCargoReq) cargo.UpdateParams {
 		p.LoadingTypes = loadingTypes
 	}
 	p.Requirements = req.Requirements
-	p.ShipmentType = strPtrUpper(req.ShipmentType)
+	p.ShipmentType = shipmentTypePtrUpper(req.ShipmentType)
 	p.BeltsCount = req.BeltsCount
 	p.Documents = req.Documents
 	p.ContactName = req.ContactName

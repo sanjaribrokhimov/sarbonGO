@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"sarbonNew/internal/approles"
 	"sarbonNew/internal/reference"
@@ -215,6 +217,64 @@ func GetReferenceCargo(c *gin.Context) {
 		LoadingType:    refItemsToItemWithLabelLocalized(reference.LoadingTypeRefs, "cargo.loading_type", lang),
 	}
 	resp.OKLang(c, "ok", out)
+}
+
+// HintCargoTypes возвращает подсказку по типам груза из таблицы cargo_types.
+// Язык названий выбирается по X-Language (name_ru/name_uz/name_en/name_tr/name_zh).
+// Query-параметр q (опционально) фильтрует по подстроке в названии.
+func HintCargoTypes(pg *pgxpool.Pool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		lang := refLang(c)
+		q := strings.TrimSpace(c.Query("q"))
+
+		col := "name_ru"
+		switch lang {
+		case "uz":
+			col = "name_uz"
+		case "en":
+			col = "name_en"
+		case "tr":
+			col = "name_tr"
+		case "zh":
+			col = "name_zh"
+		}
+
+		args := []any{}
+		where := ""
+		if q != "" {
+			where = "WHERE " + col + " ILIKE $1"
+			args = append(args, "%"+q+"%")
+		}
+
+		rows, err := pg.Query(
+			c.Request.Context(),
+			fmt.Sprintf(`SELECT id, code, %s FROM cargo_types %s ORDER BY %s LIMIT 50`, col, where, col),
+			args...,
+		)
+		if err != nil {
+			resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_list")
+			return
+		}
+		defer rows.Close()
+
+		type item struct {
+			ID   string `json:"id"`
+			Code string `json:"code"`
+			Name string `json:"name"`
+		}
+
+		items := make([]item, 0)
+		for rows.Next() {
+			var it item
+			if err := rows.Scan(&it.ID, &it.Code, &it.Name); err != nil {
+				resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_list")
+				return
+			}
+			items = append(items, it)
+		}
+
+		resp.OKLang(c, "ok", gin.H{"items": items})
+	}
 }
 
 // GetReferenceAdmin возвращает справочник для раздела Admin. value — верхний регистр, label — по X-Language.

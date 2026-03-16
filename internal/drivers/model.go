@@ -38,7 +38,6 @@ type Driver struct {
 	PowerPlateNumber   *string `json:"power_plate_number"`
 	PowerTechSeries    *string `json:"power_tech_series"`
 	PowerTechNumber    *string `json:"power_tech_number"`
-	PowerOwnerID       *string `json:"power_owner_id"`
 	PowerOwnerName     *string `json:"power_owner_name"`
 	PowerScanStatus    *bool   `json:"power_scan_status"`
 
@@ -46,7 +45,6 @@ type Driver struct {
 	TrailerPlateNumber   *string `json:"trailer_plate_number"`
 	TrailerTechSeries    *string `json:"trailer_tech_series"`
 	TrailerTechNumber    *string `json:"trailer_tech_number"`
-	TrailerOwnerID       *string `json:"trailer_owner_id"`
 	TrailerOwnerName     *string `json:"trailer_owner_name"`
 	TrailerScanStatus    *bool   `json:"trailer_scan_status"`
 

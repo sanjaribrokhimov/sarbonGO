@@ -7,61 +7,72 @@ import (
 	"github.com/google/uuid"
 )
 
+// Типы для строгой типизации.
+type ShipmentType string
+
+const (
+	ShipmentFTL ShipmentType = "FTL"
+	ShipmentLTL ShipmentType = "LTL"
+)
+
+type CargoStatus string
+
 // CargoStatus values (UPPERCASE everywhere in API and DB).
 const (
-	StatusCreated            = "CREATED"
-	StatusPendingModeration  = "PENDING_MODERATION"
-	StatusSearchingAll       = "SEARCHING_ALL"       // visible to all drivers
-	StatusSearchingCompany   = "SEARCHING_COMPANY"   // visible only to company drivers
-	StatusRejected           = "REJECTED"
-	StatusAssigned          = "ASSIGNED"
-	StatusInProgress        = "IN_PROGRESS"
-	StatusInTransit         = "IN_TRANSIT"
-	StatusDelivered         = "DELIVERED"
-	StatusCompleted         = "COMPLETED"
-	StatusCancelled         = "CANCELLED"
+	StatusCreated           CargoStatus = "CREATED"
+	StatusPendingModeration CargoStatus = "PENDING_MODERATION"
+	StatusSearchingAll      CargoStatus = "SEARCHING_ALL"     // visible to all drivers
+	StatusSearchingCompany  CargoStatus = "SEARCHING_COMPANY" // visible only to company drivers
+	StatusRejected          CargoStatus = "REJECTED"
+	StatusAssigned          CargoStatus = "ASSIGNED"
+	StatusInProgress        CargoStatus = "IN_PROGRESS"
+	StatusInTransit         CargoStatus = "IN_TRANSIT"
+	StatusDelivered         CargoStatus = "DELIVERED"
+	StatusCompleted         CargoStatus = "COMPLETED"
+	StatusCancelled         CargoStatus = "CANCELLED"
 )
 
 // IsSearching returns true if status is one of the "searching" variants (cargo visible for offers).
-func IsSearching(status string) bool {
+func IsSearching(status CargoStatus) bool {
 	return status == StatusSearchingAll || status == StatusSearchingCompany
 }
 
 // Documents is the JSON object for cargo.documents (TIR, T1, CMR, etc.).
 type Documents struct {
-	TIR      *bool `json:"TIR,omitempty"`
-	T1       *bool `json:"T1,omitempty"`
-	CMR      *bool `json:"CMR,omitempty"`
-	Medbook  *bool `json:"Medbook,omitempty"`
-	GLONASS  *bool `json:"GLONASS,omitempty"`
-	Seal     *bool `json:"Seal,omitempty"`
-	Permit   *bool `json:"Permit,omitempty"`
+	TIR     bool `json:"TIR,omitempty"`
+	T1      bool `json:"T1,omitempty"`
+	CMR     bool `json:"CMR,omitempty"`
+	Medbook bool `json:"Medbook,omitempty"`
+	GLONASS bool `json:"GLONASS,omitempty"`
+	Seal    bool `json:"Seal,omitempty"`
+	Permit  bool `json:"Permit,omitempty"`
 }
 
 // Cargo model (table cargo).
 type Cargo struct {
-	ID            uuid.UUID
-	Weight        float64
-	Volume        float64
-	ReadyEnabled  bool
-	ReadyAt       *time.Time
-	LoadComment   *string
-	TruckType     string
-	TempMin       *float64
-	TempMax       *float64
-	ADREnabled    bool
-	ADRClass      *string
-	LoadingTypes  []string
-	Requirements  []string
-	ShipmentType  *string
-	BeltsCount    *int
-	Documents     *Documents
-	ContactName   *string
-	ContactPhone  *string
-	Status        string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	DeletedAt     *time.Time
+	ID           uuid.UUID
+	Name         *string
+	Weight       float64
+	Volume       float64
+	ReadyEnabled bool
+	ReadyAt      *time.Time
+	LoadComment  *string
+	TruckType    string
+	TempMin      *float64
+	TempMax      *float64
+	ADREnabled   bool
+	ADRClass     *string
+	LoadingTypes []string
+	Requirements []string
+	ShipmentType *ShipmentType
+	BeltsCount   *int
+	Documents    *Documents
+	ContactName  *string
+	ContactPhone *string
+	Status       CargoStatus
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	DeletedAt    *time.Time
 	// Moderation: admin reject reason (mandatory when status = rejected)
 	ModerationRejectionReason *string
 	// Кто создал: admin, dispatcher или company (admins, freelance_dispatchers или companies)
@@ -69,6 +80,7 @@ type Cargo struct {
 	CreatedByID   *uuid.UUID
 	// От какой компании груз (опционально; при created_by_type=company совпадает с created_by_id)
 	CompanyID     *uuid.UUID
+	CargoTypeID   *uuid.UUID
 }
 
 // RoutePoint model (table route_points).

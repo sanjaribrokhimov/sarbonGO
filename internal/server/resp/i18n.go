@@ -212,6 +212,13 @@ var apiMessages = map[string]map[string]string{
 		"tr": "Sefer bulunamadı veya pending_driver değil",
 		"zh": "未找到行程或非待分配司机状态",
 	},
+	"freelance_cargo_assign_via_offer_or_recommendation": {
+		"en": "For freelance dispatcher cargo, driver is set only by accepting an offer or recommendation (invitation), not by assign",
+		"ru": "Для груза фриланс-диспетчера водитель назначается только через принятие оффера или рекомендации (приглашение), не через assign",
+		"uz": "Frilans dispetcher yuki uchun haydovchi faqat taklif yoki tavsiyani (taklifnoma) qabul qilish orqali belgilanadi, assign orqali emas",
+		"tr": "Freelance dispatçı kargosu için sürücü yalnızca teklif veya öneriyi (davet) kabul ederek atanır, assign ile değil",
+		"zh": "自由调度员的货物只能通过接受报价或推荐（邀请）来指定司机，不能通过assign",
+	},
 	"require_cargo_id": {
 		"en": "cargo_id is required",
 		"ru": "Обязателен cargo_id",
