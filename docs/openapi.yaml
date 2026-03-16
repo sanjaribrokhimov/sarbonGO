@@ -408,7 +408,7 @@ components:
       type: object
       description: |
         Справочник для раздела Cargo. Все значения из справочника обязательны при валидации (POST/PUT /api/cargo).
-        cargo_status — первый CREATED; route_point_type (load, unload, customs, transit); truck_type; shipment_type (FTL, LTL…);
+        cargo_status — первый CREATED; route_point_type (LOAD, UNLOAD, CUSTOMS, TRANSIT); truck_type (TENT, REFRIGERATOR…); shipment_type (FTL, LTL…);
         currency — для total_currency, prepayment_currency, remaining_currency; prepayment_type, remaining_type; loading_type — способы погрузки.
       properties:
         cargo_status: { type: array, items: { $ref: "#/components/schemas/ItemWithLabelAndDescription" } }
@@ -544,7 +544,7 @@ components:
       description: |
         **Тело запроса POST /api/cargo** — создание груза с точками маршрута и условиями оплаты.
 
-        **Обязательные поля:** weight (вес в тоннах, > 0), volume (объём в м³, > 0), truck_type (тип кузова из справочника GET /v1/reference/cargo), route_points — массив точек маршрута. В route_points обязательно минимум одна точка с type=LOAD (погрузка) и одна с type=UNLOAD (выгрузка). У каждой точки обязательны: type, city_code, address, lat, lng, point_order.
+        **Обязательные поля:** weight (вес в тоннах, > 0), volume (объём в м³, > 0), truck_type (тип кузова из справочника GET /v1/reference/cargo, UPPERCASE: TENT, REFRIGERATOR…), route_points — массив точек маршрута. В route_points обязательно минимум одна точка с type=LOAD (погрузка) и одна с type=UNLOAD (выгрузка). У каждой точки обязательны: type (LOAD/UNLOAD/CUSTOMS/TRANSIT), city_code, address, lat, lng, point_order.
 
         **Справочники:** города — GET /v1/reference/cities (коды TAS, SAM, DXB…); типы кузова — GET /v1/reference/cargo → truck_type.
 
@@ -607,11 +607,11 @@ components:
       description: |
         **Одна точка маршрута** при создании или редактировании груза (POST /api/cargo, PUT /api/cargo/:id).
 
-        **Обязательно:** type (load/unload/customs/transit), city_code (код города из GET /v1/reference/cities), address (улица, дом, склад), lat, lng (координаты), point_order (порядок 1, 2, 3…).
+        **Обязательно:** type (LOAD/UNLOAD/CUSTOMS/TRANSIT), city_code (код города из GET /v1/reference/cities), address (улица, дом, склад), lat, lng (координаты), point_order (порядок 1, 2, 3…).
 
         **Опционально:** orientir — подсказка для водителя, как найти место; comment; is_main_load / is_main_unload — отметить основную погрузку/выгрузку.
       properties:
-        type: { type: string, enum: [load, unload, customs, transit], description: "Тип точки: load — погрузка, unload — выгрузка, customs — таможня, transit — транзит" }
+        type: { type: string, enum: [LOAD, UNLOAD, CUSTOMS, TRANSIT], description: "Тип точки: LOAD — погрузка, UNLOAD — выгрузка, CUSTOMS — таможня, TRANSIT — транзит" }
         city_code: { type: string, description: "Код города из справочника GET /v1/reference/cities (TAS — Ташкент, SAM — Самарканд, DXB — Дубай и т.д.)", example: "TAS" }
         address: { type: string, description: "Полный адрес: улица, дом, номер склада, промзона" }
         orientir: { type: string, description: "Ориентир для водителя: с какой стороны въезд, рядом с чем, КПП", example: "склад №5, въезд с ул. Мира" }
@@ -684,7 +684,7 @@ paths:
         **Фриланс-диспетчер:** передайте X-User-Token (JWT после входа) — в груз запишется created_by_type=DISPATCHER.
         **Назначение:** Создание нового груза с точками маршрута и блоком оплаты.
 
-        **Логика:** В одной транзакции создаются запись в `cargo`, записи в `route_points` (все переданные точки), одна запись в `payments` (если передан блок payment). Валидация: weight > 0; минимум одна точка с type=load и одна с type=unload; у каждой точки обязательны city_code (код города из справочника городов), address, lat, lng, point_order; опционально orientir. Справочник городов: GET /v1/reference/cities (все города мира, коды TAS/SAM/DXB и т.д.). Если указаны temp_min/temp_max — truck_type должен быть refrigerator; если adr_enabled=true — обязателен adr_class; если ready_enabled=true — обязателен ready_at.
+        **Логика:** В одной транзакции создаются запись в `cargo`, записи в `route_points` (все переданные точки), одна запись в `payments` (если передан блок payment). Валидация: weight > 0; минимум одна точка с type=LOAD и одна с type=UNLOAD; у каждой точки обязательны city_code (код города из справочника городов), address, lat, lng, point_order; опционально orientir. Все enum-поля (type, truck_type и т.д.) — в UPPERCASE. Справочник городов: GET /v1/reference/cities (все города мира, коды TAS/SAM/DXB и т.д.). Если указаны temp_min/temp_max — truck_type должен быть REFRIGERATOR; если adr_enabled=true — обязателен adr_class; если ready_enabled=true — обязателен ready_at.
 
         **Создатель (автоматически):** Если передан заголовок **X-User-Token** (JWT) с ролью admin или dispatcher — в груз записываются created_by_type и created_by_id. Если JWT не передан, но в теле есть company_id — создателем считается компания (created_by_type=company). Опционально в теле можно передать company_id для привязки груза к компании.
 
@@ -699,7 +699,7 @@ paths:
             example:
               weight: 20
               volume: 82
-              truck_type: "tent"
+              truck_type: "TENT"
               ready_enabled: true
               ready_at: "2026-03-15T08:00:00Z"
               load_comment: "Погрузка сверху, склад сухой. Груз пшеница, мешки 50 кг."
@@ -715,7 +715,7 @@ paths:
               contact_name: "Иван Петров"
               contact_phone: "+998901234567"
               route_points:
-                - type: "load"
+                - type: "LOAD"
                   city_code: "TAS"
                   address: "ул. Амира Темура 1, склад №5"
                   orientir: "Въезд со стороны метро Хамза, ворота А"
@@ -725,7 +725,7 @@ paths:
                   point_order: 1
                   is_main_load: true
                   is_main_unload: false
-                - type: "unload"
+                - type: "UNLOAD"
                   city_code: "SAM"
                   address: "промзона Южная, терминал А"
                   orientir: "За КПП 2, склад напротив"
@@ -790,8 +790,8 @@ paths:
           description: "Максимальный вес (т)"
         - name: truck_type
           in: query
-          schema: { type: string, example: "tent" }
-          description: "Тип транспорта (tent, refrigerator, flatbed, tanker, other)"
+          schema: { type: string, example: "TENT" }
+          description: "Тип транспорта из справочника (TENT, REFRIGERATOR, FLATBED, TANKER, OTHER)"
         - name: created_from
           in: query
           schema: { type: string, format: date }
