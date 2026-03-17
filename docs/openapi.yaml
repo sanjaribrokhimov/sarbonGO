@@ -1148,6 +1148,106 @@ paths:
         "400":
           description: "Оффер не найден или уже не PENDING"
 
+  /api/cargo/{id}/photos:
+    get:
+      tags: ["Freelance Dispatchers / Добавление груза", "Cargo — Диспетчер, компания, админ", "Cargo — Freelance dispatcher"]
+      summary: "10. Список фото груза"
+      description: |
+        Возвращает список фото груза (метаданные + URL).
+        Используйте для отображения галереи фото в карточке груза.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: "data.items — массив фото: id, mime, size_bytes, created_at, url"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                id: { type: string, format: uuid }
+                                mime: { type: string, example: "image/jpeg" }
+                                size_bytes: { type: integer, format: int64 }
+                                created_at: { type: string, format: date-time }
+                                url: { type: string, description: "GET /api/cargo/{id}/photos/{photoId}" }
+        "404": { description: cargo not found }
+    post:
+      tags: ["Freelance Dispatchers / Добавление груза", "Cargo — Диспетчер, компания, админ", "Cargo — Freelance dispatcher"]
+      summary: "11. Загрузить фото груза"
+      description: |
+        Загружает одно фото груза (макс 10MB, типы: jpeg/png/webp).
+        Возвращает `id` и `url` для скачивания.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [photo]
+              properties:
+                photo: { type: string, format: binary }
+      responses:
+        "200":
+          description: "data = { id, url }"
+        "400": { description: invalid file/type/size }
+        "404": { description: cargo not found }
+
+  /api/cargo/{id}/photos/{photoId}:
+    get:
+      tags: ["Freelance Dispatchers / Добавление груза", "Cargo — Диспетчер, компания, админ", "Cargo — Freelance dispatcher"]
+      summary: "12. Скачать фото груза"
+      description: "Возвращает бинарное содержимое фото по photoId."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: photoId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: "Binary image stream" }
+        "404": { description: photo not found }
+    delete:
+      tags: ["Freelance Dispatchers / Добавление груза", "Cargo — Диспетчер, компания, админ", "Cargo — Freelance dispatcher"]
+      summary: "13. Удалить фото груза"
+      description: "Удаляет фото (файл + запись в БД)."
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: photoId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: "data.deleted = true" }
+        "404": { description: photo not found }
+
   /api/trips:
     get:
       tags: ["Freelance Dispatchers / Добавление груза", "Cargo — Диспетчер, компания, админ", "Cargo — Freelance dispatcher", "Cargo — Водитель"]

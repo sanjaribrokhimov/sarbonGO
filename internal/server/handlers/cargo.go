@@ -2,7 +2,10 @@ package handlers
 
 import (
 	"errors"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -19,6 +22,14 @@ import (
 	"sarbonNew/internal/server/resp"
 	"sarbonNew/internal/trips"
 )
+
+const maxCargoPhotoSize = 10 * 1024 * 1024 // 10MB
+
+var allowedCargoPhotoTypes = map[string]bool{
+	"image/jpeg": true,
+	"image/png":  true,
+	"image/webp": true,
+}
 
 type CargoHandler struct {
 	logger    *zap.Logger
@@ -156,6 +167,168 @@ func (h *CargoHandler) Create(c *gin.Context) {
 	points, _ := h.repo.GetRoutePoints(c.Request.Context(), id)
 	pay, _ := h.repo.GetPayment(c.Request.Context(), id)
 	resp.SuccessLang(c, http.StatusCreated, "created", toCargoDetail(obj, points, pay))
+}
+
+// UploadPhoto uploads one cargo photo and returns photo id + url.
+// POST /api/cargo/:id/photos (multipart/form-data: photo=file)
+func (h *CargoHandler) UploadPhoto(c *gin.Context) {
+	cargoID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
+		return
+	}
+	// ensure cargo exists
+	obj, _ := h.repo.GetByID(c.Request.Context(), cargoID, false)
+	if obj == nil {
+		resp.ErrorLang(c, http.StatusNotFound, "cargo_not_found")
+		return
+	}
+
+	file, err := c.FormFile("photo")
+	if err != nil {
+		resp.ErrorLang(c, http.StatusBadRequest, "photo_file_required")
+		return
+	}
+	if file.Size > maxCargoPhotoSize {
+		resp.ErrorLang(c, http.StatusBadRequest, "file_too_large")
+		return
+	}
+	contentType := file.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+	if !allowedCargoPhotoTypes[contentType] {
+		resp.ErrorLang(c, http.StatusBadRequest, "allowed_image_types")
+		return
+	}
+	f, err := file.Open()
+	if err != nil {
+		resp.ErrorLang(c, http.StatusBadRequest, "cannot_read_file")
+		return
+	}
+	defer f.Close()
+	data, err := io.ReadAll(f)
+	if err != nil {
+		resp.ErrorLang(c, http.StatusBadRequest, "cannot_read_file")
+		return
+	}
+
+	ext := map[string]string{"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}[contentType]
+	storageRoot := strings.TrimSpace(os.Getenv("CARGO_STORAGE_DIR"))
+	if storageRoot == "" {
+		storageRoot = "storage"
+	}
+	dir := filepath.Join(storageRoot, "cargo", cargoID.String(), "photos")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
+		return
+	}
+	photoUUID := uuid.New()
+	path := filepath.Join(dir, photoUUID.String()+ext)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
+		return
+	}
+
+	var uploaderID *uuid.UUID
+	if raw := strings.TrimSpace(c.GetHeader(mw.HeaderUserToken)); raw != "" && h.jwtm != nil {
+		if userID, _, err := h.jwtm.ParseAccess(raw); err == nil && userID != uuid.Nil {
+			uploaderID = &userID
+		}
+	}
+	id, err := h.repo.CreateCargoPhoto(c.Request.Context(), cargoID, uploaderID, contentType, int64(len(data)), path)
+	if err != nil {
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
+		return
+	}
+
+	resp.OKLang(c, "photo_uploaded", gin.H{
+		"id":  id.String(),
+		"url": "/api/cargo/" + cargoID.String() + "/photos/" + id.String(),
+	})
+}
+
+// ListPhotos lists cargo photos metadata.
+// GET /api/cargo/:id/photos
+func (h *CargoHandler) ListPhotos(c *gin.Context) {
+	cargoID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
+		return
+	}
+	obj, _ := h.repo.GetByID(c.Request.Context(), cargoID, false)
+	if obj == nil {
+		resp.ErrorLang(c, http.StatusNotFound, "cargo_not_found")
+		return
+	}
+	list, err := h.repo.ListCargoPhotos(c.Request.Context(), cargoID)
+	if err != nil {
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_list")
+		return
+	}
+	out := make([]gin.H, 0, len(list))
+	for _, p := range list {
+		out = append(out, gin.H{
+			"id":         p.ID.String(),
+			"mime":       p.Mime,
+			"size_bytes": p.SizeBytes,
+			"created_at": p.CreatedAt,
+			"url":        "/api/cargo/" + cargoID.String() + "/photos/" + p.ID.String(),
+		})
+	}
+	resp.OKLang(c, "ok", gin.H{"items": out})
+}
+
+// GetPhoto returns binary photo.
+// GET /api/cargo/:id/photos/:photoId
+func (h *CargoHandler) GetPhoto(c *gin.Context) {
+	cargoID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
+		return
+	}
+	photoID, err := uuid.Parse(c.Param("photoId"))
+	if err != nil {
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
+		return
+	}
+	p, err := h.repo.GetCargoPhotoForUser(c.Request.Context(), photoID)
+	if err != nil || p == nil || p.CargoID != cargoID {
+		resp.ErrorLang(c, http.StatusNotFound, "photo_not_found")
+		return
+	}
+	data, err := os.ReadFile(p.Path)
+	if err != nil {
+		resp.ErrorLang(c, http.StatusNotFound, "photo_not_found")
+		return
+	}
+	c.Data(http.StatusOK, p.Mime, data)
+}
+
+// DeletePhoto deletes photo (metadata + file).
+// DELETE /api/cargo/:id/photos/:photoId
+func (h *CargoHandler) DeletePhoto(c *gin.Context) {
+	cargoID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
+		return
+	}
+	photoID, err := uuid.Parse(c.Param("photoId"))
+	if err != nil {
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
+		return
+	}
+	p, err := h.repo.GetCargoPhotoForUser(c.Request.Context(), photoID)
+	if err != nil || p == nil || p.CargoID != cargoID {
+		resp.ErrorLang(c, http.StatusNotFound, "photo_not_found")
+		return
+	}
+	_ = os.Remove(p.Path)
+	if err := h.repo.DeleteCargoPhoto(c.Request.Context(), photoID); err != nil {
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
+		return
+	}
+	resp.OKLang(c, "photo_deleted", gin.H{"deleted": true})
 }
 
 func (h *CargoHandler) List(c *gin.Context) {

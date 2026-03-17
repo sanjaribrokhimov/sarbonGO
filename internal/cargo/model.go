@@ -131,6 +131,17 @@ type Offer struct {
 	CreatedAt      time.Time
 }
 
+// CargoPhoto is metadata for a cargo photo stored on disk.
+type CargoPhoto struct {
+	ID        uuid.UUID
+	CargoID   uuid.UUID
+	UploaderID *uuid.UUID
+	Mime      string
+	SizeBytes int64
+	Path      string
+	CreatedAt time.Time
+}
+
 // DocumentsToJSON returns JSON bytes for DB insert/update.
 func DocumentsToJSON(d *Documents) ([]byte, error) {
 	if d == nil {

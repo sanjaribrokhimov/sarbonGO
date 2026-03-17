@@ -226,6 +226,60 @@ FROM payments WHERE cargo_id = $1`, cargoID).Scan(
 	return &pay, nil
 }
 
+// CreateCargoPhoto stores photo metadata for cargo.
+func (r *Repo) CreateCargoPhoto(ctx context.Context, cargoID uuid.UUID, uploaderID *uuid.UUID, mime string, sizeBytes int64, path string) (uuid.UUID, error) {
+	var id uuid.UUID
+	err := r.pg.QueryRow(ctx, `
+INSERT INTO cargo_photos (cargo_id, uploader_id, mime, size_bytes, path)
+VALUES ($1,$2,$3,$4,$5)
+RETURNING id`,
+		cargoID, uploaderID, mime, sizeBytes, path,
+	).Scan(&id)
+	return id, err
+}
+
+func (r *Repo) ListCargoPhotos(ctx context.Context, cargoID uuid.UUID) ([]CargoPhoto, error) {
+	rows, err := r.pg.Query(ctx, `
+SELECT id, cargo_id, uploader_id, mime, size_bytes, path, created_at
+FROM cargo_photos
+WHERE cargo_id = $1
+ORDER BY created_at DESC`, cargoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CargoPhoto
+	for rows.Next() {
+		var p CargoPhoto
+		if err := rows.Scan(&p.ID, &p.CargoID, &p.UploaderID, &p.Mime, &p.SizeBytes, &p.Path, &p.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repo) GetCargoPhotoForUser(ctx context.Context, photoID uuid.UUID) (*CargoPhoto, error) {
+	var p CargoPhoto
+	err := r.pg.QueryRow(ctx, `
+SELECT id, cargo_id, uploader_id, mime, size_bytes, path, created_at
+FROM cargo_photos
+WHERE id = $1
+LIMIT 1`, photoID).Scan(&p.ID, &p.CargoID, &p.UploaderID, &p.Mime, &p.SizeBytes, &p.Path, &p.CreatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &p, nil
+}
+
+func (r *Repo) DeleteCargoPhoto(ctx context.Context, photoID uuid.UUID) error {
+	_, err := r.pg.Exec(ctx, `DELETE FROM cargo_photos WHERE id = $1`, photoID)
+	return err
+}
+
 func scanCargo(row pgx.Row) (*Cargo, error) {
 	var c Cargo
 	var docBytes []byte
