@@ -107,6 +107,20 @@ var apiMessages = map[string]map[string]string{
 		"tr": "Geçersiz istek gövdesi",
 		"zh": "请求体无效",
 	},
+	"validation_failed": {
+		"en": "Validation failed",
+		"ru": "Ошибка валидации",
+		"uz": "Tekshiruvdan o'tmadi",
+		"tr": "Doğrulama hatası",
+		"zh": "校验失败",
+	},
+	"cargo_type_not_found": {
+		"en": "Cargo type not found",
+		"ru": "Тип груза не найден",
+		"uz": "Yuk turi topilmadi",
+		"tr": "Yük türü bulunamadı",
+		"zh": "未找到货物类型",
+	},
 	"unauthorized": {
 		"en": "Unauthorized",
 		"ru": "Не авторизован",

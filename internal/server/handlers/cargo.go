@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.uber.org/zap"
 
 	"sarbonNew/internal/cargo"
@@ -107,12 +108,48 @@ type PaymentReq struct {
 func (h *CargoHandler) Create(c *gin.Context) {
 	var req CreateCargoReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
+		h.logger.Info("cargo create validation failed (bind)", zap.Error(err))
+		resp.ErrorWithDataLang(c, http.StatusBadRequest, "invalid_payload_detail", gin.H{
+			"fields": gin.H{"_": "invalid_json_or_types"},
+		})
 		return
 	}
 	if err := validateCargoCreate(req); err != nil {
-		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
+		h.logger.Info("cargo create validation failed", zap.Error(err))
+		resp.ErrorWithDataLang(c, http.StatusBadRequest, "validation_failed", gin.H{
+			"fields": gin.H{"_": err.Error()},
+		})
 		return
+	}
+	if req.CompanyID != nil {
+		ok, err := h.repo.CompanyExists(c.Request.Context(), *req.CompanyID)
+		if err != nil {
+			h.logger.Error("cargo create: company exists check failed", zap.Error(err), zap.String("company_id", req.CompanyID.String()))
+			resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
+			return
+		}
+		if !ok {
+			h.logger.Info("cargo create validation failed: company not found", zap.String("company_id", req.CompanyID.String()))
+			resp.ErrorWithDataLang(c, http.StatusBadRequest, "company_not_found", gin.H{
+				"fields": gin.H{"company_id": "not_found"},
+			})
+			return
+		}
+	}
+	if req.CargoTypeID != nil {
+		ok, err := h.repo.CargoTypeExists(c.Request.Context(), *req.CargoTypeID)
+		if err != nil {
+			h.logger.Error("cargo create: cargo type exists check failed", zap.Error(err), zap.String("cargo_type_id", req.CargoTypeID.String()))
+			resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
+			return
+		}
+		if !ok {
+			h.logger.Info("cargo create validation failed: cargo type not found", zap.String("cargo_type_id", req.CargoTypeID.String()))
+			resp.ErrorWithDataLang(c, http.StatusBadRequest, "cargo_type_not_found", gin.H{
+				"fields": gin.H{"cargo_type_id": "not_found"},
+			})
+			return
+		}
 	}
 	params := toCreateParams(req)
 	params.CompanyID = req.CompanyID
@@ -154,6 +191,18 @@ func (h *CargoHandler) Create(c *gin.Context) {
 	}
 	id, err := h.repo.Create(c.Request.Context(), params)
 	if err != nil {
+		// Turn FK violations into 400 with a clear field name.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			switch pgErr.ConstraintName {
+			case "fk_cargo_company_id":
+				resp.ErrorWithDataLang(c, http.StatusBadRequest, "company_not_found", gin.H{"fields": gin.H{"company_id": "not_found"}})
+				return
+			case "fk_cargo_cargo_type":
+				resp.ErrorWithDataLang(c, http.StatusBadRequest, "cargo_type_not_found", gin.H{"fields": gin.H{"cargo_type_id": "not_found"}})
+				return
+			}
+		}
 		h.logger.Error("cargo create", zap.Error(err))
 		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_create_cargo")
 		return

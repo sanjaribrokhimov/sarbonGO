@@ -69,3 +69,9 @@ func ErrorLang(c *gin.Context, httpCode int, messageKey string) {
 	Error(c, httpCode, desc)
 }
 
+// ErrorWithDataLang sends localized error response with optional data (e.g. fields map).
+func ErrorWithDataLang(c *gin.Context, httpCode int, messageKey string, data any) {
+	desc := Msg(messageKey, Lang(c))
+	ErrorWithData(c, httpCode, desc, data)
+}
+

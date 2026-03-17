@@ -19,6 +19,30 @@ func NewRepo(pg *pgxpool.Pool) *Repo {
 	return &Repo{pg: pg}
 }
 
+func (r *Repo) CompanyExists(ctx context.Context, companyID uuid.UUID) (bool, error) {
+	var n int
+	err := r.pg.QueryRow(ctx, `SELECT 1 FROM companies WHERE id = $1 AND deleted_at IS NULL`, companyID).Scan(&n)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+func (r *Repo) CargoTypeExists(ctx context.Context, cargoTypeID uuid.UUID) (bool, error) {
+	var n int
+	err := r.pg.QueryRow(ctx, `SELECT 1 FROM cargo_types WHERE id = $1`, cargoTypeID).Scan(&n)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 // ListFilter for GET /api/cargo.
 type ListFilter struct {
 	Status             []string   // status=SEARCHING_ALL,SEARCHING_COMPANY

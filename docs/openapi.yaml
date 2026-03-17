@@ -524,8 +524,8 @@ components:
         updated_at: { type: string, format: date-time, description: "Дата и время последнего обновления" }
         created_by_type: { type: string, enum: [ADMIN, DISPATCHER, COMPANY], nullable: true, description: "Кто создал груз: ADMIN, DISPATCHER или COMPANY (подставляется автоматически по JWT или company_id)" }
         created_by_id: { type: string, format: uuid, nullable: true, description: "UUID создателя (админ, диспетчер или компания)" }
-        company_id: { type: string, format: uuid, nullable: true, description: "UUID компании, от которой груз (если создан от имени компании)" }
-        cargo_type_id: { type: string, format: uuid, nullable: true, description: "UUID типа груза (из справочника cargo_types / hint API)" }
+        company_id: { type: string, format: uuid, nullable: true, description: "UUID компании (должна существовать в таблице companies). Если передано — груз привязывается к компании." }
+        cargo_type_id: { type: string, format: uuid, nullable: true, description: "UUID типа груза (должен существовать в cargo_types; подбор через GET /v1/reference/cargo-types/hint)" }
     RoutePoint:
       type: object
       description: |
@@ -784,82 +784,113 @@ paths:
 
         **Создатель (автоматически):** Если передан заголовок **X-User-Token** (JWT) с ролью admin или dispatcher — в груз записываются created_by_type и created_by_id. Если JWT не передан, но в теле есть company_id — создателем считается компания (created_by_type=company). Опционально в теле можно передать company_id для привязки груза к компании.
 
-        **Что передаём:** Схема CargoCreateRequest — все поля груза (обязательные: weight, volume, truck_type, route_points) + опционально payment, contact_name, contact_phone, ready_enabled, ready_at, load_comment, temp_min/temp_max, adr_enabled, adr_class, loading_types, requirements, shipment_type, belts_count, documents, company_id. В ответе возвращается **полный объект груза** (как в GET /api/cargo/:id): data содержит созданный груз с id, route_points, payment и всеми полями.
+        **Что передаём:** Схема CargoCreateRequest — все поля груза (обязательные: weight, volume, truck_type, capacity_required, route_points) + опционально payment, contact_name, contact_phone, ready_enabled, ready_at, load_comment, temp_min/temp_max, adr_enabled, adr_class, loading_types, requirements, shipment_type, belts_count, documents, cargo_type_id.
+        **Важно:** Для фриланс‑диспетчера поле **company_id обычно не передаётся**. Если передать `company_id` — оно должно существовать в `companies`, иначе вернётся 400.
+        В ответе возвращается **полный объект груза** (как в GET /api/cargo/:id): data содержит созданный груз с id, route_points, payment и всеми полями.
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
       requestBody:
         required: true
         content:
           application/json:
             schema: { $ref: "#/components/schemas/CargoCreateRequest" }
-            description: "Реальный пример груза — пшеница, Ташкент → Самарканд, тент 20т/82м³, с оплатой и документами."
-            example:
-              name: "Пшеница, Ташкент → Самарканд, тент 20т/82м³"
-              packaging: "Мешки по 50 кг на паллетах"
-              dimensions: "13.6x2.45x2.7"
-              photos:
-                - "https://cdn.example.com/cargo/123-photo1.jpg"
-                - "https://cdn.example.com/cargo/123-photo2.jpg"
-              weight: 20
-              volume: 82
-              truck_type: "TENT"
-              capacity_required: 20
-              ready_enabled: true
-              ready_at: "2026-03-15T08:00:00Z"
-              load_comment: "Погрузка сверху, склад сухой. Груз пшеница, мешки 50 кг."
-              adr_enabled: false
-              adr_class: null
-              loading_types: ["TOP", "SIDE"]
-              requirements: ["Тент в хорошем состоянии", "Крепление ремнями"]
-              shipment_type: "FTL"
-              belts_count: 6
-              documents:
-                TIR: true
-                T1: false
-                CMR: true
-                Medbook: false
-                GLONASS: false
-                Seal: true
-                Permit: false
-              contact_name: "Иван Петров"
-              contact_phone: "+998901234567"
-              cargo_type_id: "11111111-2222-3333-4444-555555555555"
-              company_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-              route_points:
-                - type: "LOAD"
-                  city_code: "TAS"
-                  address: "ул. Амира Темура 1, склад №5"
-                  orientir: "Въезд со стороны метро Хамза, ворота А"
-                  lat: 41.311081
-                  lng: 69.240562
-                  place_id: "maps-tas-warehouse-5"
-                  comment: "Склад зерна, погрузка с 08:00 до 18:00"
-                  point_order: 1
-                  is_main_load: true
-                  is_main_unload: false
-                - type: "UNLOAD"
-                  city_code: "SAM"
-                  address: "промзона Южная, терминал А"
-                  orientir: "За КПП 2, склад напротив"
-                  lat: 39.654167
-                  lng: 66.959722
-                  place_id: "maps-sam-terminal-a"
-                  comment: "Выгрузка в течение 2 часов по прибытии"
-                  point_order: 2
-                  is_main_load: false
-                  is_main_unload: true
-              payment:
-                is_negotiable: false
-                price_request: false
-                total_amount: 1500
-                total_currency: "USD"
-                with_prepayment: true
-                without_prepayment: false
-                prepayment_amount: 500
-                prepayment_currency: "USD"
-                prepayment_type: "BANK_TRANSFER"
-                remaining_amount: 1000
-                remaining_currency: "USD"
-                remaining_type: "ON_DELIVERY"
+            description: |
+              Примеры:
+              1) **Freelance dispatcher** (X-User-Token=dispatcher) — **без company_id** и **без cargo_type_id** (чтобы работало сразу).
+              2) **Company cargo** — с company_id (должна существовать).
+              3) Если хотите указать `cargo_type_id` — сначала получите реальный UUID через `GET /v1/reference/cargo-types/hint` и подставьте `items[].id`.
+            examples:
+              freelance_dispatcher:
+                summary: "Freelance dispatcher: без company_id и cargo_type_id"
+                value:
+                  name: "Пшеница, Ташкент → Самарканд, тент 20т/82м³"
+                  packaging: "Мешки по 50 кг на паллетах"
+                  dimensions: "13.6x2.45x2.7"
+                  photos:
+                    - "https://cdn.example.com/cargo/123-photo1.jpg"
+                    - "https://cdn.example.com/cargo/123-photo2.jpg"
+                  weight: 20
+                  volume: 82
+                  truck_type: "TENT"
+                  capacity_required: 20
+                  ready_enabled: true
+                  ready_at: "2026-03-15T08:00:00Z"
+                  load_comment: "Погрузка сверху, склад сухой. Груз пшеница, мешки 50 кг."
+                  adr_enabled: false
+                  adr_class: null
+                  loading_types: ["TOP", "SIDE"]
+                  requirements: ["Тент в хорошем состоянии", "Крепление ремнями"]
+                  shipment_type: "FTL"
+                  belts_count: 6
+                  documents:
+                    TIR: true
+                    T1: false
+                    CMR: true
+                    Medbook: false
+                    GLONASS: false
+                    Seal: true
+                    Permit: false
+                  contact_name: "Иван Петров"
+                  contact_phone: "+998901234567"
+                  route_points:
+                    - type: "LOAD"
+                      city_code: "TAS"
+                      address: "ул. Амира Темура 1, склад №5"
+                      orientir: "Въезд со стороны метро Хамза, ворота А"
+                      lat: 41.311081
+                      lng: 69.240562
+                      place_id: "maps-tas-warehouse-5"
+                      comment: "Склад зерна, погрузка с 08:00 до 18:00"
+                      point_order: 1
+                      is_main_load: true
+                      is_main_unload: false
+                    - type: "UNLOAD"
+                      city_code: "SAM"
+                      address: "промзона Южная, терминал А"
+                      orientir: "За КПП 2, склад напротив"
+                      lat: 39.654167
+                      lng: 66.959722
+                      place_id: "maps-sam-terminal-a"
+                      comment: "Выгрузка в течение 2 часов по прибытии"
+                      point_order: 2
+                      is_main_load: false
+                      is_main_unload: true
+                  payment:
+                    is_negotiable: false
+                    price_request: false
+                    total_amount: 1500
+                    total_currency: "USD"
+                    with_prepayment: true
+                    without_prepayment: false
+                    prepayment_amount: 500
+                    prepayment_currency: "USD"
+                    prepayment_type: "BANK_TRANSFER"
+                    remaining_amount: 1000
+                    remaining_currency: "USD"
+                    remaining_type: "ON_DELIVERY"
+              company:
+                summary: "Company cargo: с company_id"
+                value:
+                  name: "Пшеница, Ташкент → Самарканд, тент 20т/82м³"
+                  weight: 20
+                  volume: 82
+                  truck_type: "TENT"
+                  capacity_required: 20
+                  contact_name: "Иван Петров"
+                  contact_phone: "+998901234567"
+                  company_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+                  route_points:
+                    - type: "LOAD"
+                      city_code: "TAS"
+                      address: "ул. Амира Темура 1, склад №5"
+                      lat: 41.311081
+                      lng: 69.240562
+                      point_order: 1
+                    - type: "UNLOAD"
+                      city_code: "SAM"
+                      address: "промзона Южная, терминал А"
+                      lat: 39.654167
+                      lng: 66.959722
+                      point_order: 2
       responses:
         "201":
           description: "Груз создан. В data — полный объект груза (id, route_points, payment и все поля)."
