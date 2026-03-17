@@ -38,6 +38,7 @@ type ReferenceCargoResponse struct {
 	PrepaymentType  []ItemWithLabel               `json:"prepayment_type"`
 	RemainingType   []ItemWithLabel               `json:"remaining_type"`
 	LoadingType     []ItemWithLabel               `json:"loading_type"`
+	PackagingType   []ItemWithLabel               `json:"packaging_type"`
 }
 
 // ReferenceCompanyResponse — справочник для раздела Company. Все value в верхнем регистре.
@@ -215,6 +216,7 @@ func GetReferenceCargo(c *gin.Context) {
 		PrepaymentType: refItemsToItemWithLabelLocalized(reference.PrepaymentTypeRefs, "cargo.prepayment_type", lang),
 		RemainingType:  refItemsToItemWithLabelLocalized(reference.RemainingTypeRefs, "cargo.remaining_type", lang),
 		LoadingType:    refItemsToItemWithLabelLocalized(reference.LoadingTypeRefs, "cargo.loading_type", lang),
+		PackagingType:  refItemsToItemWithLabelLocalized(reference.PackagingTypeRefs, "cargo.packaging_type", lang),
 	}
 	resp.OKLang(c, "ok", out)
 }
@@ -318,9 +320,9 @@ func GetReferenceCompany(rolesRepo *approles.Repo) gin.HandlerFunc {
 		}
 		out := ReferenceCompanyResponse{
 			CompanyType: []ItemWithLabel{
-				{Value: "SHIPPER", Label: reference.RefLabel("company.company_type", "SHIPPER", lang)},
+				{Value: "CARGO_OWNER", Label: reference.RefLabel("company.company_type", "CARGO_OWNER", lang)},
 				{Value: "CARRIER", Label: reference.RefLabel("company.company_type", "CARRIER", lang)},
-				{Value: "BROKER", Label: reference.RefLabel("company.company_type", "BROKER", lang)},
+				{Value: "EXPEDITOR", Label: reference.RefLabel("company.company_type", "EXPEDITOR", lang)},
 			},
 			CompanyStatus: []ItemWithLabel{
 				{Value: "ACTIVE", Label: reference.RefLabel("company.company_status", "ACTIVE", lang)},

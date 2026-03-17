@@ -307,9 +307,11 @@ func NewRouter(cfg config.Config, deps *infra.Infra, logger *zap.Logger) http.Ha
 	chatGroup.POST("/conversations", chatH.GetOrCreateConversation)
 	chatGroup.GET("/conversations/:id/messages", chatH.ListMessages)
 	chatGroup.POST("/conversations/:id/messages", chatH.SendMessage)
+	chatGroup.POST("/conversations/:id/messages/media", chatH.SendMediaMessage)
 	chatGroup.PATCH("/messages/:id", chatH.EditMessage)
 	chatGroup.DELETE("/messages/:id", chatH.DeleteMessage)
 	chatGroup.GET("/presence/:user_id", chatH.GetPresence)
+	chatGroup.GET("/files/:id", chatH.GetFile)
 	chatGroup.GET("/ws", chatH.ServeWS)
 
 	return r

@@ -38,7 +38,7 @@ type adminCreateCompanyReq struct {
 	LicenseNumber *string `json:"license_number"`
 	Status        *string `json:"status"`
 
-	CompanyType *string `json:"company_type"` // CargoOwner, Carrier, Expeditor; владельца назначают отдельно через PATCH .../owner
+	CompanyType *string `json:"company_type"` // CARGO_OWNER, CARRIER, EXPEDITOR; владельца (CEO) назначают отдельно через PATCH .../owner
 
 	MaxVehicles       int `json:"max_vehicles"`
 	MaxDrivers        int `json:"max_drivers"`
@@ -75,9 +75,13 @@ func (h *AdminCompaniesHandler) Create(c *gin.Context) {
 	var companyType *string
 	if req.CompanyType != nil {
 		s := strings.TrimSpace(strings.ToUpper(*req.CompanyType))
-		if s != "" && (s == "SHIPPER" || s == "CARRIER" || s == "BROKER") {
+		if s != "" && (s == "CARGO_OWNER" || s == "CARRIER" || s == "EXPEDITOR") {
 			// В БД храним PascalCase
-			dbVal := map[string]string{"SHIPPER": "Shipper", "CARRIER": "Carrier", "BROKER": "Broker"}[s]
+			dbVal := map[string]string{
+				"CARGO_OWNER": "CargoOwner",
+				"CARRIER":     "Carrier",
+				"EXPEDITOR":   "Expeditor",
+			}[s]
 			companyType = &dbVal
 		}
 	}
@@ -148,8 +152,8 @@ func (h *AdminCompaniesHandler) SetOwner(c *gin.Context) {
 		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
 		return
 	}
-	// Владельцем может быть только пользователь с ролью OWNER в company_users
-	if user.Role == nil || strings.TrimSpace(*user.Role) != "OWNER" {
+	// Основателем/владельцем (CEO) может быть только пользователь с ролью CEO в company_users
+	if user.Role == nil || strings.TrimSpace(*user.Role) != "CEO" {
 		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload")
 		return
 	}

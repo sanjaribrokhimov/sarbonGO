@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,7 +20,9 @@ type Message struct {
 	ID             uuid.UUID  `json:"id"`
 	ConversationID uuid.UUID  `json:"conversation_id"`
 	SenderID       uuid.UUID  `json:"sender_id"`
-	Body           string     `json:"body"`
+	Type           string     `json:"type"` // TEXT | PHOTO | VOICE | VIDEO | VIDEO_NOTE | LOCATION
+	Body           *string    `json:"body,omitempty"` // optional caption/text
+	Payload        json.RawMessage `json:"payload,omitempty"` // type-specific JSON object
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 	DeletedAt      *time.Time `json:"deleted_at,omitempty"`

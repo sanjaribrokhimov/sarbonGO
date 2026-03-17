@@ -174,12 +174,12 @@ tags:
     description: |
       **Справочник для раздела Cargo (грузы).** Все статусы груза, точки маршрута, офферы, типы создателя, типы ТС.
 
-      **GET /v1/reference/cargo** — полный справочник для грузов (все value в UPPERCASE). cargo_status (с description), route_point_type (LOAD, UNLOAD, CUSTOMS, TRANSIT), truck_type (TENT, REFRIGERATOR...), shipment_type (FTL, LTL…), currency (USD, UZS…), prepayment_type (BANK_TRANSFER…), remaining_type (ON_DELIVERY…), loading_type (TOP, SIDE…), offer_status (PENDING/ACCEPTED/REJECTED), created_by_type (ADMIN/DISPATCHER/COMPANY), trip_status (PENDING_DRIVER, ASSIGNED, LOADING...). Все переданные в API значения валидируются по этим справочникам.
+      **GET /v1/reference/cargo** — полный справочник для грузов (все value в UPPERCASE). cargo_status (с description), route_point_type (LOAD, UNLOAD, CUSTOMS, TRANSIT), truck_type (TENT, REFRIGERATOR...), shipment_type (FTL, LTL…), currency (USD, UZS…), prepayment_type (BANK_TRANSFER…), remaining_type (ON_DELIVERY…), loading_type (TOP, SIDE…), offer_status (PENDING/ACCEPTED/REJECTED), created_by_type (ADMIN/DISPATCHER/COMPANY), trip_status (PENDING_DRIVER, ASSIGNED, LOADING...), packaging_type (BAG, PALLETS, BULK, BOXES, HEAP). Все переданные в API значения валидируются по этим справочникам.
   - name: "Reference / Company"
     description: |
       **Справочник для раздела Company.** Типы компании, статусы компании, роли (с id и описанием) для приглашений и назначений.
 
-      **GET /v1/reference/company** возвращает: company_type (только SHIPPER, CARRIER, BROKER), company_status (ACTIVE, INACTIVE, BLOCKED, PENDING), company_user_roles (OWNER, CEO, TOP_MANAGER, TOP_DISPATCHER, DISPATCHER, MANAGER), roles — массив {id, name, description} из БД. Все value в верхнем регистре.
+      **GET /v1/reference/company** возвращает: company_type (только CARGO_OWNER, CARRIER, EXPEDITOR), company_status (ACTIVE, INACTIVE, BLOCKED, PENDING), company_user_roles (OWNER, CEO, TOP_MANAGER, TOP_DISPATCHER, DISPATCHER, MANAGER), roles — массив {id, name, description} из БД. Все value в верхнем регистре.
   - name: "Reference / Admin"
     description: |
       **Справочник для раздела Admin.** Статусы и типы админа.
@@ -256,6 +256,57 @@ components:
         description: { type: string, example: "ok" }
         data: { nullable: true }
       required: [status, code, description, data]
+    ChatMessage:
+      type: object
+      description: |
+        Сообщение чата. Поддерживаются типы:
+        - TEXT: текст в поле body
+        - PHOTO/VOICE/VIDEO/VIDEO_NOTE: body = опциональная подпись, payload = объект с attachment_id/url и метаданными
+        - LOCATION: body = опциональная подпись, payload = { lat, lng, address?, place_id? }
+      properties:
+        id: { type: string, format: uuid }
+        conversation_id: { type: string, format: uuid }
+        sender_id: { type: string, format: uuid }
+        type: { type: string, enum: [TEXT, PHOTO, VOICE, VIDEO, VIDEO_NOTE, LOCATION] }
+        body: { type: string, nullable: true, description: "Текст/подпись (опционально)" }
+        payload:
+          type: object
+          nullable: true
+          description: "Type-specific payload (см. ChatMediaPayload/ChatLocationPayload)"
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        deleted_at: { type: string, format: date-time, nullable: true }
+      required: [id, conversation_id, sender_id, type, created_at, updated_at]
+    ChatMediaPayload:
+      type: object
+      description: "payload для PHOTO/VOICE/VIDEO/VIDEO_NOTE"
+      properties:
+        attachment_id: { type: string, format: uuid }
+        url: { type: string, example: "/v1/chat/files/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" }
+        thumb_url: { type: string, nullable: true, description: "Превью (если есть)" }
+        mime: { type: string, example: "video/mp4" }
+        size_bytes: { type: integer, format: int64 }
+        duration_ms: { type: integer, nullable: true, description: "Длительность (voice/video), мс" }
+        width: { type: integer, nullable: true }
+        height: { type: integer, nullable: true }
+      required: [attachment_id, url, mime, size_bytes]
+    ChatLocationPayload:
+      type: object
+      description: "payload для LOCATION"
+      properties:
+        lat: { type: number, format: double, example: 41.311081 }
+        lng: { type: number, format: double, example: 69.240562 }
+        address: { type: string, nullable: true }
+        place_id: { type: string, nullable: true }
+      required: [lat, lng]
+    ChatPresence:
+      type: object
+      properties:
+        user_id: { type: string, format: uuid }
+        online: { type: boolean }
+        last_seen: { type: integer, nullable: true, description: "Unix seconds" }
+        typing: { type: boolean, nullable: true }
+      required: [user_id, online]
     Tokens:
       type: object
       description: |
@@ -421,6 +472,7 @@ components:
         prepayment_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" }, description: "Способ предоплаты: BANK_TRANSFER, CASH, CARD, INVOICE, OTHER" }
         remaining_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" }, description: "Условия оплаты остатка: ON_DELIVERY, AFTER_INVOICE, CASH, DEFERRED, OTHER" }
         loading_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" }, description: "Способы погрузки: TOP, SIDE, REAR, CRANE, FORKLIFT, OTHER" }
+        packaging_type: { type: array, items: { $ref: "#/components/schemas/ItemWithLabel" }, description: "Тип упаковки (UI dropdown): BAG, PALLETS, BULK, BOXES, HEAP" }
     ReferenceCompanyResponse:
       type: object
       properties:
@@ -1190,7 +1242,7 @@ paths:
     get:
       tags: ["Reference / Company"]
       summary: "Справочник Company — типы компании, статусы, роли пользователей"
-      description: "company_type — только SHIPPER, CARRIER, BROKER. company_user_roles — только OWNER, CEO, TOP_MANAGER, TOP_DISPATCHER, DISPATCHER, MANAGER. company_status — ACTIVE, INACTIVE, BLOCKED, PENDING. roles — из БД (id, name, description) для приглашений. Все value в верхнем регистре."
+      description: "company_type — только CARGO_OWNER, CARRIER, EXPEDITOR. company_user_roles — только OWNER, CEO, TOP_MANAGER, TOP_DISPATCHER, DISPATCHER, MANAGER. company_status — ACTIVE, INACTIVE, BLOCKED, PENDING. roles — из БД (id, name, description) для приглашений. Все value в верхнем регистре."
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }]
       responses:
         "200":
@@ -3265,7 +3317,7 @@ paths:
       summary: "Создать компанию (шаг 1 — без владельца)"
       description: |
         **Безопасность:** Только админ. Проверяются X-Client-Token и X-User-Token (JWT с role=admin); при неверном или отсутствующем токене — 401.
-        **Шаг 1 из 2.** Создаёт только компанию. Владелец не указывается. В теле: name (обязательно), company_type (только SHIPPER / CARRIER / BROKER), inn, address, phone, email, website, license_number, status, лимиты. В ответе — company_id. Назначить владельца — отдельно через **PATCH /v1/admin/companies/{id}/owner** (шаг 2).
+        **Шаг 1 из 2.** Создаёт только компанию. Владелец (CEO) не указывается. В теле: name (обязательно), company_type (только CARGO_OWNER / CARRIER / EXPEDITOR), inn, address, phone, email, website, license_number, status, лимиты. В ответе — company_id. Назначить основателя (CEO) — отдельно через **PATCH /v1/admin/companies/{id}/owner** (шаг 2).
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       requestBody:
         required: true
@@ -3275,7 +3327,7 @@ paths:
               type: object
               properties:
                 name: { type: string, example: "My Logistics LLC" }
-                company_type: { type: string, enum: [SHIPPER, CARRIER, BROKER], nullable: true, description: "SHIPPER (грузоотправитель), CARRIER (перевозчик), BROKER (брокер)" }
+                company_type: { type: string, enum: [CARGO_OWNER, CARRIER, EXPEDITOR], nullable: true, description: "CARGO_OWNER (компания-грузовладелец), CARRIER (компания-перевозчик), EXPEDITOR (экспедитор / универсальная логистическая компания)" }
                 inn: { type: string, nullable: true }
                 address: { type: string, nullable: true }
                 phone: { type: string, nullable: true }
@@ -3310,7 +3362,7 @@ paths:
       summary: "Назначить владельца компании (шаг 2)"
       description: |
         **Безопасность:** Только админ. Проверяются X-Client-Token и X-User-Token (JWT с role=admin); при неверном или отсутствующем токене — 401.
-        **Шаг 2 из 2.** Привязывает владельца к компании. owner_id — UUID из **company_users** с **role=owner**. После успешного вызова: у компании — owner_id и status=active, у пользователя в company_users — company_id (двусторонняя связь).
+        **Шаг 2 из 2.** Привязывает основателя компании (CEO). owner_id — UUID из **company_users** с **role=CEO**. После успешного вызова: у компании — owner_id (CEO) и status=active, у пользователя в company_users — company_id (двусторонняя связь).
       security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }]
       parameters:
         - name: id
@@ -3326,7 +3378,7 @@ paths:
               type: object
               required: [owner_id]
               properties:
-                owner_id: { type: string, format: uuid, description: "UUID владельца (company_users.id); у пользователя role должен быть owner" }
+                owner_id: { type: string, format: uuid, description: "UUID основателя (company_users.id); у пользователя role должен быть CEO" }
       responses:
         "200":
           description: OK
@@ -3512,8 +3564,73 @@ paths:
             schema: { type: object, required: [body], properties: { body: { type: string } } }
       responses:
         "201":
-          description: "data = Message"
+          description: "data = ChatMessage"
         "400": { description: invalid body }
+        "401": { description: unauthorized }
+        "404": { description: conversation not found }
+
+  /v1/chat/conversations/{id}/messages/media:
+    post:
+      tags: [Chat]
+      summary: "Отправить медиа (фото/голос/видео/кружок)"
+      description: |
+        Загружает файл, оптимизирует «как в Telegram» и создаёт сообщение:
+        - **PHOTO** → JPEG (оптимизация/пережатие)
+        - **VOICE** → OGG/Opus (моно, 48kHz, ~32kbps)
+        - **VIDEO** → MP4 (H.264/AAC) + faststart + thumbnail (по возможности)
+        - **VIDEO_NOTE** → квадратный MP4 (под UI-кружок) + thumbnail
+
+        Файл хранится на диске сервера, в БД сохраняются метаданные. В `payload` сообщения возвращается `attachment_id` и `url` для скачивания.
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }, { UserIDHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [type, file]
+              properties:
+                type: { type: string, enum: [PHOTO, VOICE, VIDEO, VIDEO_NOTE] }
+                body: { type: string, nullable: true, description: "Подпись/текст (опционально)" }
+                file: { type: string, format: binary }
+            examples:
+              voice:
+                summary: "VOICE (голосовое)"
+                value:
+                  type: "VOICE"
+                  body: "Голосовое сообщение"
+              photo:
+                summary: "PHOTO (фото)"
+                value:
+                  type: "PHOTO"
+                  body: "Фото с погрузки"
+              video:
+                summary: "VIDEO (видео)"
+                value:
+                  type: "VIDEO"
+                  body: "Видео с места"
+              video_note:
+                summary: "VIDEO_NOTE (кружок)"
+                value:
+                  type: "VIDEO_NOTE"
+                  body: "Кружок"
+      responses:
+        "201":
+          description: "data = ChatMessage (type=PHOTO/VOICE/VIDEO/VIDEO_NOTE; payload содержит url)"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/ChatMessage" }
+        "400": { description: invalid payload/file }
         "401": { description: unauthorized }
         "404": { description: conversation not found }
 
@@ -3533,7 +3650,7 @@ paths:
           application/json:
             schema: { type: object, required: [body], properties: { body: { type: string } } }
       responses:
-        "200": { description: "data = Message" }
+        "200": { description: "data = ChatMessage" }
         "404": { description: message not found or not yours }
     delete:
       tags: [Chat]
@@ -3563,8 +3680,38 @@ paths:
           in: query
           schema: { type: string, format: uuid }
       responses:
-        "200": { description: "data = { user_id, online, typing?, last_seen? }" }
+        "200": { description: "data = ChatPresence" }
         "400": { description: invalid user_id }
+
+  /v1/chat/files/{id}:
+    get:
+      tags: [Chat]
+      summary: "Скачать медиа-файл сообщения"
+      description: |
+        Возвращает файл вложения по `attachment_id`, если текущий пользователь является участником диалога.
+
+        Query:
+        - `thumb=1` — вернуть thumbnail (если есть).
+
+        **Кеширование (как в Telegram):**
+        - Отдаётся с `Cache-Control: public, max-age=31536000, immutable`
+        - `ETag` соответствует sha256 контента (для dedup и 304 Not Modified)
+        - При включённом `CHAT_USE_X_ACCEL=1` сервер отвечает через `X-Accel-Redirect`, а Nginx отдаёт файл с поддержкой Range (видео) и быстрым кешем
+      security: [{ DeviceTypeHeader: [] }, { LanguageHeader: [] }, { ClientTokenHeader: [] }, { UserTokenHeader: [] }, { UserIDHeader: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: thumb
+          in: query
+          required: false
+          schema: { type: string, example: "1" }
+      responses:
+        "200":
+          description: "Binary file stream"
+        "401": { description: unauthorized }
+        "404": { description: not found or access denied }
 
   /v1/chat/ws:
     get:

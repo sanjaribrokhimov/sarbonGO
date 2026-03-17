@@ -2,7 +2,16 @@ package handlers
 
 import (
 	"context"
+	"fmt"
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -177,7 +186,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 		resp.ErrorLang(c, http.StatusNotFound, "conversation_not_found")
 		return
 	}
-	msg, err := h.repo.CreateMessage(c.Request.Context(), convID, userID, req.Body)
+	msg, err := h.repo.CreateTextMessage(c.Request.Context(), convID, userID, req.Body)
 	if err != nil {
 		h.logger.Error("chat create message", zap.Error(err))
 		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_send_message")
@@ -185,6 +194,378 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	}
 	h.hub.BroadcastMessage(conv.UserAID, conv.UserBID, msg)
 	resp.SuccessLang(c, http.StatusCreated, "ok", msg)
+}
+
+type mediaMsgPayload struct {
+	AttachmentID string `json:"attachment_id"`
+	URL          string `json:"url"`
+	ThumbURL     string `json:"thumb_url,omitempty"`
+	Mime         string `json:"mime"`
+	SizeBytes    int64  `json:"size_bytes"`
+	DurationMs   *int   `json:"duration_ms,omitempty"`
+	Width        *int   `json:"width,omitempty"`
+	Height       *int   `json:"height,omitempty"`
+}
+
+// SendMediaMessage uploads media (photo/voice/video/video_note), creates message and broadcasts.
+// POST /v1/chat/conversations/:id/messages/media (multipart/form-data)
+func (h *ChatHandler) SendMediaMessage(c *gin.Context) {
+	userID, ok := h.getUserID(c)
+	if !ok {
+		resp.ErrorLang(c, http.StatusUnauthorized, "user_not_identified")
+		return
+	}
+	convID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_conversation_id")
+		return
+	}
+	conv, err := h.repo.GetConversation(c.Request.Context(), convID, userID)
+	if err != nil || conv == nil {
+		resp.ErrorLang(c, http.StatusNotFound, "conversation_not_found")
+		return
+	}
+
+	msgType := strings.ToUpper(strings.TrimSpace(c.PostForm("type")))
+	switch msgType {
+	case "PHOTO", "VOICE", "VIDEO", "VIDEO_NOTE":
+	default:
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
+		return
+	}
+
+	var caption *string
+	if v := strings.TrimSpace(c.PostForm("body")); v != "" {
+		if len(v) > 64*1024 {
+			resp.ErrorLang(c, http.StatusBadRequest, "message_too_long")
+			return
+		}
+		caption = &v
+	}
+
+	fh, err := c.FormFile("file")
+	if err != nil {
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
+		return
+	}
+	if fh.Size <= 0 {
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
+		return
+	}
+
+	storageRoot := strings.TrimSpace(os.Getenv("CHAT_STORAGE_DIR"))
+	if storageRoot == "" {
+		storageRoot = "storage"
+	}
+	baseDir := filepath.Join(storageRoot, "chat", convID.String())
+	if err := os.MkdirAll(baseDir, 0o755); err != nil {
+		h.logger.Error("chat mkdir", zap.Error(err))
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
+		return
+	}
+
+	inPath := filepath.Join(baseDir, "upload_"+uuid.New().String()+"_"+filepath.Base(fh.Filename))
+	src, err := fh.Open()
+	if err != nil {
+		resp.ErrorLang(c, http.StatusBadRequest, "cannot_read_file")
+		return
+	}
+	defer src.Close()
+	dst, err := os.Create(inPath)
+	if err != nil {
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
+		return
+	}
+	if _, err := io.Copy(dst, src); err != nil {
+		_ = dst.Close()
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
+		return
+	}
+	_ = dst.Close()
+
+	outExt := map[string]string{
+		"PHOTO":      ".jpg",
+		"VOICE":      ".ogg",
+		"VIDEO":      ".mp4",
+		"VIDEO_NOTE": ".mp4",
+	}[msgType]
+	outPath := filepath.Join(baseDir, msgType+"_"+uuid.New().String()+outExt)
+	thumbPath := ""
+
+	var durationMs *int
+	var width, height *int
+	var mime string
+
+	switch msgType {
+	case "VOICE":
+		if err := ffmpegVoiceToOggOpus(inPath, outPath); err != nil {
+			h.logger.Error("ffmpeg voice", zap.Error(err))
+			resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
+			return
+		}
+		mime = "audio/ogg"
+		if ms, _ := ffprobeDurationMs(outPath); ms != nil {
+			durationMs = ms
+		}
+	case "VIDEO":
+		if err := ffmpegVideoToMp4(inPath, outPath, false); err != nil {
+			h.logger.Error("ffmpeg video", zap.Error(err))
+			resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
+			return
+		}
+		mime = "video/mp4"
+		if ms, _ := ffprobeDurationMs(outPath); ms != nil {
+			durationMs = ms
+		}
+		thumbPath = filepath.Join(baseDir, "thumb_"+uuid.New().String()+".jpg")
+		_ = ffmpegThumbnail(outPath, thumbPath)
+	case "VIDEO_NOTE":
+		if err := ffmpegVideoToMp4(inPath, outPath, true); err != nil {
+			h.logger.Error("ffmpeg video_note", zap.Error(err))
+			resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
+			return
+		}
+		mime = "video/mp4"
+		if ms, _ := ffprobeDurationMs(outPath); ms != nil {
+			durationMs = ms
+		}
+		thumbPath = filepath.Join(baseDir, "thumb_"+uuid.New().String()+".jpg")
+		_ = ffmpegThumbnail(outPath, thumbPath)
+	case "PHOTO":
+		if err := ffmpegImageToJpeg(inPath, outPath); err != nil {
+			h.logger.Error("ffmpeg photo", zap.Error(err))
+			resp.ErrorLang(c, http.StatusBadRequest, "invalid_payload_detail")
+			return
+		}
+		mime = "image/jpeg"
+	}
+
+	stat, err := os.Stat(outPath)
+	if err != nil {
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
+		return
+	}
+
+	hashHex, err := sha256FileHex(outPath)
+	if err != nil {
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
+		return
+	}
+
+	// Store deduplicated file path: storage/chat/media/<prefix>/<hash>.<ext>
+	mediaDir := filepath.Join(storageRoot, "chat", "media", hashHex[:2])
+	if err := os.MkdirAll(mediaDir, 0o755); err != nil {
+		resp.ErrorLang(c, http.StatusInternalServerError, "internal_error")
+		return
+	}
+	finalRelPath := filepath.Join(storageRoot, "chat", "media", hashHex[:2], hashHex+outExt)
+	finalPath := finalRelPath
+
+	mediaID, inserted, err := h.repo.UpsertMediaFile(c.Request.Context(), chat.MediaFile{
+		ContentHash: hashHex,
+		Kind:        msgType,
+		Mime:        mime,
+		SizeBytes:   stat.Size(),
+		Path:        finalRelPath,
+	})
+	if err != nil {
+		h.logger.Error("chat upsert media file", zap.Error(err))
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_send_message")
+		return
+	}
+	if inserted {
+		// Move optimized file into hash-based path.
+		_ = os.Rename(outPath, finalPath)
+	} else {
+		// Duplicate: remove newly created file to save disk.
+		_ = os.Remove(outPath)
+	}
+
+	var thumbMediaID *uuid.UUID
+	var thumbRel *string
+	if thumbPath != "" {
+		// Thumbnail is optional; we keep it per-upload (no dedup required), but store in legacy column and optionally media_files too.
+		rel := thumbPath
+		thumbRel = &rel
+	}
+	rel := finalRelPath
+	attID, err := h.repo.CreateAttachment(c.Request.Context(), chat.Attachment{
+		MessageID:      nil,
+		ConversationID: convID,
+		UploaderID:     userID,
+		Kind:           msgType,
+		Mime:           mime,
+		SizeBytes:      stat.Size(),
+		Path:           rel,
+		ThumbPath:      thumbRel,
+		Width:          width,
+		Height:         height,
+		DurationMs:     durationMs,
+		MediaFileID:    &mediaID,
+		ThumbMediaFileID: thumbMediaID,
+	})
+	if err != nil {
+		h.logger.Error("chat create attachment", zap.Error(err))
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_send_message")
+		return
+	}
+
+	payload := mediaMsgPayload{
+		AttachmentID: attID.String(),
+		URL:          "/v1/chat/files/" + attID.String(),
+		Mime:         mime,
+		SizeBytes:    stat.Size(),
+		DurationMs:   durationMs,
+		Width:        width,
+		Height:       height,
+	}
+	if thumbRel != nil {
+		payload.ThumbURL = "/v1/chat/files/" + attID.String() + "?thumb=1"
+	}
+
+	msg, err := h.repo.CreateMessage(c.Request.Context(), convID, userID, msgType, caption, payload)
+	if err != nil {
+		h.logger.Error("chat create media message", zap.Error(err))
+		resp.ErrorLang(c, http.StatusInternalServerError, "failed_to_send_message")
+		return
+	}
+	_ = h.repo.LinkAttachment(c.Request.Context(), attID, msg.ID)
+
+	h.hub.BroadcastMessage(conv.UserAID, conv.UserBID, msg)
+	resp.SuccessLang(c, http.StatusCreated, "ok", msg)
+}
+
+// GetFile serves a chat attachment file (or thumbnail) if requester is participant.
+// GET /v1/chat/files/:id?thumb=1
+func (h *ChatHandler) GetFile(c *gin.Context) {
+	userID, ok := h.getUserID(c)
+	if !ok {
+		resp.ErrorLang(c, http.StatusUnauthorized, "user_not_identified")
+		return
+	}
+	attID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		resp.ErrorLang(c, http.StatusBadRequest, "invalid_id")
+		return
+	}
+	a, err := h.repo.GetAttachmentForUser(c.Request.Context(), attID, userID)
+	if err != nil {
+		resp.ErrorLang(c, http.StatusNotFound, "photo_not_found")
+		return
+	}
+	path := a.Path
+	etag := ""
+	if a.MediaFileID != nil {
+		if mf, err := h.repo.GetMediaFileByID(c.Request.Context(), *a.MediaFileID); err == nil && mf != nil {
+			path = mf.Path
+			etag = mf.ContentHash
+		}
+	}
+	if c.Query("thumb") == "1" && a.ThumbPath != nil && *a.ThumbPath != "" {
+		path = *a.ThumbPath
+	}
+	if _, err := os.Stat(path); err != nil {
+		resp.ErrorLang(c, http.StatusNotFound, "photo_not_found")
+		return
+	}
+
+	// Caching headers (immutable for stored media).
+	if etag != "" {
+		c.Header("ETag", `"`+etag+`"`)
+		if inm := strings.TrimSpace(c.GetHeader("If-None-Match")); inm != "" && inm == `"`+etag+`"` {
+			c.Status(http.StatusNotModified)
+			return
+		}
+	}
+	c.Header("Cache-Control", "public, max-age=31536000, immutable")
+
+	// Prefer Nginx X-Accel-Redirect for efficient range/caching.
+	if strings.TrimSpace(os.Getenv("CHAT_USE_X_ACCEL")) == "1" {
+		prefix := strings.TrimSpace(os.Getenv("CHAT_X_ACCEL_PREFIX"))
+		if prefix == "" {
+			prefix = "/_protected"
+		}
+		// Important: Nginx should map prefix + "/" + path to filesystem via alias.
+		c.Header("X-Accel-Redirect", prefix+"/"+strings.TrimLeft(path, "/"))
+		c.Status(http.StatusOK)
+		return
+	}
+
+	// Fallback: serve from Go (slower than Nginx for large video).
+	c.File(path)
+}
+
+func ffmpegVoiceToOggOpus(inPath, outPath string) error {
+	cmd := exec.Command("ffmpeg", "-y", "-i", inPath, "-vn", "-c:a", "libopus", "-b:a", "32k", "-vbr", "on", "-compression_level", "10", "-ac", "1", "-ar", "48000", outPath)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("ffmpeg: %w: %s", err, string(out))
+	}
+	return nil
+}
+
+func ffmpegVideoToMp4(inPath, outPath string, square bool) error {
+	args := []string{"-y", "-i", inPath, "-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart"}
+	if square {
+		// Make a square "video note"-like output.
+		// scale to min dim, then crop center to 480x480.
+		args = append(args, "-vf", "scale='if(gt(iw,ih),-2,480)':'if(gt(iw,ih),480,-2)',crop=480:480")
+	} else {
+		args = append(args, "-vf", "scale='min(1280,iw)':-2")
+	}
+	args = append(args, outPath)
+	cmd := exec.Command("ffmpeg", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("ffmpeg: %w: %s", err, string(out))
+	}
+	return nil
+}
+
+func ffmpegImageToJpeg(inPath, outPath string) error {
+	cmd := exec.Command("ffmpeg", "-y", "-i", inPath, "-q:v", "3", outPath)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("ffmpeg: %w: %s", err, string(out))
+	}
+	return nil
+}
+
+func ffmpegThumbnail(inPath, outPath string) error {
+	cmd := exec.Command("ffmpeg", "-y", "-ss", "00:00:01", "-i", inPath, "-vframes", "1", "-q:v", "4", outPath)
+	_, _ = cmd.CombinedOutput()
+	return nil
+}
+
+func ffprobeDurationMs(path string) (*int, error) {
+	cmd := exec.Command("ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, err
+	}
+	s := strings.TrimSpace(string(out))
+	if s == "" {
+		return nil, nil
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return nil, err
+	}
+	ms := int(f * 1000)
+	return &ms, nil
+}
+
+func sha256FileHex(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // EditMessage updates a message.

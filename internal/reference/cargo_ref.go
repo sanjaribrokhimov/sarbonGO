@@ -75,6 +75,16 @@ var LoadingTypeRefs = []RefItem{
 	{Value: "OTHER", Label: "Другое"},
 }
 
+// PackagingTypeRefs — тип упаковки (UPPERCASE).
+// Используется в UI как dropdown/hint для поля cargo.packaging.
+var PackagingTypeRefs = []RefItem{
+	{Value: "BAG", Label: "Пакет"},
+	{Value: "PALLETS", Label: "Палеты"},
+	{Value: "BULK", Label: "Россыпью"},
+	{Value: "BOXES", Label: "Коробки"},
+	{Value: "HEAP", Label: "Навалом"},
+}
+
 // AllowedValues возвращает слайс допустимых value в ВЕРХНЕМ регистре (для валидации и хранения).
 func AllowedValues(items []RefItem) []string {
 	out := make([]string, 0, len(items))
@@ -98,6 +108,9 @@ func AllowedRemainingTypes() []string { return AllowedValues(RemainingTypeRefs) 
 
 // AllowedLoadingTypes возвращает допустимые loading_types (UPPERCASE).
 func AllowedLoadingTypes() []string { return AllowedValues(LoadingTypeRefs) }
+
+// AllowedPackagingTypes возвращает допустимые packaging_type (UPPERCASE).
+func AllowedPackagingTypes() []string { return AllowedValues(PackagingTypeRefs) }
 
 // AllowedRoutePointTypes возвращает допустимые type точки маршрута (UPPERCASE).
 func AllowedRoutePointTypes() []string { return AllowedValues(RoutePointTypeRefs) }

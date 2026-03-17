@@ -148,6 +148,7 @@ POST | `/v1/driver/trips/:id/confirm` | Водитель | Подтвердит�
 POST | `/v1/driver/trips/:id/reject` | Водитель | Отказаться от рейса.
 PATCH | `/v1/driver/trips/:id/status` | Водитель | Изменить статус рейса (`LOADING`, `EN_ROUTE`, `UNLOADING`, `COMPLETED`, `CANCELLED`) с синхронизацией статуса груза.
 GET | `/v1/reference/cargo` | Любой клиент | Полный справочник по грузам: статусы груза/рейса/оффера, `truck_type`, `route_point_type`, `shipment_type`, валюты и типы оплат.
+GET | `/v1/reference/cargo` | Любой клиент | Дополнительно: `packaging_type` — справочник типов упаковки для UI (BAG, PALLETS, BULK, BOXES, HEAP) с переводами на 5 языков.
 GET | `/v1/reference/cargo-types/hint` | Любой клиент | Подсказка по типам груза (`cargo_types`) с учётом `X-Language`, используется для выбора `cargo_type_id`.
 GET | `/v1/reference/cities` | Любой клиент | Справочник городов для `city_code` в `route_points`.
 GET | `/v1/driver/transport-options` | Водитель | Справочник типов ТС (тягачи/прицепы) для профиля водителя, используемый при подборе грузов.
