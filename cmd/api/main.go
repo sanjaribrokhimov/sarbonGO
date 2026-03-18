@@ -15,12 +15,10 @@ import (
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"go.uber.org/zap"
 
-	"sarbonNew/internal/config"
 	"sarbonNew/internal/chat"
+	"sarbonNew/internal/config"
 	"sarbonNew/internal/infra"
 	"sarbonNew/internal/logger"
 	"sarbonNew/internal/server"
